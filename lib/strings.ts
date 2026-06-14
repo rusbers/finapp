@@ -22,6 +22,7 @@ export const strings = {
   modelLiteName: "Flash-Lite (fastest)",
   modelFlashName: "Flash (balanced)",
   modelProName: "Pro (most accurate)",
+  resetButton: "Reset to defaults",
 
   verdictPass: "Reconciled — balances match",
   verdictFail: "Out of balance — check the extraction",

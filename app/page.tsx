@@ -12,7 +12,7 @@
  *   - row-by-row balance check that highlights where the balance stops adding up
  */
 
-import { useState } from "react"
+import { useState, useSyncExternalStore } from "react"
 import { fromCents } from "@/lib/core/reconciliation"
 import { downloadCsv, findBalanceBreaks } from "@/lib/core/verification"
 import type { StatementData, ReconciliationResult, ExtractionAttempt } from "@/lib/core/types"
@@ -27,6 +27,67 @@ interface ApiResponse {
   fileName: string
 }
 
+// Default test settings + where they're saved in the browser.
+const DEFAULTS = {
+  primaryModel: "gemini-2.5-flash-lite",
+  fallbackModel: "gemini-2.5-pro",
+  enableFallback: false,
+}
+const SETTINGS_KEY = "extractionSettings"
+type Settings = typeof DEFAULTS
+
+/* ------------------------------------------------------------------ *
+ * A tiny localStorage-backed store for the test settings.
+ * Read via useSyncExternalStore — React's built-in way to read external
+ * state with correct server-side-rendering behavior (the server snapshot
+ * returns DEFAULTS, the client reads saved values), so there's no
+ * hydration mismatch and no setState-in-effect warning.
+ * ------------------------------------------------------------------ */
+const settingsListeners = new Set<() => void>()
+let cachedRaw: string | null = null
+let cachedSettings: Settings = DEFAULTS
+
+function getSettingsSnapshot(): Settings {
+  let raw: string | null = null
+  try {
+    raw = localStorage.getItem(SETTINGS_KEY)
+  } catch {
+    // storage blocked → defaults
+  }
+  // Return a stable reference unless the stored value actually changed.
+  if (raw !== cachedRaw) {
+    cachedRaw = raw
+    try {
+      cachedSettings = raw ? { ...DEFAULTS, ...JSON.parse(raw) } : DEFAULTS
+    } catch {
+      cachedSettings = DEFAULTS
+    }
+  }
+  return cachedSettings
+}
+
+function getSettingsServerSnapshot(): Settings {
+  return DEFAULTS // server has no localStorage
+}
+
+function subscribeSettings(callback: () => void): () => void {
+  settingsListeners.add(callback)
+  window.addEventListener("storage", callback) // sync across tabs
+  return () => {
+    settingsListeners.delete(callback)
+    window.removeEventListener("storage", callback)
+  }
+}
+
+function saveSettings(next: Settings): void {
+  try {
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify(next))
+  } catch {
+    // ignore write failures
+  }
+  settingsListeners.forEach((l) => l()) // notify this tab
+}
+
 export default function Page() {
   const [file, setFile] = useState<File | null>(null)
   const [isLoading, setIsLoading] = useState(false)
@@ -34,10 +95,15 @@ export default function Page() {
   const [error, setError] = useState<string | null>(null)
   const [durationMs, setDurationMs] = useState<number | null>(null)
 
-  // Test controls (defaults: lite primary, pro fallback, fallback OFF)
-  const [primaryModel, setPrimaryModel] = useState("gemini-2.5-flash-lite")
-  const [fallbackModel, setFallbackModel] = useState("gemini-2.5-pro")
-  const [enableFallback, setEnableFallback] = useState(false)
+  // Test controls — read from the localStorage-backed store (SSR-safe, no warnings).
+  const settings = useSyncExternalStore(
+    subscribeSettings,
+    getSettingsSnapshot,
+    getSettingsServerSnapshot,
+  )
+  const { primaryModel, fallbackModel, enableFallback } = settings
+  const updateSettings = (patch: Partial<Settings>) => saveSettings({ ...settings, ...patch })
+  const resetSettings = () => saveSettings(DEFAULTS)
 
   async function handleCheck() {
     if (!file) return
@@ -102,7 +168,7 @@ export default function Page() {
             <label className="control-label">{s.primaryModelLabel}</label>
             <select
               value={primaryModel}
-              onChange={(e) => setPrimaryModel(e.target.value)}
+              onChange={(e) => updateSettings({ primaryModel: e.target.value })}
               disabled={isLoading}
             >
               <option value="gemini-2.5-flash-lite">{s.modelLiteName}</option>
@@ -115,7 +181,7 @@ export default function Page() {
             <input
               type="checkbox"
               checked={enableFallback}
-              onChange={(e) => setEnableFallback(e.target.checked)}
+              onChange={(e) => updateSettings({ enableFallback: e.target.checked })}
               disabled={isLoading}
             />
             {s.enableFallbackLabel}
@@ -125,7 +191,7 @@ export default function Page() {
             <label className="control-label">{s.fallbackModelLabel}</label>
             <select
               value={fallbackModel}
-              onChange={(e) => setFallbackModel(e.target.value)}
+              onChange={(e) => updateSettings({ fallbackModel: e.target.value })}
               disabled={isLoading || !enableFallback}
             >
               <option value="gemini-2.5-flash-lite">{s.modelLiteName}</option>
@@ -133,6 +199,15 @@ export default function Page() {
               <option value="gemini-2.5-pro">{s.modelProName}</option>
             </select>
           </div>
+
+          <button
+            className="link-button reset-button"
+            onClick={resetSettings}
+            disabled={isLoading}
+            type="button"
+          >
+            {s.resetButton}
+          </button>
         </div>
       </section>
 

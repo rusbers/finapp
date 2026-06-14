@@ -422,3 +422,13 @@ tbody tr.break-row td {
   height: 16px;
   cursor: pointer;
 }
+
+/* Reset-to-defaults button: align it to the end of the controls row */
+.reset-button {
+  margin-left: auto;
+  align-self: flex-end;
+}
+.reset-button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}

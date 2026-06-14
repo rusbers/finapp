@@ -14,6 +14,16 @@ export const DEFAULT_PRIMARY_MODEL = "gemini-2.5-flash-lite" // cheapest + faste
 export const DEFAULT_FALLBACK_MODEL = "gemini-2.5-pro" // strongest
 
 /**
+ * PDF chunking — large statements are split into small page-chunks that are
+ * extracted in parallel, then merged. Keeps each AI call small (fast, under the
+ * serverless time limit). The client never sees this; they upload one file.
+ */
+export const PAGES_PER_CHUNK = 3 // pages per parallel chunk
+export const MAX_CONCURRENT_CHUNKS = 8 // how many chunks to run at once
+// (With API billing enabled, MAX_CONCURRENT_CHUNKS can be raised for more speed.
+//  On the free tier, keep it modest to avoid rate-limit (429) errors.)
+
+/**
  * The only model names the backend will accept (allow-list).
  * Prevents arbitrary/unsupported model names from being sent via the API.
  */

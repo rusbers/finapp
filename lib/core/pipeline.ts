@@ -28,7 +28,7 @@ export interface PipelineOptions {
 }
 
 export async function extractAndReconcile(
-  pdfBase64: string,
+  pdfBytes: Uint8Array,
   options: PipelineOptions = {},
 ): Promise<PipelineResult> {
   const primaryModel = options.primaryModel ?? DEFAULT_PRIMARY_MODEL
@@ -51,7 +51,7 @@ export async function extractAndReconcile(
 
   for (const model of models) {
     const startedAt = Date.now()
-    const data = await extractStatement(pdfBase64, model)
+    const data = await extractStatement(pdfBytes, model)
     const reconciliation = checkReconciliation(data)
     const durationMs = Date.now() - startedAt
 

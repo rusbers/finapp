@@ -246,7 +246,8 @@ lib/
 │   ├── config.ts          → pipeline defaults (model names, fallback) + model allow-list
 │   ├── reconciliation.ts  → reconciliation logic (pure, tested)
 │   ├── gemini.ts          → Gemini provider: API call, retries, JSON parse (server-only)
-│   ├── extraction.ts      → provider-agnostic seam (chooses the provider)
+│   ├── pdf.ts             → PDF splitting into page-chunks (pdf-lib, server-only)
+│   ├── extraction.ts      → split + parallel extract + merge (provider seam)
 │   ├── pipeline.ts        → extract-and-reconcile cascade + per-model stats
 │   └── verification.ts    → CSV export + row-by-row running-balance check
 └── strings.ts             → all UI copy in one place (ready for future i18n)
@@ -267,6 +268,15 @@ Keep the endpoint thin: HTTP wiring in `app/api/`, real logic in `lib/core/`.
 - **Extraction** via Gemini (PDF sent natively as base64), prompt enforces the
   schema, debit/credit rules, decimal-dot, dates, running balance, and EXACT
   statement order (no reordering).
+- **Page parallelization** (`pdf.ts` + `extraction.ts`): large statements are
+  split into small page-chunks (PAGES_PER_CHUNK, default 3), extracted IN
+  PARALLEL (MAX_CONCURRENT_CHUNKS, default 8), then merged. This keeps each AI
+  call small/fast and under the serverless time limit. The client uploads one
+  file and never sees the chunking. Merge takes opening balance from the first
+  chunk (page 1), closing from the last chunk, concatenates transactions in
+  order, and falls back to the running balance to derive opening/closing if a
+  chunk doesn't report them. **Requires the `pdf-lib` dependency** (`npm install
+pdf-lib`).
 - **Reconciliation** in integer cents, tolerance ±2 cents.
 - **Model cascade** (`pipeline.ts`): tries the primary model first; if
   reconciliation fails AND fallback is enabled, retries with a fallback model.
@@ -291,14 +301,17 @@ Keep the endpoint thin: HTTP wiring in `app/api/`, real logic in `lib/core/`.
 
 ### Known testing notes
 
-- A 42-page AIB statement (863 transactions) extracts but failed reconciliation
-  by a round 2880.00 on flash — opening/closing balances read correctly, so the
-  error is a missing/duplicated/misread transaction. This is the hardest case;
-  smaller statements are expected to do better. The row-by-row balance check and
-  the flash→pro cascade are the tools to pinpoint/recover such cases.
-
-The reconciliation, cascade, retry, and balance-break logic are all unit-tested.
-The live Gemini call is validated on real uploads.
+- Statements extract and reconcile correctly on real data (e.g. permanent tsb,
+  8 pages / 292 transactions, reconciled on flash-lite). A 42-page AIB statement
+  (863 transactions) previously failed reconciliation by a round 2880.00 on a
+  single-call extraction — the hardest case.
+- On Vercel's free (Hobby) tier, serverless functions time out at 60s. A single
+  whole-PDF call exceeded this for large statements. Page parallelization (above)
+  addresses this by keeping each chunk small; combined with API billing (to lift
+  rate limits so many chunks can run at once) it handles large statements.
+- The reconciliation, cascade, retry, merge, and balance-break logic are all
+  unit-tested. PDF splitting is verified. The live Gemini call is validated on
+  real uploads.
 
 **Immediate next step:** run the feasibility test across 15-20 varied real
 statements (Revolut, other banks, different sizes), record the reconciliation

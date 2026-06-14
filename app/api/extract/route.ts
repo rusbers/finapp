@@ -44,12 +44,11 @@ export async function POST(req: NextRequest) {
     const fallbackModel = isAllowedModel(rawFallback) ? rawFallback : undefined
     const enableFallback = rawEnableFallback != null ? rawEnableFallback === "true" : undefined
 
-    // PDF -> base64 (on the server)
-    const bytes = Buffer.from(await file.arrayBuffer())
-    const pdfBase64 = bytes.toString("base64")
+    // PDF -> bytes (the pipeline splits it into page-chunks server-side)
+    const pdfBytes = new Uint8Array(await file.arrayBuffer())
 
-    // Extraction cascade + reconciliation + per-model stats (all in lib/core)
-    const result = await extractAndReconcile(pdfBase64, {
+    // Extraction (split + parallel + merge) + reconciliation + stats (lib/core)
+    const result = await extractAndReconcile(pdfBytes, {
       primaryModel,
       fallbackModel,
       enableFallback,

@@ -19,6 +19,18 @@ export interface StatementData {
   transactions: Transaction[]
 }
 
+/**
+ * Result of extracting a single PDF chunk (a few pages of a larger statement).
+ * Opening/closing balances may be null when those pages don't show them
+ * (only the first/last page of the full statement carry them).
+ */
+export interface ExtractedChunk {
+  bank: string
+  openingBalance: number | null
+  closingBalance: number | null
+  transactions: Transaction[]
+}
+
 export interface ReconciliationResult {
   passed: boolean
   discrepancyCents: number // how far the computed balance is from the declared one

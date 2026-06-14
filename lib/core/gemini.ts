@@ -6,7 +6,7 @@
  * Runs ONLY on the server (the API key never reaches the browser).
  */
 
-import type { StatementData } from "./types"
+import type { ExtractedChunk } from "./types"
 
 const REQUEST_TIMEOUT_MS = 300_000 // 5 min safety net for large PDFs
 
@@ -20,14 +20,15 @@ const RETRYABLE_STATUSES = new Set([429, 500, 502, 503, 504])
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
 const PROMPT = `You are a bank statement data extraction system.
-Analyze this bank statement and return STRICTLY a single JSON object,
-with no text before or after, no explanations.
+This PDF may be an EXCERPT (a few pages) of a larger bank statement.
+Analyze it and return STRICTLY a single JSON object, with no text before or
+after, no explanations.
 
 Exact structure:
 {
   "bank": "bank name",
-  "openingBalance": number,
-  "closingBalance": number,
+  "openingBalance": number or null,
+  "closingBalance": number or null,
   "transactions": [
     { "date": "YYYY-MM-DD", "description": "text", "debit": number, "credit": number, "balance": number or null }
   ]
@@ -42,15 +43,18 @@ RULES:
   copy the value printed on the statement.
 - Decimal separator is a DOT (1234.56), never a comma.
 - Dates in YYYY-MM-DD format.
-- openingBalance = balance at the start of the period (opening / brought forward).
-- closingBalance = balance at the end of the period (closing / carried forward).
-- CRITICAL: list the transactions in the EXACT SAME ORDER they appear on the
-  statement, top to bottom, page by page. Do NOT sort or reorder them (not by
-  date, not alphabetically, not by amount). Preserve the original order exactly.
-- Include ALL transactions, from all pages.`
+- "openingBalance" = the opening/brought-forward balance ONLY if it appears on
+  these pages (usually only on the first page of the full statement). If these
+  pages do not show it, set openingBalance = null. Do NOT guess it.
+- "closingBalance" = the closing/carried-forward balance ONLY if it appears on
+  these pages (usually only on the last page). If not shown here, set it to null.
+- CRITICAL: list the transactions in the EXACT SAME ORDER they appear on these
+  pages, top to bottom. Do NOT sort or reorder them (not by date, not
+  alphabetically, not by amount). Preserve the original order exactly.
+- Include ALL transactions on these pages.`
 
 /** Safely extract the JSON object from a response that may have text around it. */
-export function safeParseJson(text: string): StatementData {
+export function safeParseJson(text: string): ExtractedChunk {
   if (!text) throw new Error("Empty response from model")
   let t = text.trim()
   t = t
@@ -60,7 +64,51 @@ export function safeParseJson(text: string): StatementData {
   const start = t.indexOf("{")
   const end = t.lastIndexOf("}")
   if (start === -1 || end === -1) throw new Error("No JSON found in response")
-  return JSON.parse(t.slice(start, end + 1)) as StatementData
+  const raw = JSON.parse(t.slice(start, end + 1))
+  return normalizeChunk(raw)
+}
+
+/**
+ * Coerce a value to a number, or null if it isn't a usable number.
+ * The model is asked for numbers but sometimes returns strings like "123.45"
+ * (or "1,234.56"); this guarantees downstream code always sees real numbers.
+ */
+function toNumberOrNull(value: unknown): number | null {
+  if (typeof value === "number") return Number.isFinite(value) ? value : null
+  if (typeof value === "string") {
+    const cleaned = value.replace(/[^0-9.+-]/g, "") // strip currency symbols, commas, spaces
+    if (cleaned === "" || cleaned === "-" || cleaned === "+") return null
+    const n = Number(cleaned)
+    return Number.isFinite(n) ? n : null
+  }
+  return null
+}
+
+/** Coerce to a number, defaulting to 0 (for debit/credit which should be numeric). */
+function toNumber(value: unknown): number {
+  return toNumberOrNull(value) ?? 0
+}
+
+/** Normalize a raw model response into a clean ExtractedChunk with proper types. */
+function normalizeChunk(raw: unknown): ExtractedChunk {
+  const obj = (raw ?? {}) as Record<string, unknown>
+  const rawTransactions = Array.isArray(obj.transactions) ? obj.transactions : []
+
+  return {
+    bank: typeof obj.bank === "string" ? obj.bank : "",
+    openingBalance: toNumberOrNull(obj.openingBalance),
+    closingBalance: toNumberOrNull(obj.closingBalance),
+    transactions: rawTransactions.map((t) => {
+      const tx = (t ?? {}) as Record<string, unknown>
+      return {
+        date: typeof tx.date === "string" ? tx.date : "",
+        description: typeof tx.description === "string" ? tx.description : "",
+        debit: toNumber(tx.debit),
+        credit: toNumber(tx.credit),
+        balance: toNumberOrNull(tx.balance),
+      }
+    }),
+  }
 }
 
 /** A non-retryable error: failing again won't help (bad request, auth, etc.). */
@@ -71,7 +119,7 @@ async function attemptExtraction(
   url: string,
   apiKey: string,
   payload: unknown,
-): Promise<StatementData> {
+): Promise<ExtractedChunk> {
   // Abort the request if Gemini takes too long, so it fails cleanly
   // instead of hanging the user's request indefinitely.
   const controller = new AbortController()
@@ -113,12 +161,25 @@ async function attemptExtraction(
 }
 
 /** Send the PDF (as base64) to Gemini and return structured data, with retries. */
-export async function extractWithGemini(pdfBase64: string, model: string): Promise<StatementData> {
+export async function extractWithGemini(pdfBase64: string, model: string): Promise<ExtractedChunk> {
   const apiKey = process.env.GEMINI_API_KEY
   if (!apiKey) throw new Error("Missing GEMINI_API_KEY environment variable")
 
   const url =
     `https://generativelanguage.googleapis.com/v1beta/models/` + `${model}:generateContent`
+
+  // "Thinking" mode: we disable it for speed on the lighter models (Flash,
+  // Flash-Lite). The Pro model REQUIRES thinking mode (it rejects budget 0),
+  // so we leave it on for Pro.
+  const supportsDisablingThinking = !model.includes("pro")
+
+  const generationConfig: Record<string, unknown> = {
+    temperature: 0, // deterministic
+    responseMimeType: "application/json", // ask for clean JSON directly
+  }
+  if (supportsDisablingThinking) {
+    generationConfig.thinkingConfig = { thinkingBudget: 0 }
+  }
 
   const payload = {
     contents: [
@@ -129,13 +190,7 @@ export async function extractWithGemini(pdfBase64: string, model: string): Promi
         ],
       },
     ],
-    generationConfig: {
-      temperature: 0, // deterministic
-      responseMimeType: "application/json", // ask for clean JSON directly
-      // Disable "thinking" — we want direct extraction, not reasoning.
-      // Thinking mode can make the model very slow on long statements.
-      thinkingConfig: { thinkingBudget: 0 },
-    },
+    generationConfig,
   }
 
   let lastError: unknown

@@ -1,26 +1,424 @@
-@import "tailwindcss";
+/* ------------------------------------------------------------------ *
+ * Base styles.
+ * Palette drawn from the accountant's world: neutral paper, ink,
+ * ledger green for "it balances", amber for a discrepancy.
+ * Numbers are monospaced (they read and align like a ledger).
+ * ------------------------------------------------------------------ */
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --paper: #f6f7f9;
+  --card: #ffffff;
+  --ink: #181b22;
+  --ink-soft: #5b6472;
+  --line: #e4e7ec;
+  --ledger-green: #0e7c5a;
+  --ledger-green-bg: #e7f4ef;
+  --discrepancy: #c2410c;
+  --discrepancy-bg: #fdf0e9;
+  --action: #21456e;
+  --action-hover: #2c5687;
+
+  --font-ui: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-num: "JetBrains Mono", "SF Mono", "Menlo", monospace;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-ui);
+  background: var(--paper);
+  color: var(--ink);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+.page {
+  max-width: 880px;
+  margin: 0 auto;
+  padding: 48px 24px 96px;
+}
+
+/* Header */
+.header {
+  margin-bottom: 40px;
+}
+.header h1 {
+  font-size: 26px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+.header .brand {
+  color: var(--action);
+}
+.header p {
+  color: var(--ink-soft);
+  margin-top: 6px;
+  font-size: 15px;
+}
+
+/* Upload area */
+.upload {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 28px;
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.upload label {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--ink-soft);
+  flex: 1 1 100%;
+  margin-bottom: 4px;
+}
+input[type="file"] {
+  flex: 1 1 240px;
+  font-size: 14px;
+  color: var(--ink);
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--paper);
+}
+input[type="file"]::file-selector-button {
+  margin-right: 12px;
+  padding: 8px 14px;
+  border: 0;
+  border-radius: 8px;
+  background: #eef1f5;
+  color: var(--ink);
+  font-weight: 500;
+  cursor: pointer;
+}
+.button {
+  padding: 11px 22px;
+  border: 0;
+  border-radius: 10px;
+  background: var(--action);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.button:hover:not(:disabled) {
+  background: var(--action-hover);
+}
+.button:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+/* Error message — direct, no apology, says what happened */
+.error {
+  margin-top: 20px;
+  padding: 14px 18px;
+  border-radius: 10px;
+  background: var(--discrepancy-bg);
+  color: var(--discrepancy);
+  font-size: 14px;
+  border: 1px solid #f3cdb9;
+}
+
+/* Reconciliation verdict — the signature element */
+.verdict {
+  margin-top: 32px;
+  border-radius: 14px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  background: var(--card);
+}
+.verdict-head {
+  padding: 18px 24px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-weight: 600;
+  font-size: 15px;
+}
+.verdict.pass .verdict-head {
+  background: var(--ledger-green-bg);
+  color: var(--ledger-green);
+}
+.verdict.fail .verdict-head {
+  background: var(--discrepancy-bg);
+  color: var(--discrepancy);
+}
+.pill {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+.verdict.pass .pill {
+  background: var(--ledger-green);
+}
+.verdict.fail .pill {
+  background: var(--discrepancy);
+}
+
+/* Reconciliation equation, with the real numbers */
+.equation {
+  padding: 22px 24px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 18px 24px;
+  border-top: 1px solid var(--line);
+  font-family: var(--font-num);
+}
+.term {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.term .lbl {
+  font-family: var(--font-ui);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ink-soft);
+}
+.term .val {
+  font-size: 17px;
+  font-variant-numeric: tabular-nums;
+}
+.op {
+  font-size: 18px;
+  color: var(--ink-soft);
+  padding-bottom: 2px;
+}
+.discrepancy-note {
+  padding: 14px 24px;
+  border-top: 1px solid var(--line);
+  font-size: 14px;
+  color: var(--discrepancy);
+  background: var(--discrepancy-bg);
+}
+
+/* Statement details */
+.meta {
+  margin-top: 28px;
+  display: flex;
+  gap: 28px;
+  flex-wrap: wrap;
+  font-size: 14px;
+  color: var(--ink-soft);
+}
+.meta b {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+/* Transactions table */
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 14px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  overflow: hidden;
+  font-size: 14px;
+}
+thead th {
+  text-align: left;
+  padding: 12px 16px;
+  background: #fafbfc;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ink-soft);
+  border-bottom: 1px solid var(--line);
+}
+tbody td {
+  padding: 11px 16px;
+  border-bottom: 1px solid var(--line);
+}
+tbody tr:last-child td {
+  border-bottom: 0;
+}
+td.num,
+th.num {
+  text-align: right;
+  font-family: var(--font-num);
+  font-variant-numeric: tabular-nums;
+}
+td.date {
+  font-family: var(--font-num);
+  color: var(--ink-soft);
+  white-space: nowrap;
+}
+.credit {
+  color: var(--ledger-green);
+}
+.debit {
+  color: var(--discrepancy);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition: none !important;
+  }
+}
+
+/* Row-by-row balance diagnosis */
+.breaks {
+  margin-top: 18px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 16px 20px;
+}
+.breaks-msg {
+  font-size: 14px;
+  color: var(--ink-soft);
+}
+.breaks-list {
+  margin: 10px 0 0;
+  padding-left: 18px;
+  font-size: 13px;
+  color: var(--ink);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.breaks-list b {
+  color: var(--discrepancy);
+}
+
+/* CSV link-style button in the meta row */
+.link-button {
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  color: var(--action);
+  font-size: 14px;
+  font-weight: 600;
+  text-decoration: underline;
+  font-family: var(--font-ui);
+}
+.link-button:hover {
+  color: var(--action-hover);
+}
+
+/* Highlight a transaction row where the running balance breaks */
+tbody tr.break-row {
+  background: var(--discrepancy-bg);
+}
+tbody tr.break-row td {
+  color: var(--discrepancy);
+}
+
+/* Extraction trace (model stats) */
+.trace {
+  margin-top: 18px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 14px 20px;
+  font-size: 13px;
+}
+.trace-title {
+  display: block;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ink-soft);
+  margin-bottom: 10px;
+}
+.trace-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 4px 0;
+}
+.trace-model {
+  font-family: var(--font-num);
+  color: var(--ink);
+  min-width: 170px;
+}
+.trace-ok {
+  color: var(--ledger-green);
+  font-weight: 600;
+}
+.trace-fail {
+  color: var(--discrepancy);
+  font-weight: 600;
+}
+.trace-time {
+  margin-left: auto;
+  font-family: var(--font-num);
+  color: var(--ink-soft);
+}
+.trace-summary {
+  display: inline-block;
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--ink-soft);
+  font-style: italic;
+}
+
+/* Test controls (model selectors + fallback toggle) */
+.controls {
+  flex: 1 1 100%;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 16px 24px;
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+.control {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.control-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ink-soft);
+  font-weight: 500;
+}
+.controls select {
+  font-size: 14px;
+  color: var(--ink);
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--paper);
+  font-family: var(--font-ui);
+  cursor: pointer;
+}
+.controls select:disabled {
+  cursor: default;
+}
+.toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  color: var(--ink);
+  cursor: pointer;
+  user-select: none;
+}
+.toggle input {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
 }

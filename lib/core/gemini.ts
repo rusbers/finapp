@@ -54,6 +54,67 @@ RULES:
 - Include ALL transactions on these pages.`
 
 /** Safely extract the JSON object from a response that may have text around it. */
+/**
+ * Escape raw control characters (newlines, tabs, etc.) that appear INSIDE JSON
+ * string values. Models sometimes emit a literal newline inside a description
+ * instead of an escaped \\n, which makes JSON.parse fail. We walk the text and,
+ * while inside a quoted string, replace control chars with their escaped form.
+ */
+function escapeControlCharsInStrings(json: string): string {
+  let out = ""
+  let inString = false
+  let escaped = false
+  for (let i = 0; i < json.length; i++) {
+    const ch = json[i]
+    if (escaped) {
+      out += ch
+      escaped = false
+      continue
+    }
+    if (ch === "\\") {
+      out += ch
+      escaped = true
+      continue
+    }
+    if (ch === '"') {
+      inString = !inString
+      out += ch
+      continue
+    }
+    if (inString) {
+      // Replace raw control characters with their valid JSON escape.
+      const code = ch.charCodeAt(0)
+      if (code < 0x20) {
+        if (ch === "\n") out += "\\n"
+        else if (ch === "\r") out += "\\r"
+        else if (ch === "\t") out += "\\t"
+        else out += " " // other control chars → space
+        continue
+      }
+    }
+    out += ch
+  }
+  return out
+}
+
+/**
+ * Remove thousands-separator commas inside numbers (e.g. 1,000.00 -> 1000.00).
+ * Models sometimes format large numbers with commas, which is invalid JSON.
+ * We only strip a comma when it sits between two digits, so structural JSON
+ * commas (between fields/array items) are never touched.
+ */
+function removeThousandsSeparators(json: string): string {
+  // Apply repeatedly so numbers with several separators (1,234,567.89) are fully
+  // cleaned — each pass removes one comma, overlapping matches need another pass.
+  let prev: string
+  let out = json
+  do {
+    prev = out
+    out = out.replace(/(\d),(\d{3})/g, "$1$2")
+  } while (out !== prev)
+  return out
+}
+
 export function safeParseJson(text: string): ExtractedChunk {
   if (!text) throw new Error("Empty response from model")
   let t = text.trim()
@@ -64,7 +125,24 @@ export function safeParseJson(text: string): ExtractedChunk {
   const start = t.indexOf("{")
   const end = t.lastIndexOf("}")
   if (start === -1 || end === -1) throw new Error("No JSON found in response")
-  const raw = JSON.parse(t.slice(start, end + 1))
+  const slice = t.slice(start, end + 1)
+
+  let raw: unknown
+  try {
+    raw = JSON.parse(slice)
+  } catch {
+    // Models produce two common JSON-breaking mistakes:
+    //   1. raw control chars (e.g. a literal newline) inside string values
+    //   2. thousands separators inside numbers (1,000.00 instead of 1000.00)
+    // Apply both repairs, then try once more.
+    let repaired = escapeControlCharsInStrings(slice)
+    repaired = removeThousandsSeparators(repaired)
+    try {
+      raw = JSON.parse(repaired)
+    } catch {
+      throw new Error("Model returned invalid JSON (the response may be incomplete).")
+    }
+  }
   return normalizeChunk(raw)
 }
 
@@ -156,7 +234,19 @@ async function attemptExtraction(
   }
 
   const data = await res.json()
-  const text = data?.candidates?.[0]?.content?.parts?.[0]?.text ?? ""
+  const candidate = data?.candidates?.[0]
+  const finishReason = candidate?.finishReason
+  const text = candidate?.content?.parts?.[0]?.text ?? ""
+
+  // If the model hit the output limit, the JSON is cut off mid-way. Surface a
+  // clear, retryable error instead of a cryptic JSON parse failure.
+  if (finishReason === "MAX_TOKENS") {
+    throw new Error(
+      "Gemini response was truncated (too many transactions for one chunk). " +
+        "This chunk has too much data; consider fewer pages per chunk.",
+    )
+  }
+
   return safeParseJson(text)
 }
 
@@ -176,6 +266,7 @@ export async function extractWithGemini(pdfBase64: string, model: string): Promi
   const generationConfig: Record<string, unknown> = {
     temperature: 0, // deterministic
     responseMimeType: "application/json", // ask for clean JSON directly
+    maxOutputTokens: 65536, // allow long responses (many transactions)
   }
   if (supportsDisablingThinking) {
     generationConfig.thinkingConfig = { thinkingBudget: 0 }

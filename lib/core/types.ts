@@ -49,6 +49,16 @@ export interface ExtractionAttempt {
   durationMs: number
 }
 
+/** A single debit/credit correction made by checking the running balance. */
+export interface SignCorrection {
+  index: number // position in the transactions array
+  date: string
+  description: string
+  amount: number // the (unchanged) magnitude
+  from: "debit" | "credit" // what the model originally had
+  to: "debit" | "credit" // what the balance shows it should be
+}
+
 /** Full result of the extract-and-reconcile pipeline. */
 export interface PipelineResult {
   data: StatementData
@@ -56,4 +66,5 @@ export interface PipelineResult {
   attempts: ExtractionAttempt[] // every model tried, in order
   modelUsed: string // the model whose result we're returning
   fallbackUsed: boolean // did we go beyond the primary model?
+  corrections: SignCorrection[] // debit/credit fixes applied from the balance
 }

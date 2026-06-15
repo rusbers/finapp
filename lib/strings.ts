@@ -24,6 +24,10 @@ export const strings = {
   modelProName: "Pro (most accurate)",
   resetButton: "Reset to defaults",
 
+  // Balance-based sign corrections
+  correctionsHeading: (n: number) =>
+    `${n} debit/credit ${n === 1 ? "sign was" : "signs were"} auto-corrected using the running balance:`,
+
   verdictPass: "Reconciled — balances match",
   verdictFail: "Out of balance — check the extraction",
 

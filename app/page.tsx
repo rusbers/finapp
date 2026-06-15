@@ -15,7 +15,12 @@
 import { useState, useSyncExternalStore } from "react"
 import { fromCents } from "@/lib/core/reconciliation"
 import { downloadCsv, findBalanceBreaks } from "@/lib/core/verification"
-import type { StatementData, ReconciliationResult, ExtractionAttempt } from "@/lib/core/types"
+import type {
+  StatementData,
+  ReconciliationResult,
+  ExtractionAttempt,
+  SignCorrection,
+} from "@/lib/core/types"
 import { strings as s } from "@/lib/strings"
 
 interface ApiResponse {
@@ -24,6 +29,7 @@ interface ApiResponse {
   attempts: ExtractionAttempt[]
   modelUsed: string
   fallbackUsed: boolean
+  corrections: SignCorrection[]
   fileName: string
 }
 
@@ -275,6 +281,21 @@ export default function Page() {
             </span>
           </div>
 
+          {/* Auto-corrections made from the running balance (transparency) */}
+          {result.corrections.length > 0 && (
+            <div className="corrections">
+              <p className="corrections-msg">{s.correctionsHeading(result.corrections.length)}</p>
+              <ul className="corrections-list">
+                {result.corrections.map((c) => (
+                  <li key={c.index}>
+                    <b>Row {c.index + 1}</b> — {c.date} {c.description}: {c.amount.toFixed(2)} moved
+                    from {c.from} to {c.to}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
           {/* Row-by-row balance diagnosis (only when failed) */}
           {!r.passed && (
             <div className="breaks">
@@ -329,6 +350,7 @@ export default function Page() {
           <table>
             <thead>
               <tr>
+                <th className="rownum">#</th>
                 <th className="date">{s.thDate}</th>
                 <th>{s.thDescription}</th>
                 <th className="num">{s.thDebit}</th>
@@ -339,6 +361,7 @@ export default function Page() {
             <tbody>
               {transactions.map((t, i) => (
                 <tr key={i} className={breakIndexes.has(i) ? "break-row" : ""}>
+                  <td className="rownum">{i + 1}</td>
                   <td className="date">{t.date}</td>
                   <td>{t.description}</td>
                   <td className="num debit">{t.debit ? t.debit.toFixed(2) : ""}</td>

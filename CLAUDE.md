@@ -249,6 +249,7 @@ lib/
 │   ├── pdf.ts             → PDF splitting into page-chunks (pdf-lib, server-only)
 │   ├── extraction.ts      → split + parallel extract + merge (provider seam)
 │   ├── pipeline.ts        → extract-and-reconcile cascade + per-model stats
+│   ├── sign-correction.ts → balance-based debit/credit auto-correction
 │   └── verification.ts    → CSV export + row-by-row running-balance check
 └── strings.ts             → all UI copy in one place (ready for future i18n)
 ```
@@ -278,6 +279,17 @@ Keep the endpoint thin: HTTP wiring in `app/api/`, real logic in `lib/core/`.
   chunk doesn't report them. **Requires the `pdf-lib` dependency** (`npm install
 pdf-lib`).
 - **Reconciliation** in integer cents, tolerance ±2 cents.
+- **Balance-based sign correction** (`sign-correction.ts`): a recurring model
+  error is putting an amount in the wrong column (debit shown as credit, or vice
+  versa). When the statement has a running balance, the pipeline auto-corrects
+  the direction from the math (balance down = debit, up = credit), BUT only when
+  certain: both adjacent balances exist AND the balance change matches the
+  amount. Corrections are applied before reconciliation and reported to the UI
+  for transparency. Verified across the test set (Revolut, ING, BOI, PTSB all
+  showed this error pattern).
+- **Robust JSON handling** (`gemini.ts`): output token limit raised so large
+  statements aren't truncated; truncation (finishReason MAX_TOKENS) and malformed
+  JSON now produce clear errors instead of a cryptic parser crash.
 - **Model cascade** (`pipeline.ts`): tries the primary model first; if
   reconciliation fails AND fallback is enabled, retries with a fallback model.
   Returns the result plus a record of every attempt (model, pass/fail,

@@ -16,9 +16,11 @@ import type {
   ReconciliationResult,
   ExtractionAttempt,
   PipelineResult,
+  SignCorrection,
 } from "./types"
 import { extractStatement } from "./extraction"
 import { checkReconciliation } from "./reconciliation"
+import { correctSignsFromBalance } from "./sign-correction"
 import { DEFAULT_ENABLE_FALLBACK, DEFAULT_PRIMARY_MODEL, DEFAULT_FALLBACK_MODEL } from "./config"
 
 export interface PipelineOptions {
@@ -47,11 +49,17 @@ export async function extractAndReconcile(
     data: StatementData
     reconciliation: ReconciliationResult
     model: string
+    corrections: SignCorrection[]
   } | null = null
 
   for (const model of models) {
     const startedAt = Date.now()
-    const data = await extractStatement(pdfBytes, model)
+    const extracted = await extractStatement(pdfBytes, model)
+
+    // Auto-correct debit/credit using the running balance (only where certain),
+    // BEFORE reconciling — so corrected data is what we reconcile and return.
+    const { data, corrections } = correctSignsFromBalance(extracted)
+
     const reconciliation = checkReconciliation(data)
     const durationMs = Date.now() - startedAt
 
@@ -61,7 +69,7 @@ export async function extractAndReconcile(
       discrepancyCents: reconciliation.discrepancyCents,
       durationMs,
     })
-    last = { data, reconciliation, model }
+    last = { data, reconciliation, model, corrections }
 
     // Stop as soon as one model reconciles successfully.
     if (reconciliation.passed) break
@@ -75,5 +83,6 @@ export async function extractAndReconcile(
     attempts,
     modelUsed: last.model,
     fallbackUsed: attempts.length > 1,
+    corrections: last.corrections,
   }
 }

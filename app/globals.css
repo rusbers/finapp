@@ -432,3 +432,47 @@ tbody tr.break-row td {
   opacity: 0.5;
   cursor: default;
 }
+
+/* Auto-corrections made from the running balance (positive — shown in green) */
+.corrections {
+  margin-top: 18px;
+  background: var(--ledger-green-bg, #e8f5e9);
+  border: 1px solid var(--ledger-green, #2e7d32);
+  border-radius: 12px;
+  padding: 16px 20px;
+}
+.corrections-msg {
+  font-size: 14px;
+  color: var(--ledger-green, #2e7d32);
+  font-weight: 600;
+}
+.corrections-list {
+  margin: 10px 0 0;
+  padding-left: 18px;
+  font-size: 13px;
+  color: var(--ink);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.corrections-list b {
+  color: var(--ledger-green, #2e7d32);
+}
+
+/* Row number column — grayed out, narrow, for locating flagged rows */
+th.rownum,
+td.rownum {
+  width: 1%;
+  white-space: nowrap;
+  text-align: right;
+  padding-right: 14px;
+  color: var(--ink-soft);
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+  user-select: none;
+}
+/* Keep the number readable even on a highlighted break row */
+tbody tr.break-row td.rownum {
+  color: var(--discrepancy);
+  font-weight: 600;
+}

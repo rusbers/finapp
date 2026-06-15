@@ -245,7 +245,8 @@ lib/
 │   ├── types.ts           → shared domain types (single source of truth)
 │   ├── config.ts          → pipeline defaults (model names, fallback) + model allow-list
 │   ├── reconciliation.ts  → reconciliation logic (pure, tested)
-│   ├── gemini.ts          → Gemini provider: API call, retries, JSON parse (server-only)
+│   ├── gemini.ts          → Gemini provider: API call, retries, JSON repair (server-only)
+│   ├── prompts.ts         → per-bank prompt registry (base + bank-specific rules)
 │   ├── pdf.ts             → PDF splitting into page-chunks (pdf-lib, server-only)
 │   ├── extraction.ts      → split + parallel extract + merge (provider seam)
 │   ├── pipeline.ts        → extract-and-reconcile cascade + per-model stats
@@ -287,9 +288,19 @@ pdf-lib`).
   amount. Corrections are applied before reconciliation and reported to the UI
   for transparency. Verified across the test set (Revolut, ING, BOI, PTSB all
   showed this error pattern).
+- **Per-bank prompts** (`prompts.ts`): a base prompt (generic, any bank) plus
+  optional bank-specific rules appended for known banks. `getPrompt(bank)`
+  returns the right one. Revolut rules are implemented (e.g. the "Comision/Fee"
+  shown in a transaction's sub-text is informational, NOT a separate transaction).
+  The target banks are AIB, BOI, PTSB, Revolut (≈90% of the user's real volume).
+  The bank is currently chosen via a UI dropdown (and sent per request); later,
+  automatic bank identification can select it — the registry stays the same. To
+  add a bank: add one entry to BANK_RULES in `prompts.ts`.
 - **Robust JSON handling** (`gemini.ts`): output token limit raised so large
-  statements aren't truncated; truncation (finishReason MAX_TOKENS) and malformed
-  JSON now produce clear errors instead of a cryptic parser crash.
+  statements aren't truncated; on a parse failure the response is repaired
+  (raw control chars inside strings are escaped; thousands-separator commas in
+  numbers like 1,000.00 are stripped) before a second parse; clear errors if it
+  still fails. (These two repairs fixed real crashes on Revolut RO.)
 - **Model cascade** (`pipeline.ts`): tries the primary model first; if
   reconciliation fails AND fallback is enabled, retries with a fallback model.
   Returns the result plus a record of every attempt (model, pass/fail,

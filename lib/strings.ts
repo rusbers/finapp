@@ -16,6 +16,7 @@ export const strings = {
   checkingButton: "Checking…",
 
   // Test controls
+  bankLabel: "Bank",
   primaryModelLabel: "Primary model",
   fallbackModelLabel: "Fallback model",
   enableFallbackLabel: "Use fallback if reconciliation fails",

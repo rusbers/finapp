@@ -21,6 +21,7 @@ import type {
   ExtractionAttempt,
   SignCorrection,
 } from "@/lib/core/types"
+import { BANK_LABELS, type BankId } from "@/lib/core/prompts"
 import { strings as s } from "@/lib/strings"
 
 interface ApiResponse {
@@ -38,6 +39,7 @@ const DEFAULTS = {
   primaryModel: "gemini-2.5-flash-lite",
   fallbackModel: "gemini-2.5-pro",
   enableFallback: false,
+  bank: "generic" as BankId,
 }
 const SETTINGS_KEY = "extractionSettings"
 type Settings = typeof DEFAULTS
@@ -107,7 +109,7 @@ export default function Page() {
     getSettingsSnapshot,
     getSettingsServerSnapshot,
   )
-  const { primaryModel, fallbackModel, enableFallback } = settings
+  const { primaryModel, fallbackModel, enableFallback, bank } = settings
   const updateSettings = (patch: Partial<Settings>) => saveSettings({ ...settings, ...patch })
   const resetSettings = () => saveSettings(DEFAULTS)
 
@@ -124,6 +126,7 @@ export default function Page() {
       fd.append("primaryModel", primaryModel)
       fd.append("fallbackModel", fallbackModel)
       fd.append("enableFallback", String(enableFallback))
+      fd.append("bank", bank)
       const res = await fetch("/api/extract", { method: "POST", body: fd })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error ?? s.errorGeneric)
@@ -170,6 +173,21 @@ export default function Page() {
 
         {/* Test controls */}
         <div className="controls">
+          <div className="control">
+            <label className="control-label">{s.bankLabel}</label>
+            <select
+              value={bank}
+              onChange={(e) => updateSettings({ bank: e.target.value as BankId })}
+              disabled={isLoading}
+            >
+              {(Object.keys(BANK_LABELS) as BankId[]).map((id) => (
+                <option key={id} value={id}>
+                  {BANK_LABELS[id]}
+                </option>
+              ))}
+            </select>
+          </div>
+
           <div className="control">
             <label className="control-label">{s.primaryModelLabel}</label>
             <select

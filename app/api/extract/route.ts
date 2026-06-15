@@ -10,6 +10,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { extractAndReconcile } from "@/lib/core/pipeline"
 import { isAllowedModel } from "@/lib/core/config"
+import { BANK_LABELS, type BankId } from "@/lib/core/prompts"
 import { strings } from "@/lib/strings"
 
 // This route uses Buffer and makes a slow AI call, so it runs on the Node.js
@@ -44,6 +45,11 @@ export async function POST(req: NextRequest) {
     const fallbackModel = isAllowedModel(rawFallback) ? rawFallback : undefined
     const enableFallback = rawEnableFallback != null ? rawEnableFallback === "true" : undefined
 
+    // Validate the bank against the known set; fall back to "generic".
+    const rawBank = formData.get("bank")
+    const bank: BankId =
+      typeof rawBank === "string" && rawBank in BANK_LABELS ? (rawBank as BankId) : "generic"
+
     // PDF -> bytes (the pipeline splits it into page-chunks server-side)
     const pdfBytes = new Uint8Array(await file.arrayBuffer())
 
@@ -52,6 +58,7 @@ export async function POST(req: NextRequest) {
       primaryModel,
       fallbackModel,
       enableFallback,
+      bank,
     })
 
     return NextResponse.json({ ...result, fileName: file.name })

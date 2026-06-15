@@ -21,12 +21,14 @@ import type {
 import { extractStatement } from "./extraction"
 import { checkReconciliation } from "./reconciliation"
 import { correctSignsFromBalance } from "./sign-correction"
+import { getPrompt, type BankId } from "./prompts"
 import { DEFAULT_ENABLE_FALLBACK, DEFAULT_PRIMARY_MODEL, DEFAULT_FALLBACK_MODEL } from "./config"
 
 export interface PipelineOptions {
   primaryModel?: string
   fallbackModel?: string
   enableFallback?: boolean
+  bank?: BankId // which bank's specialized prompt to use (default "generic")
 }
 
 export async function extractAndReconcile(
@@ -36,6 +38,8 @@ export async function extractAndReconcile(
   const primaryModel = options.primaryModel ?? DEFAULT_PRIMARY_MODEL
   const fallbackModel = options.fallbackModel ?? DEFAULT_FALLBACK_MODEL
   const enableFallback = options.enableFallback ?? DEFAULT_ENABLE_FALLBACK
+  const bank: BankId = options.bank ?? "generic"
+  const prompt = getPrompt(bank)
 
   // Which models to try, in order. Without fallback, just the primary one.
   // (If fallback equals primary, no point trying twice — keep just one.)
@@ -54,7 +58,7 @@ export async function extractAndReconcile(
 
   for (const model of models) {
     const startedAt = Date.now()
-    const extracted = await extractStatement(pdfBytes, model)
+    const extracted = await extractStatement(pdfBytes, model, prompt)
 
     // Auto-correct debit/credit using the running balance (only where certain),
     // BEFORE reconciling — so corrected data is what we reconcile and return.

@@ -1,14 +1,14 @@
 /**
  * Extraction orchestrator.
  *
- * For a given model, this:
+ * For a given model + bank prompt, this:
  *   1. Splits the PDF into small page-chunks (config: PAGES_PER_CHUNK).
  *   2. Extracts all chunks IN PARALLEL (config: MAX_CONCURRENT_CHUNKS).
  *   3. Merges the chunks back into one statement.
  *
  * This is the provider-agnostic seam: to switch AI provider, change the call to
- * extractWithGemini below (and add the new provider file). Splitting/merging is
- * provider-independent.
+ * extractWithGemini below (and add the new provider file). Splitting/merging and
+ * the bank prompt are provider-independent.
  */
 
 import type { StatementData, ExtractedChunk } from "./types"
@@ -87,16 +87,17 @@ export function mergeChunks(chunks: ExtractedChunk[]): StatementData {
 }
 
 /**
- * Extract a full statement from PDF bytes using the given model:
+ * Extract a full statement from PDF bytes using the given model and prompt:
  * split → parallel extract → merge.
  */
 export async function extractStatement(
   pdfBytes: Uint8Array,
   model: string,
+  prompt: string,
 ): Promise<StatementData> {
   const chunks = await splitPdfIntoChunks(pdfBytes, PAGES_PER_CHUNK)
   const extracted = await mapWithLimit(chunks, MAX_CONCURRENT_CHUNKS, (chunkBase64) =>
-    extractWithGemini(chunkBase64, model),
+    extractWithGemini(chunkBase64, model, prompt),
   )
   return mergeChunks(extracted)
 }

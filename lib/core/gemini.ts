@@ -19,40 +19,6 @@ const RETRYABLE_STATUSES = new Set([429, 500, 502, 503, 504])
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
-const PROMPT = `You are a bank statement data extraction system.
-This PDF may be an EXCERPT (a few pages) of a larger bank statement.
-Analyze it and return STRICTLY a single JSON object, with no text before or
-after, no explanations.
-
-Exact structure:
-{
-  "bank": "bank name",
-  "openingBalance": number or null,
-  "closingBalance": number or null,
-  "transactions": [
-    { "date": "YYYY-MM-DD", "description": "text", "debit": number, "credit": number, "balance": number or null }
-  ]
-}
-
-RULES:
-- "debit" = money OUT of the account (payments, withdrawals). Positive number.
-- "credit" = money INTO the account (deposits, incoming). Positive number.
-- If a transaction is debit only, set credit = 0. If credit only, set debit = 0.
-- "balance" = the running balance shown for that row. If the statement shows no
-  running balance column, set balance = null. Do NOT compute it yourself; only
-  copy the value printed on the statement.
-- Decimal separator is a DOT (1234.56), never a comma.
-- Dates in YYYY-MM-DD format.
-- "openingBalance" = the opening/brought-forward balance ONLY if it appears on
-  these pages (usually only on the first page of the full statement). If these
-  pages do not show it, set openingBalance = null. Do NOT guess it.
-- "closingBalance" = the closing/carried-forward balance ONLY if it appears on
-  these pages (usually only on the last page). If not shown here, set it to null.
-- CRITICAL: list the transactions in the EXACT SAME ORDER they appear on these
-  pages, top to bottom. Do NOT sort or reorder them (not by date, not
-  alphabetically, not by amount). Preserve the original order exactly.
-- Include ALL transactions on these pages.`
-
 /** Safely extract the JSON object from a response that may have text around it. */
 /**
  * Escape raw control characters (newlines, tabs, etc.) that appear INSIDE JSON
@@ -251,7 +217,11 @@ async function attemptExtraction(
 }
 
 /** Send the PDF (as base64) to Gemini and return structured data, with retries. */
-export async function extractWithGemini(pdfBase64: string, model: string): Promise<ExtractedChunk> {
+export async function extractWithGemini(
+  pdfBase64: string,
+  model: string,
+  prompt: string,
+): Promise<ExtractedChunk> {
   const apiKey = process.env.GEMINI_API_KEY
   if (!apiKey) throw new Error("Missing GEMINI_API_KEY environment variable")
 
@@ -276,7 +246,7 @@ export async function extractWithGemini(pdfBase64: string, model: string): Promi
     contents: [
       {
         parts: [
-          { text: PROMPT },
+          { text: prompt },
           { inline_data: { mime_type: "application/pdf", data: pdfBase64 } },
         ],
       },

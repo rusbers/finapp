@@ -248,6 +248,7 @@ lib/
 │   ├── gemini.ts          → Gemini provider: API call, retries, JSON repair (server-only)
 │   ├── prompts.ts         → per-bank prompt registry (base + bank-specific rules)
 │   ├── revolut-parser.ts  → DETERMINISTIC Revolut parser (pdfjs text positions; 100%)
+│   ├── aib-parser.ts      → DETERMINISTIC AIB parser (pdfjs; right-aligned cols, scales w/ width)
 │   ├── parsers.ts         → registry mapping banks → deterministic parsers
 │   ├── pdf.ts             → PDF splitting into page-chunks (pdf-lib, server-only)
 │   ├── extraction.ts      → split + parallel extract + merge (provider seam)
@@ -312,6 +313,26 @@ pdfjs-dist`): for the target banks, reading the PDF's text positions (x/y) and
   and falls back to AI extraction otherwise. pdfjs-dist needs a worker, which the
   parser configures via `GlobalWorkerOptions.workerSrc`; `next.config.mjs` marks
   pdfjs-dist as a `serverExternalPackages` entry so the bundler leaves it alone.
+- **AIB parser** (`aib-parser.ts`): AIB's layout is very different from Revolut.
+  Columns are Date | Details | Debit € | Credit € | Balance €, all three money
+  columns RIGHT-aligned, and their absolute X positions SCALE WITH PAGE WIDTH
+  (601pt vs 595pt → anchors × ratio), so anchors are detected PER PAGE from the
+  header cells ("Debit €"/"Credit €"/"Balance €", which pdfjs joins into one
+  token each) and never hardcoded. Key differences handled: (a) one transaction
+  spans several lines and the Balance is printed only sporadically (a checkpoint
+  at the end of a block), so a transaction is any line carrying a Debit OR Credit
+  amount — Balance presence is irrelevant; (b) the Date appears only on the first
+  line of a day and is inherited downward; (c) overdraft balances carry a glued
+  'dr' suffix ("3.78dr" = -3.78) ~8pt right of the normal edge; (d) "Interest
+  Rate"/"Lending @ x%" rows are informational; (e) FX lines put the original
+  amount/rate/fee in Details, only the EUR value lands in a money column; (f) a
+  right-hand info sidebar (x0 > 0.72×width) is ignored; (g) each page restarts
+  with BALANCE FORWARD. Anchors are taken from the header (always present and
+  correctly ordered) then refined toward the body amounts — clustering body
+  amounts alone breaks on pages with only one transaction (a lone balance gets
+  misread as a credit). Proven on real statements: AIB-3 (1 page, 19 tx, incl.
+  overdraft) and a 4-page statement with USD FX (61 tx) both reconcile to the
+  cent, and every transaction matches a separately-validated Python reference.
 - **Per-bank prompts** (`prompts.ts`): a base prompt (generic, any bank) plus
   optional bank-specific rules appended for known banks. `getPrompt(bank)`
   returns the right one. Revolut rules are implemented (e.g. the "Comision/Fee"

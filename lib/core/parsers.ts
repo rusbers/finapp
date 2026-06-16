@@ -12,6 +12,7 @@
 import type { StatementData } from "./types"
 import type { BankId } from "./prompts"
 import { parseRevolut } from "./revolut-parser"
+import { parseAib } from "./aib-parser"
 
 /** A deterministic parser: PDF bytes -> structured statement data. */
 export type BankParser = (pdfBytes: Uint8Array) => Promise<StatementData>
@@ -19,6 +20,7 @@ export type BankParser = (pdfBytes: Uint8Array) => Promise<StatementData>
 /** Banks that have a deterministic parser. Others use AI extraction. */
 const PARSERS: Partial<Record<BankId, BankParser>> = {
   revolut: parseRevolut,
+  aib: parseAib,
 }
 
 /** Returns the deterministic parser for a bank, or undefined if none exists. */

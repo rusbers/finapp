@@ -249,6 +249,7 @@ lib/
 │   ├── prompts.ts         → per-bank prompt registry (base + bank-specific rules)
 │   ├── revolut-parser.ts  → DETERMINISTIC Revolut parser (pdfjs text positions; 100%)
 │   ├── aib-parser.ts      → DETERMINISTIC AIB parser (pdfjs; right-aligned cols, scales w/ width)
+│   ├── boi-parser.ts      → DETERMINISTIC BOI parser (pdfjs; Payments-out/in cols, OD overdraft)
 │   ├── parsers.ts         → registry mapping banks → deterministic parsers
 │   ├── pdf.ts             → PDF splitting into page-chunks (pdf-lib, server-only)
 │   ├── extraction.ts      → split + parallel extract + merge (provider seam)
@@ -333,6 +334,24 @@ pdfjs-dist`): for the target banks, reading the PDF's text positions (x/y) and
   misread as a credit). Proven on real statements: AIB-3 (1 page, 19 tx, incl.
   overdraft) and a 4-page statement with USD FX (61 tx) both reconcile to the
   cent, and every transaction matches a separately-validated Python reference.
+- **BOI parser** (`boi-parser.ts`): Bank of Ireland uses Payments-out /
+  Payments-in / Balance columns (NOT Debit/Credit), all RIGHT-aligned, anchors
+  detected per page from the header words "out"/"in"/"Balance" (refined with body
+  amounts). Key differences from AIB: (a) out and in are SEPARATE columns — the
+  same value can appear as both an out and an in (purchase + refund), only x1
+  distinguishes them; (b) ONE LINE = ONE TRANSACTION (no separate detail/
+  reference lines); (c) overdraft is a SEPARATE "OD" token to the right of the
+  balance ("6.00 OD" = -6.00), unlike AIB's glued "dr"; (d) "SUBTOTAL:" is a
+  page-closing balance that equals the next page's BALANCE FORWARD (day blocks
+  may span pages); (e) "FEE: ..." lines ARE real transactions; (f) FX originals/
+  rates are embedded in the description token ("P2908IE700.00@1.16098"), only the
+  EUR value lands in a money column; (g) no sidebar. Like AIB, the Balance is
+  printed only sporadically (block checkpoint) and the Date is inherited downward.
+  Validated against a real 7-page statement (231 transactions): reconciles to the
+  cent and every transaction matches a separately-validated Python reference.
+  NOTE: validated by replaying the pdfplumber positional dump through the TS
+  logic; the in-app pdfjs path should be confirmed on a real BOI PDF (pdfjs may
+  tokenize the header differently, as seen with AIB — detection handles both).
 - **Per-bank prompts** (`prompts.ts`): a base prompt (generic, any bank) plus
   optional bank-specific rules appended for known banks. `getPrompt(bank)`
   returns the right one. Revolut rules are implemented (e.g. the "Comision/Fee"

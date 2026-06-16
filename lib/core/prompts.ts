@@ -15,7 +15,7 @@
  */
 
 /** Bank identifiers we have specialized handling for. "generic" = no specialization. */
-export type BankId = "generic" | "revolut" | "aib" | "boi" | "ptsb"
+export type BankId = "generic" | "revolut" | "aib" | "boi" | "ptsb";
 
 export const BANK_LABELS: Record<BankId, string> = {
   generic: "Auto / Generic",
@@ -23,7 +23,7 @@ export const BANK_LABELS: Record<BankId, string> = {
   aib: "AIB",
   boi: "Bank of Ireland",
   ptsb: "Permanent TSB",
-}
+};
 
 const BASE_PROMPT = `You are a bank statement data extraction system.
 This PDF may be an EXCERPT (a few pages) of a larger bank statement.
@@ -58,7 +58,7 @@ RULES:
 - CRITICAL: list the transactions in the EXACT SAME ORDER they appear on these
   pages, top to bottom. Do NOT sort or reorder them (not by date, not
   alphabetically, not by amount). Preserve the original order exactly.
-- Include ALL transactions on these pages.`
+- Include ALL transactions on these pages.`;
 
 /** Bank-specific rules appended after the base prompt. */
 const BANK_RULES: Partial<Record<BankId, string>> = {
@@ -73,6 +73,14 @@ THIS IS A REVOLUT STATEMENT. Apply these Revolut-specific rules:
   Do NOT create an extra transaction for the fee, and do NOT add or subtract it
   from the amount. Use ONLY the value in the money-out/money-in column as the
   transaction amount.
+- FOREIGN-CURRENCY (FX) transactions: a row may show extra sub-text such as
+  "Cursul Revolut EUR1.00 = 19.22 MDL", "Cursul ECB ...", an MDL amount, or a
+  second euro figure. ALL of these are INFORMATIONAL. The real transaction amount
+  is ALWAYS the single value in the "Sume retrase"/"Sume adaugate" (money-out/
+  money-in) column — this already includes any fee. Do NOT use the exchange rate,
+  the MDL amount, or the fee as the amount. Never put two numbers in one
+  transaction. The description may contain these texts, but the numeric debit/
+  credit must be ONLY the money-out/money-in column value.
 - Each row changes the balance exactly once. One row = one transaction.
 - CRITICAL: extract ONLY the transactions from the MAIN account table — the one
   that HAS a "Sold"/"Balance" column. Revolut statements may include extra
@@ -81,10 +89,10 @@ THIS IS A REVOLUT STATEMENT. Apply these Revolut-specific rules:
   have a Balance column. They are NOT part of the account flow — IGNORE them
   completely and do NOT include their rows as transactions. If a row has no
   Balance column, it belongs to an informational section and must be skipped.`,
-}
+};
 
 /** Returns the full prompt for a bank: base rules plus any bank-specific rules. */
 export function getPrompt(bank: BankId): string {
-  const extra = BANK_RULES[bank]
-  return extra ? `${BASE_PROMPT}\n${extra}` : BASE_PROMPT
+  const extra = BANK_RULES[bank];
+  return extra ? `${BASE_PROMPT}\n${extra}` : BASE_PROMPT;
 }

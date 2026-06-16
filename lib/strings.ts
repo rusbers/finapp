@@ -31,6 +31,8 @@ export const strings = {
 
   verdictPass: "Reconciled — balances match",
   verdictFail: "Out of balance — check the extraction",
+  noTransactionsNote:
+    "No transactions were found. This statement's format may not be recognized by the selected bank's parser (for example a different language or layout). Try the generic/AI option, or check the bank selection.",
 
   eqOpening: "Opening balance",
   eqCredits: "Credits",

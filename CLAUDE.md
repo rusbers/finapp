@@ -247,6 +247,8 @@ lib/
 │   ├── reconciliation.ts  → reconciliation logic (pure, tested)
 │   ├── gemini.ts          → Gemini provider: API call, retries, JSON repair (server-only)
 │   ├── prompts.ts         → per-bank prompt registry (base + bank-specific rules)
+│   ├── revolut-parser.ts  → DETERMINISTIC Revolut parser (pdfjs text positions; 100%)
+│   ├── parsers.ts         → registry mapping banks → deterministic parsers
 │   ├── pdf.ts             → PDF splitting into page-chunks (pdf-lib, server-only)
 │   ├── extraction.ts      → split + parallel extract + merge (provider seam)
 │   ├── pipeline.ts        → extract-and-reconcile cascade + per-model stats
@@ -288,6 +290,28 @@ pdf-lib`).
   amount. Corrections are applied before reconciliation and reported to the UI
   for transparency. Verified across the test set (Revolut, ING, BOI, PTSB all
   showed this error pattern).
+- **Deterministic per-bank parsers** (`revolut-parser.ts`, needs `npm install
+pdfjs-dist`): for the target banks, reading the PDF's text positions (x/y) and
+  mapping values to columns by their X anchor is 100% accurate and consistent —
+  unlike general AI extraction, which is unstable on dense multi-currency
+  statements. This mirrors how DocuClipper reaches 100%. The Revolut parser is
+  proven on a real 40-page statement (739 transactions, reconciles to the cent).
+  Revolut column grid (PDF points): Date x0≈43, Description x0≈125, money-out/
+  debit x0≈335 (left-aligned), money-in/credit x0≈417 (left-aligned), balance
+  x1≈556 (right-aligned), tolerance ±6. Main transaction rows are font size ≥7;
+  sub-rows (fee/FX-rate/reference, size≈4.5) are skipped so amounts come only
+  from the main row. Only €/$ tokens count, so foreign-currency figures (e.g.
+  "72.00 MDL") are ignored. Extraction starts after the transaction-table header
+  ("Dată Descriere Sume retrase ... Sold" — the "Descriere" check avoids matching
+  the balance-summary header) and stops at the "Înapoiate"/"Reverted" tail
+  section. Plan: same approach for AIB, BOI, PTSB; AI + reconciliation remains the
+  fallback for rare banks / scanned PDFs.
+  **Now wired into the pipeline**: `parsers.ts` is a registry (bank → parser);
+  `pipeline.ts` uses the deterministic parser when the selected bank has one
+  (still running sign-correction + reconciliation for an identical output shape),
+  and falls back to AI extraction otherwise. pdfjs-dist needs a worker, which the
+  parser configures via `GlobalWorkerOptions.workerSrc`; `next.config.mjs` marks
+  pdfjs-dist as a `serverExternalPackages` entry so the bundler leaves it alone.
 - **Per-bank prompts** (`prompts.ts`): a base prompt (generic, any bank) plus
   optional bank-specific rules appended for known banks. `getPrompt(bank)`
   returns the right one. Revolut rules are implemented (e.g. the "Comision/Fee"

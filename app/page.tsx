@@ -273,7 +273,10 @@ export default function Page() {
               </div>
             </div>
 
-            {!r.passed && (
+            {!r.passed && transactions.length === 0 && (
+              <div className="discrepancy-note">{s.noTransactionsNote}</div>
+            )}
+            {!r.passed && transactions.length > 0 && (
               <div className="discrepancy-note">
                 {s.discrepancyNote(fromCents(Math.abs(r.discrepancyCents)))}
               </div>

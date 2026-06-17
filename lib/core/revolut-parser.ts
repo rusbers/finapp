@@ -26,14 +26,8 @@
  *      → stop extracting there.
  */
 
-import * as pdfjs from "pdfjs-dist/legacy/build/pdf.mjs"
 import type { StatementData, Transaction } from "./types"
-
-// pdfjs runs the worker in the same thread automatically when no separate worker
-// is configured. We intentionally do NOT set GlobalWorkerOptions.workerSrc here:
-// pdfjs-dist v6 is ESM, so require()-resolving the worker path breaks under
-// Next.js. Leaving it unset lets pdfjs use its built-in main-thread fallback,
-// which is what we want on the server. (Server-only module — never client-side.)
+import { loadPdfjs } from "./pdf-loader"
 
 // --- Column anchors (PDF points) and tolerances ---
 const X_DEBIT = 335 // money out, left-aligned (match on x0)
@@ -74,9 +68,15 @@ function isCurrencyToken(text: string): boolean {
 
 /** Extract all tokens (text + position + size) from every page, in reading order. */
 async function extractTokens(pdfBytes: Uint8Array): Promise<Token[][]> {
+  const pdfjs = await loadPdfjs()
   const doc = await pdfjs.getDocument({
     data: pdfBytes,
     useSystemFonts: false,
+    // On serverless there's no filesystem path for pdfjs's standard font/cmap
+    // data, and we only read text positions (no rendering), so disable anything
+    // that would try to fetch external resources.
+    disableFontFace: true,
+    isEvalSupported: false,
   }).promise
 
   const pages: Token[][] = []

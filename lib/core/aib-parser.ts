@@ -28,13 +28,11 @@
  * opening/closing balances.
  */
 
-import * as pdfjs from "pdfjs-dist/legacy/build/pdf.mjs"
 import type { StatementData, Transaction } from "./types"
+import { loadPdfjs } from "./pdf-loader"
 
-// pdfjs runs the worker in the same thread automatically when no separate worker
-// is configured. We intentionally do NOT set GlobalWorkerOptions.workerSrc here:
-// pdfjs-dist v6 is ESM, so require()-resolving the worker path breaks under
-// Next.js. Leaving it unset lets pdfjs use its built-in main-thread fallback.
+// pdfjs is loaded lazily (see pdf-loader.ts) so it stays off the AI path and its
+// ESM/worker quirks are isolated to parse time — important on serverless.
 
 // --- Region boundaries as fractions of page width (scale-invariant) ---
 const DATE_COL_RIGHT_FRAC = 0.13 // tokens whose x1 is below this are the Date column
@@ -88,7 +86,13 @@ type Anchors = Partial<Record<Column, number>>
 
 /** Extract tokens (text + position + size) for every page. */
 async function extractPages(pdfBytes: Uint8Array): Promise<{ tokens: Token[]; width: number }[]> {
-  const doc = await pdfjs.getDocument({ data: pdfBytes, useSystemFonts: false }).promise
+  const pdfjs = await loadPdfjs()
+  const doc = await pdfjs.getDocument({
+    data: pdfBytes,
+    useSystemFonts: false,
+    disableFontFace: true,
+    isEvalSupported: false,
+  }).promise
   const pages: { tokens: Token[]; width: number }[] = []
   for (let p = 1; p <= doc.numPages; p++) {
     const page = await doc.getPage(p)

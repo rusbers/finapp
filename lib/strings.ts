@@ -33,6 +33,14 @@ export const strings = {
   verdictFail: "Out of balance — check the extraction",
   noTransactionsNote:
     "No transactions were found. This statement's format may not be recognized by the selected bank's parser (for example a different language or layout). Try the generic/AI option, or check the bank selection.",
+  errorTooManyFiles: "Too many files. Please upload fewer statements at once.",
+  // Multi-statement (combining several PDFs of the same account)
+  perFileHeading: "Statements combined",
+  perFileColumns: { file: "File", count: "Transactions", range: "Balance range" },
+  gapWarningTitle: "Possible missing statement",
+  gapWarningBody:
+    "These statements don't link up by balance — one or more statements may be missing from the series. The closing balance of one statement should match the opening balance of the next.",
+  chainedOk: "All statements link up by balance",
 
   eqOpening: "Opening balance",
   eqCredits: "Credits",

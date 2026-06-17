@@ -24,6 +24,18 @@ import type {
 import { BANK_LABELS, type BankId } from "@/lib/core/prompts"
 import { strings as s } from "@/lib/strings"
 
+interface PerFileResult {
+  fileName: string
+  transactionCount: number
+  openingBalance: number
+  closingBalance: number
+}
+
+interface StatementGap {
+  afterClosingBalance: number
+  nextOpeningBalance: number | null
+}
+
 interface ApiResponse {
   data: StatementData
   reconciliation: ReconciliationResult
@@ -32,6 +44,10 @@ interface ApiResponse {
   fallbackUsed: boolean
   corrections: SignCorrection[]
   fileName: string
+  // Present only when multiple statements were combined:
+  perFile?: PerFileResult[]
+  gaps?: StatementGap[]
+  fullyChained?: boolean
 }
 
 // Default test settings + where they're saved in the browser.
@@ -97,7 +113,7 @@ function saveSettings(next: Settings): void {
 }
 
 export default function Page() {
-  const [file, setFile] = useState<File | null>(null)
+  const [files, setFiles] = useState<File[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [result, setResult] = useState<ApiResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -114,7 +130,7 @@ export default function Page() {
   const resetSettings = () => saveSettings(DEFAULTS)
 
   async function handleCheck() {
-    if (!file) return
+    if (files.length === 0) return
     setIsLoading(true)
     setError(null)
     setResult(null)
@@ -122,7 +138,12 @@ export default function Page() {
     const startedAt = performance.now()
     try {
       const fd = new FormData()
-      fd.append("file", file)
+      // Send one file under "file" (single-statement path) or many under "files".
+      if (files.length === 1) {
+        fd.append("file", files[0])
+      } else {
+        for (const f of files) fd.append("files", f)
+      }
       fd.append("primaryModel", primaryModel)
       fd.append("fallbackModel", fallbackModel)
       fd.append("enableFallback", String(enableFallback))
@@ -160,14 +181,20 @@ export default function Page() {
         <input
           type="file"
           accept="application/pdf"
+          multiple
           onChange={(e) => {
-            setFile(e.target.files?.[0] ?? null)
+            setFiles(e.target.files ? Array.from(e.target.files) : [])
             setResult(null)
             setError(null)
             setDurationMs(null)
           }}
         />
-        <button className="button" onClick={handleCheck} disabled={!file || isLoading}>
+        {files.length > 1 && (
+          <div className="file-list">
+            {files.length} files selected: {files.map((f) => f.name).join(", ")}
+          </div>
+        )}
+        <button className="button" onClick={handleCheck} disabled={files.length === 0 || isLoading}>
           {isLoading ? s.checkingButton : s.checkButton}
         </button>
 
@@ -282,6 +309,43 @@ export default function Page() {
               </div>
             )}
           </div>
+
+          {/* Gap warning — statements don't link up by balance (one may be missing) */}
+          {result.gaps && result.gaps.length > 0 && (
+            <div className="gap-warning">
+              <strong>{s.gapWarningTitle}</strong>
+              <p>{s.gapWarningBody}</p>
+            </div>
+          )}
+
+          {/* Per-file breakdown when several statements were combined */}
+          {result.perFile && result.perFile.length > 1 && (
+            <div className="per-file">
+              <span className="per-file-title">{s.perFileHeading}</span>
+              {result.fullyChained && <span className="chained-ok">✓ {s.chainedOk}</span>}
+              <table>
+                <thead>
+                  <tr>
+                    <th>{s.perFileColumns.file}</th>
+                    <th>{s.perFileColumns.count}</th>
+                    <th>{s.perFileColumns.range}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {result.perFile.map((pf, i) => (
+                    <tr key={i}>
+                      <td>{pf.fileName}</td>
+                      <td>{pf.transactionCount}</td>
+                      <td>
+                        {fromCents(Math.round(pf.openingBalance * 100))} →{" "}
+                        {fromCents(Math.round(pf.closingBalance * 100))}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
 
           {/* Extraction trace — which models were tried, which reconciled */}
           <div className="trace">

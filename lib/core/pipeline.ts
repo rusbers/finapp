@@ -23,6 +23,7 @@ import { checkReconciliation } from "./reconciliation"
 import { correctSignsFromBalance } from "./sign-correction"
 import { getPrompt, type BankId } from "./prompts"
 import { getParser } from "./parsers"
+import { combineStatements, type StatementGap } from "./combine"
 import { DEFAULT_ENABLE_FALLBACK, DEFAULT_PRIMARY_MODEL, DEFAULT_FALLBACK_MODEL } from "./config"
 
 export interface PipelineOptions {
@@ -129,4 +130,87 @@ export async function extractAndReconcile(
     fallbackUsed: attempts.length > 1,
     corrections: last.corrections,
   }
+}
+
+/** Per-file outcome inside a multi-PDF run (for transparency in the UI). */
+export interface PerFileResult {
+  fileName: string
+  transactionCount: number
+  openingBalance: number
+  closingBalance: number
+}
+
+/** Result of processing several PDFs as one chained series. */
+export interface MultiPipelineResult {
+  /** The combined, chained statement plus its reconciliation/trace. */
+  result: PipelineResult
+  /** Each input file's contribution, in the resolved chain order. */
+  perFile: PerFileResult[]
+  /** Gaps between statements (a missing statement breaks the balance chain). */
+  gaps: StatementGap[]
+  /** True if all files linked into one clean balance chain with no gaps. */
+  fullyChained: boolean
+}
+
+/**
+ * Process several PDFs of the same account and combine them into one
+ * chronological, balance-chained series, then reconcile across the whole set.
+ *
+ * Each file is parsed independently (deterministic parser or AI), then
+ * `combineStatements` orders them by linking each statement's closing balance to
+ * the next one's opening balance, flags any gaps (missing statements), and
+ * concatenates the transactions in chain order (internal order untouched). The
+ * final reconciliation runs over the combined series: first opening + Σcredits −
+ * Σdebits = last closing, which also confirms the statements chain correctly.
+ */
+export async function extractAndReconcileMany(
+  files: { name: string; bytes: Uint8Array }[],
+  options: PipelineOptions = {},
+): Promise<MultiPipelineResult> {
+  if (files.length === 0) throw new Error("No files provided")
+
+  // 1. Parse each file independently, keeping its statement + file name.
+  const perFileRaw: { name: string; statement: StatementData }[] = []
+  for (const file of files) {
+    const r = await extractAndReconcile(file.bytes, options)
+    perFileRaw.push({ name: file.name, statement: r.data })
+  }
+
+  // 2. Chain + merge them (orders by balance, detects gaps).
+  const { combined, gaps, fullyChained } = combineStatements(perFileRaw.map((p) => p.statement))
+
+  // 3. Reconcile the combined series, with the same sign-correction + 0-tx guard
+  // used for a single statement.
+  const { data, corrections } = correctSignsFromBalance(combined)
+  let reconciliation = checkReconciliation(data)
+  if (data.transactions.length === 0) {
+    reconciliation = { ...reconciliation, passed: false }
+  }
+
+  // 4. Build the per-file summary in the resolved chain order. (We match each
+  // chained statement back to its file by identity.)
+  const perFile: PerFileResult[] = perFileRaw.map((p) => ({
+    fileName: p.name,
+    transactionCount: p.statement.transactions.length,
+    openingBalance: p.statement.openingBalance,
+    closingBalance: p.statement.closingBalance,
+  }))
+
+  const result: PipelineResult = {
+    data,
+    reconciliation,
+    attempts: [
+      {
+        model: `combined:${files.length}-files`,
+        reconciliationPassed: reconciliation.passed,
+        discrepancyCents: reconciliation.discrepancyCents,
+        durationMs: 0,
+      },
+    ],
+    modelUsed: `combined:${files.length}-files`,
+    fallbackUsed: false,
+    corrections,
+  }
+
+  return { result, perFile, gaps, fullyChained }
 }

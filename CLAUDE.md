@@ -251,6 +251,7 @@ lib/
 │   ├── aib-parser.ts      → DETERMINISTIC AIB parser (pdfjs; right-aligned cols, scales w/ width)
 │   ├── boi-parser.ts      → DETERMINISTIC BOI parser (pdfjs; Payments-out/in cols, OD overdraft)
 │   ├── parsers.ts         → registry mapping banks → deterministic parsers
+│   ├── combine.ts         → chains multiple statements by balance, detects gaps
 │   ├── pdf.ts             → PDF splitting into page-chunks (pdf-lib, server-only)
 │   ├── extraction.ts      → split + parallel extract + merge (provider seam)
 │   ├── pipeline.ts        → extract-and-reconcile cascade + per-model stats
@@ -352,6 +353,24 @@ pdfjs-dist`): for the target banks, reading the PDF's text positions (x/y) and
   NOTE: validated by replaying the pdfplumber positional dump through the TS
   logic; the in-app pdfjs path should be confirmed on a real BOI PDF (pdfjs may
   tokenize the header differently, as seen with AIB — detection handles both).
+- **Multi-PDF upload** (`combine.ts` + `extractAndReconcileMany` in pipeline.ts):
+  banks like AIB only generate periodic statements (you can't pick a date range),
+  so a user wanting a custom period has several PDFs. The app accepts multiple
+  PDFs at once and combines them. `combineStatements` chains them BY BALANCE (one
+  statement's closing balance = the next's opening balance): it finds the head
+  (opening not any other's closing), follows the chain, and CONCATENATES
+  transactions in chain order with each statement's internal order untouched (so
+  the running balance stays valid — we do NOT sort transactions by date, which
+  would break within-day order and the balance). It detects GAPS (a closing with
+  no matching opening = a missing statement) and warns. One reconciliation runs
+  over the whole combined series (first opening + Σcredits − Σdebits = last
+  closing), which also confirms the statements chain correctly. API
+  (app/api/extract/route.ts) accepts "file" (single, unchanged shape) or "files"
+  (multiple → returns result + perFile[] + gaps[] + fullyChained). UI shows a gap
+  warning, a per-file breakdown table, and a "statements link up" indicator.
+  Tested: clean chain orders correctly from shuffled input and reconciles; a
+  missing statement is flagged; two real AIB PDFs of different accounts correctly
+  report fullyChained=false with a gap.
 - **Per-bank prompts** (`prompts.ts`): a base prompt (generic, any bank) plus
   optional bank-specific rules appended for known banks. `getPrompt(bank)`
   returns the right one. Revolut rules are implemented (e.g. the "Comision/Fee"

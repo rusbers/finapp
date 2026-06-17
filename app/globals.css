@@ -208,6 +208,64 @@ input[type="file"]::file-selector-button {
   background: var(--discrepancy-bg);
 }
 
+/* Selected-files list under the upload input */
+.file-list {
+  margin-top: 10px;
+  font-size: 13px;
+  color: var(--ink-soft);
+  font-family: var(--font-num);
+  line-height: 1.5;
+}
+
+/* Warning when statements don't chain by balance (a statement may be missing) */
+.gap-warning {
+  margin-top: 18px;
+  padding: 16px 20px;
+  background: var(--discrepancy-bg);
+  border: 1px solid var(--discrepancy);
+  border-radius: 12px;
+}
+.gap-warning strong {
+  color: var(--discrepancy);
+  font-size: 15px;
+}
+.gap-warning p {
+  margin: 8px 0 0;
+  font-size: 14px;
+  color: var(--ink);
+}
+
+/* Per-file breakdown when several statements are combined */
+.per-file {
+  margin-top: 18px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 16px 20px;
+}
+.per-file-title {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ink-soft);
+}
+.per-file .chained-ok {
+  margin-left: 12px;
+  font-size: 13px;
+  color: var(--ledger-green);
+  font-weight: 600;
+}
+.per-file table {
+  margin-top: 12px;
+}
+.per-file td {
+  font-family: var(--font-num);
+  font-variant-numeric: tabular-nums;
+}
+.per-file td:first-child {
+  font-family: var(--font-ui);
+}
+
 /* Statement details */
 .meta {
   margin-top: 28px;

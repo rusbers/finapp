@@ -312,9 +312,18 @@ pdfjs-dist`): for the target banks, reading the PDF's text positions (x/y) and
   **Now wired into the pipeline**: `parsers.ts` is a registry (bank → parser);
   `pipeline.ts` uses the deterministic parser when the selected bank has one
   (still running sign-correction + reconciliation for an identical output shape),
-  and falls back to AI extraction otherwise. pdfjs-dist needs a worker, which the
-  parser configures via `GlobalWorkerOptions.workerSrc`; `next.config.mjs` marks
-  pdfjs-dist as a `serverExternalPackages` entry so the bundler leaves it alone.
+  and falls back to AI extraction otherwise. **pdfjs is loaded LAZILY** via
+  `lib/core/pdf-loader.ts` (a dynamic `import()`), so it never loads on the AI/
+  generic path. The loader installs a **minimal `DOMMatrix` polyfill** before
+  importing pdfjs (Node on Vercel has no `DOMMatrix`; we only read text positions,
+  no canvas). The pdfjs **worker is imported as a SIDE-EFFECT**
+  (`pdf.worker.min.mjs`) so Next.js traces it into the serverless bundle, paired
+  with `disableWorker: true` in `getDocument` — we do NOT use
+  `GlobalWorkerOptions.workerSrc` (require()-resolving the worker path breaks under
+  Next.js ESM). Each parser passes a **copy** of the bytes
+  (`new Uint8Array(pdfBytes)`) because pdfjs detaches the buffer it's given.
+  `next.config.ts` (not `.mjs`) lists pdfjs-dist under `serverExternalPackages` so
+  the bundler leaves it external.
 - **AIB parser** (`aib-parser.ts`): AIB's layout is very different from Revolut.
   Columns are Date | Details | Debit € | Credit € | Balance €, all three money
   columns RIGHT-aligned, and their absolute X positions SCALE WITH PAGE WIDTH

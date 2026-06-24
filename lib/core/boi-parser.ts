@@ -71,7 +71,7 @@ type Anchors = Partial<Record<Column, number>>;
 async function extractPages(pdfBytes: Uint8Array): Promise<{ tokens: Token[]; width: number }[]> {
   const pdfjs = await loadPdfjs();
   const doc = await pdfjs.getDocument({
-    data: pdfBytes,
+    data: new Uint8Array(pdfBytes), // pdfjs detaches the buffer it's given; copy so the caller's bytes survive
     useSystemFonts: false,
     disableFontFace: true,
     isEvalSupported: false,

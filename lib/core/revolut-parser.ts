@@ -70,7 +70,7 @@ function isCurrencyToken(text: string): boolean {
 async function extractTokens(pdfBytes: Uint8Array): Promise<Token[][]> {
   const pdfjs = await loadPdfjs();
   const doc = await pdfjs.getDocument({
-    data: pdfBytes,
+    data: new Uint8Array(pdfBytes), // pdfjs detaches the buffer it's given; copy so the caller's bytes survive
     useSystemFonts: false,
     // On serverless there's no filesystem path for pdfjs's standard font/cmap
     // data, and we only read text positions (no rendering), so disable anything

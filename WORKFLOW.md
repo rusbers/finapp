@@ -97,8 +97,9 @@ documented per-bank in `CLAUDE.md` (keep them there, balanced across banks).
 
 Per-bank status (specifics → `CLAUDE.md`):
 
-- **Revolut** (`revolut-parser.ts`) — RO/EN, EUR/RON, both number & date formats,
-  summary-row + savings-section handling, multi-statement PDFs.
+- **Revolut** (`revolut-parser.ts`) — RO/EN/RU, EUR/RON/GBP, both number & date
+  formats (incl. Cyrillic months), summary-row + savings/vault-section handling
+  ("Depuneri de la" / "Операции по … сейфам"), multi-statement PDFs.
 - **AIB** (`aib-parser.ts`) — per-page anchors detected from the header (columns
   scale with page width), glued `dr` overdraft, balance-forward per page.
 - **BOI** (`boi-parser.ts`) — Payments-out / Payments-in columns, `OD` overdraft,

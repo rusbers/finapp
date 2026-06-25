@@ -307,14 +307,17 @@ pdfjs-dist`): for the target banks, reading the PDF's text positions (x/y) and
   (€/$/£) OR a 3-letter code suffix (e.g. "140,514.30 RON")**, so RON / other-
   currency Revolut accounts work; foreign figures on (skipped) sub-rows like
   "72.00 MDL" are ignored. **Both number formats** are parsed (English 1,234.56 and
-  European 1.234,56 — rightmost separator is the decimal) and **both date orders**
-  ("10 apr. 2024" and "Jun 11, 2024"). Extraction starts after the transaction-
-  table header (RO "Dată Descriere … Sold" / EN "Date Description … Balance"),
-  **skips per-statement summary rows** ("Cont"/"Account"/"Depunere"/"Total",
+  European 1.234,56 — rightmost separator is the decimal) and dates in RO/EN/RU,
+  both orders ("10 apr. 2024", "Jun 11, 2024", "15 янв. 2024 г."). Extraction
+  starts after the transaction-table header (RO "Dată Descriere … Sold" / EN "Date
+  Description … Balance" / RU "Дата Описание Списания … Остаток") — matched by the
+  description + money-out words, since the balance word can wrap onto its own line.
+  It **skips per-statement summary rows** ("Cont"/"Account"/"Продукт"/"Total",
   detected by a currency token in the opening-balance column at x0≈253), and stops
-  at the reverted tail ("Înapoiate"/"Reverted") AND the savings sub-statement
-  ("Depuneri de la …" — a separate Economii/vault account). A single PDF may
-  concatenate two statements + a savings section; the balance chains across them.
+  at the reverted tail ("Înapoiate"/"Reverted") AND the savings/vault sub-statement
+  (RO "Depuneri de la …" / RU "Операции по … сейфам" — a separate Economii/Сейфы
+  account). A single PDF may concatenate two statements + a savings section; the
+  balance chains across them.
   **See `WORKFLOW.md` for the full Revolut template reference + diagnostic recipe.**
   Plan: same approach for AIB, BOI, PTSB; AI + reconciliation remains the
   fallback for rare banks / scanned PDFs.

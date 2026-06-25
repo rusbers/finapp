@@ -205,19 +205,24 @@ function buildDescription(line: Line): string {
 /**
  * Is this line the transaction-table header?
  * Revolut statements come in Romanian ("Dată Descriere Sume retrase Sume
- * adăugate Sold") and English ("Date Description Money out Money in Balance").
- * We require the description column word plus a money-out/balance word so we
- * don't match the balance-summary header at the top of the statement.
+ * adăugate Sold"), English ("Date Description Money out Money in Balance"), and
+ * Russian ("Дата Описание Списания Пополнения Остаток средств"). We require the
+ * description word + the money-out word; that already excludes the balance-summary
+ * header (which uses Product/Produs/Продукт, not a description word).
  */
 function isTableHeader(line: Line): boolean {
   const text = line.tokens
     .map((t) => t.text)
     .join(" ")
     .toLowerCase()
-  const hasDescription = text.includes("descriere") || text.includes("description")
-  const hasMoneyOut = text.includes("sume retrase") || text.includes("money out")
-  const hasBalanceWord = text.includes("sold") || text.includes("balance")
-  return hasDescription && hasMoneyOut && hasBalanceWord
+  const hasDescription =
+    text.includes("descriere") || text.includes("description") || text.includes("описание")
+  const hasMoneyOut =
+    text.includes("sume retrase") || text.includes("money out") || text.includes("списания")
+  // The balance word ("Sold"/"Balance"/"Остаток средств") can wrap onto a separate
+  // line (RU), so we don't require it. Description + Money-out already exclude the
+  // balance-summary header, which uses Product/Produs/Продукт (no description word).
+  return hasDescription && hasMoneyOut
 }
 
 /**
@@ -225,10 +230,11 @@ function isTableHeader(line: Line): boolean {
  * transactions, Revolut appends non-current sections that would corrupt the
  * running balance if included:
  *   - the reverted/refunded tail ("Înapoiate din ..." / "Reverted ...");
- *   - the savings sub-statement ("Depuneri de la ... până la ..."), a SEPARATE
- *     account (the "Economii"/vault) with its own balance series and daily
- *     interest rows. Each vault transfer's current-account side is already listed
- *     in the main section, so the savings section is purely supplementary.
+ *   - the savings / vault sub-statement: "Depuneri de la ... până la ..." (RO) or
+ *     "Операции по Личным и Групповым сейфам ..." (RU — the Сейфы/Vaults section,
+ *     e.g. Plan Cashback). A SEPARATE account with its own balance series; each
+ *     vault transfer's current-account side is already in the main section, so the
+ *     section is purely supplementary. ("сейф" with a Latin "c" is a font quirk.)
  * Both always come AFTER the current-account transactions, so stopping here keeps
  * every real current-account row. (Section titles are large, ~12.4pt.)
  */
@@ -238,7 +244,7 @@ function isSectionTitle(line: Line): boolean {
     .map((t) => t.text)
     .join(" ")
     .toLowerCase()
-  return /înapoiate|inapoiate|reverted|refunded|depuneri de la/.test(text)
+  return /înapoiate|inapoiate|reverted|refunded|depuneri de la|[сc]ейф/.test(text)
 }
 
 /**
@@ -353,6 +359,20 @@ const MONTHS: Record<string, string> = {
   jul: "07",
   nov: "11",
   // (apr/aug/sep/oct/dec/feb/mar share spelling across both languages)
+  // Russian (e.g. "15 янв. 2024 г."); keyed by the first 3 letters, lowercased.
+  янв: "01",
+  фев: "02",
+  мар: "03",
+  апр: "04",
+  май: "05",
+  мая: "05",
+  июн: "06",
+  июл: "07",
+  авг: "08",
+  сен: "09",
+  окт: "10",
+  ноя: "11",
+  дек: "12",
 }
 
 /**
@@ -362,7 +382,7 @@ const MONTHS: Record<string, string> = {
  * Returns "" if it matches neither. Day-first is tried first, so RO is untouched.
  */
 function toIsoDate(raw: string): string {
-  let m = raw.match(/(\d{1,2})\s+([a-zA-Zăâî]+)\.?\s+(\d{4})/)
+  let m = raw.match(/(\d{1,2})\s+([a-zA-ZăâîЀ-ӿ]+)\.?\s+(\d{4})/)
   if (m) {
     const month = MONTHS[m[2].slice(0, 3).toLowerCase()]
     if (month) return `${m[3]}-${month}-${m[1].padStart(2, "0")}`

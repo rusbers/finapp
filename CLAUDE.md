@@ -468,3 +468,6 @@ layer (bank identification + saving results).
 - **Concise chat replies.** Keep prose responses in chat short and to the point.
   This applies ONLY to chat — code, diffs, and documentation are never shortened
   for the sake of brevity.
+- **Never commit automatically — ask first.** Do not run `git commit` (or push)
+  on your own; propose the change and wait for explicit approval each time, even
+  if a previous commit was approved.

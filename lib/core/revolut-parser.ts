@@ -84,7 +84,10 @@ function parseAmount(text: string): number | null {
  * "140,514.30 RON" for RON accounts). Both contain a digit.
  */
 function isCurrencyToken(text: string): boolean {
-  return /[€$£]\s?\d/.test(text) || /\d[\d.,\s]*[A-Z]{3}$/.test(text)
+  if (!/[0-9]/.test(text)) return false
+  // Symbol anywhere (EN prefix "€5.67" OR RO suffix "111,24€") or a 3-letter
+  // currency code at the end ("140,514.30 RON").
+  return /[€$£]/.test(text) || /[A-Z]{3}$/.test(text)
 }
 
 /** Extract all tokens (text + position + size) from every page, in reading order. */

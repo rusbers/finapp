@@ -303,11 +303,20 @@ pdfjs-dist`): for the target banks, reading the PDF's text positions (x/y) and
   debit x0≈335 (left-aligned), money-in/credit x0≈417 (left-aligned), balance
   x1≈556 (right-aligned), tolerance ±6. Main transaction rows are font size ≥7;
   sub-rows (fee/FX-rate/reference, size≈4.5) are skipped so amounts come only
-  from the main row. Only €/$ tokens count, so foreign-currency figures (e.g.
-  "72.00 MDL") are ignored. Extraction starts after the transaction-table header
-  ("Dată Descriere Sume retrase ... Sold" — the "Descriere" check avoids matching
-  the balance-summary header) and stops at the "Înapoiate"/"Reverted" tail
-  section. Plan: same approach for AIB, BOI, PTSB; AI + reconciliation remains the
+  from the main row. **Money tokens are recognized by a currency symbol prefix
+  (€/$/£) OR a 3-letter code suffix (e.g. "140,514.30 RON")**, so RON / other-
+  currency Revolut accounts work; foreign figures on (skipped) sub-rows like
+  "72.00 MDL" are ignored. **Both number formats** are parsed (English 1,234.56 and
+  European 1.234,56 — rightmost separator is the decimal) and **both date orders**
+  ("10 apr. 2024" and "Jun 11, 2024"). Extraction starts after the transaction-
+  table header (RO "Dată Descriere … Sold" / EN "Date Description … Balance"),
+  **skips per-statement summary rows** ("Cont"/"Account"/"Depunere"/"Total",
+  detected by a currency token in the opening-balance column at x0≈253), and stops
+  at the reverted tail ("Înapoiate"/"Reverted") AND the savings sub-statement
+  ("Depuneri de la …" — a separate Economii/vault account). A single PDF may
+  concatenate two statements + a savings section; the balance chains across them.
+  **See `WORKFLOW.md` for the full Revolut template reference + diagnostic recipe.**
+  Plan: same approach for AIB, BOI, PTSB; AI + reconciliation remains the
   fallback for rare banks / scanned PDFs.
   **Now wired into the pipeline**: `parsers.ts` is a registry (bank → parser);
   `pipeline.ts` uses the deterministic parser when the selected bank has one
@@ -412,7 +421,12 @@ pdfjs-dist`): for the target banks, reading the PDF's text positions (x/y) and
 - **UI**: signature reconciliation equation (verdict), running-balance column,
   extraction trace (model stats), CSV export, a row-by-row balance diagnosis that
   highlights exactly which row breaks, and test controls (primary/fallback model
-  selectors + fallback toggle, defaulting to lite / pro / off).
+  selectors + fallback toggle, defaulting to lite / pro / off). The verdict has a
+  third **"soft" (amber) state** for an out-of-balance that is fully explained by a
+  known bank-side inconsistency (e.g. Revolut crypto-sell spreads — see
+  `isExplainedByCryptoFees` in `verification.ts`), so it's visually distinct from a
+  genuine reconciliation failure. Extraction stays faithful; only the verdict's
+  presentation softens.
 
 ### Known testing notes
 
@@ -443,3 +457,14 @@ layer (bank identification + saving results).
 - **Server-only secrets.** AI key never in the browser.
 - **Small, modular, supervised steps.** Explain non-obvious code. Keep each piece
   replaceable. Prefer clean and correctable over clever or "complete."
+- **Reconciliation is ground truth, not a box to tick.** Extract faithfully; never
+  back-compute amounts from the running balance to force a pass (that masks the very
+  errors reconciliation exists to catch). Flag bank-side inconsistencies (e.g.
+  crypto spreads) rather than auto-correcting amounts.
+- **Keep docs in sync.** When you change behavior (parsers, reconciliation,
+  pipeline, UI, config), update this file AND `WORKFLOW.md` in the SAME change.
+  **`WORKFLOW.md` is the working playbook + bank-parser reference — read it before
+  any parser/extraction work, especially in a fresh session.**
+- **Concise chat replies.** Keep prose responses in chat short and to the point.
+  This applies ONLY to chat — code, diffs, and documentation are never shortened
+  for the sake of brevity.

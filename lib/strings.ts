@@ -31,6 +31,7 @@ export const strings = {
 
   verdictPass: "Reconciled — balances match",
   verdictFail: "Out of balance — check the extraction",
+  verdictSoft: "Out of balance — explained, not an extraction error",
   noTransactionsNote:
     "No transactions were found. This statement's format may not be recognized by the selected bank's parser (for example a different language or layout). Try the generic/AI option, or check the bank selection.",
   errorTooManyFiles: "Too many files. Please upload fewer statements at once.",
@@ -51,6 +52,9 @@ export const strings = {
   // Function returns the formatted difference string.
   discrepancyNote: (amount: string) =>
     `Difference: ${amount} — likely a missing or duplicated transaction, or a misread amount/column.`,
+  // Soft case: the imbalance is fully explained by Revolut's hidden crypto-sell fees.
+  discrepancyNoteCrypto: (amount: string, n: number) =>
+    `Difference: ${amount} — caused by Revolut's hidden crypto-sell fees on ${n} row${n === 1 ? "" : "s"} (the bank shows the gross crypto value as money in but credits less to the balance). The extracted amounts match the statement exactly — this is the bank's figure, not an extraction error.`,
 
   metaBank: "Bank",
   metaTransactions: "Transactions",
@@ -75,6 +79,8 @@ export const strings = {
   // Row-by-row balance check messages
   breaksHeading: (n: number) =>
     `${n} row${n === 1 ? "" : "s"} where the running balance doesn't add up — likely where the extraction broke:`,
+  breaksHeadingCrypto: (n: number) =>
+    `${n} crypto-sell row${n === 1 ? "" : "s"} where Revolut credits less than the printed amount (a hidden bank fee), so the running balance differs:`,
   breaksNone:
     "Every row's running balance adds up, yet the total is off. The error is likely a missing or extra row the statement's balance can't reveal, or the opening/closing balance.",
   breaksNoBalance:

@@ -14,7 +14,7 @@
 
 import { useState, useSyncExternalStore } from "react"
 import { fromCents } from "@/lib/core/reconciliation"
-import { downloadCsv, findBalanceBreaks } from "@/lib/core/verification"
+import { downloadCsv, findBalanceBreaks, isExplainedByCryptoFees } from "@/lib/core/verification"
 import type {
   StatementData,
   ReconciliationResult,
@@ -166,6 +166,9 @@ export default function Page() {
   // Row-by-row balance check — only meaningful when reconciliation failed.
   const breaks = result && r && !r.passed ? findBalanceBreaks(result.data) : []
   const breakIndexes = new Set(breaks.map((b) => b.index))
+  // Out of balance, but fully explained by Revolut's hidden crypto-sell fees —
+  // the extraction is faithful, so show it softer (not a hard failure).
+  const softExplained = !!r && !r.passed && isExplainedByCryptoFees(breaks)
 
   return (
     <main className="page">
@@ -267,10 +270,10 @@ export default function Page() {
       {result && r && (
         <>
           {/* Verdict — the signature element */}
-          <div className={`verdict ${r.passed ? "pass" : "fail"}`}>
+          <div className={`verdict ${r.passed ? "pass" : softExplained ? "soft" : "fail"}`}>
             <div className="verdict-head">
-              <span className="pill">{r.passed ? "✓" : "!"}</span>
-              {r.passed ? s.verdictPass : s.verdictFail}
+              <span className="pill">{r.passed ? "✓" : softExplained ? "≈" : "!"}</span>
+              {r.passed ? s.verdictPass : softExplained ? s.verdictSoft : s.verdictFail}
             </div>
 
             <div className="equation">
@@ -305,7 +308,9 @@ export default function Page() {
             )}
             {!r.passed && transactions.length > 0 && (
               <div className="discrepancy-note">
-                {s.discrepancyNote(fromCents(Math.abs(r.discrepancyCents)))}
+                {softExplained
+                  ? s.discrepancyNoteCrypto(fromCents(Math.abs(r.discrepancyCents)), breaks.length)
+                  : s.discrepancyNote(fromCents(Math.abs(r.discrepancyCents)))}
               </div>
             )}
           </div>
@@ -390,7 +395,11 @@ export default function Page() {
                 <p className="breaks-msg">{s.breaksNone}</p>
               ) : (
                 <>
-                  <p className="breaks-msg">{s.breaksHeading(breaks.length)}</p>
+                  <p className="breaks-msg">
+                    {softExplained
+                      ? s.breaksHeadingCrypto(breaks.length)
+                      : s.breaksHeading(breaks.length)}
+                  </p>
                   <ul className="breaks-list">
                     {breaks.map((b) => (
                       <li key={b.index}>

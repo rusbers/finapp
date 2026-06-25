@@ -90,6 +90,24 @@ export function findBalanceBreaks(data: StatementData, toleranceCents = 2): Bala
   return breaks
 }
 
+/**
+ * Revolut prints crypto-sell proceeds GROSS as "money in" but credits the NET
+ * (after an unitemized spread/fee) to the running balance, e.g. "Transfer from
+ * Revolut Digital Assets Europe Ltd / Sell of X". The fee isn't printed anywhere,
+ * so such rows make the statement go out of balance through NO extraction error —
+ * we read the printed amounts faithfully. Detect the case where EVERY balance
+ * break is one of these rows, so the UI can show a softer, explained note instead
+ * of a hard failure (distinguishing it from a genuinely broken reconciliation).
+ */
+const CRYPTO_SELL_RE = /transfer from revolut digital assets/i
+
+export function isExplainedByCryptoFees(breaks: BalanceBreak[]): boolean {
+  if (breaks.length === 0) return false
+  return breaks.every(
+    (b) => b.deltaCents < 0 && CRYPTO_SELL_RE.test(b.transaction.description),
+  )
+}
+
 /** Convenience: a short human-readable summary line for a balance break. */
 export function describeBreak(b: BalanceBreak): string {
   return (

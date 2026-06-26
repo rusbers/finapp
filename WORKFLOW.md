@@ -180,10 +180,16 @@ spreads, where the gross crypto value is shown but only the net hits the balance
   `DOMMatrix` polyfill, worker imported as a side-effect, `disableWorker: true`,
   pass a **copy** of the bytes (pdfjs detaches them), `serverExternalPackages` in
   `next.config.ts`.
-- **Test statements** live on the founder's machine under
-  `D:\work\statements\Revolut\{ro,en}\…` (not in the repo). As of this writing all
-  RO statements reconcile; EN (incl. a RON account, and a crypto account that hits
-  the "soft" state) are validated.
+- **Scanned / image-only PDFs → no text layer.** pdfjs extracts **0 text tokens**,
+  so EVERY deterministic parser returns `no-tx` — this is NOT a parser bug, there's
+  nothing to read positionally. Diagnose with a quick read-only pdfjs token count
+  before touching a parser (e.g. `statements/BOI/2/*` are all scans). Scanned
+  statements need the **AI vision path** (Gemini OCRs the image) + reconciliation;
+  the deterministic harness correctly marks them `no-tx`.
+- **Test statements** live (gitignored) under `statements/<bank>/…` inside the repo
+  — moved there from `D:\work\statements`. All Revolut RO/EN/RU + consolidated, and
+  AIB/BOI current/business/saving statements reconcile; credit-card/loan layouts and
+  scanned PDFs are `no-tx`/`fail` (no parser / no text).
 
 ---
 

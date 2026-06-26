@@ -373,12 +373,17 @@ pdfjs-dist`): for the target banks, reading the PDF's text positions (x/y) and
   Rate"/"Lending @ x%" rows are informational; (e) FX lines put the original
   amount/rate/fee in Details, only the EUR value lands in a money column; (f) a
   right-hand info sidebar (x0 > 0.72×width) is ignored; (g) each page restarts
-  with BALANCE FORWARD. Anchors are taken from the header (always present and
+  with BALANCE FORWARD — and **loan statements** print "OPENING BALANCE" (often
+  0.00, before the drawdown) on page 1 instead, with BALANCE FORWARD on later
+  pages; BOTH are recognized as the opening/checkpoint row (the FIRST is the
+  statement opening). Missing "OPENING BALANCE" made loans fail by exactly the
+  opening: page-1 postings were counted while the opening was taken from page 2's
+  forward. Anchors are taken from the header (always present and
   correctly ordered) then refined toward the body amounts — clustering body
   amounts alone breaks on pages with only one transaction (a lone balance gets
   misread as a credit). Proven on real statements: AIB-3 (1 page, 19 tx, incl.
-  overdraft) and a 4-page statement with USD FX (61 tx) both reconcile to the
-  cent, and every transaction matches a separately-validated Python reference.
+  overdraft) and a 4-page statement with USD FX (61 tx) reconcile to the cent, as
+  do AIB loan statements (all-overdraft "Xdr" balance series).
 - **BOI parser** (`boi-parser.ts`): Bank of Ireland uses Payments-out /
   Payments-in / Balance columns (NOT Debit/Credit), all RIGHT-aligned, anchors
   detected per page from the header words "out"/"in"/"Balance" (refined with body

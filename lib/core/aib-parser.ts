@@ -271,8 +271,15 @@ export async function parseAib(pdfBytes: Uint8Array): Promise<StatementData> {
         if (c) cols[c.col] = c.value;
       }
 
-      // Opening balance row.
-      if (description.toUpperCase().startsWith("BALANCE FORWARD")) {
+      // Opening / page-forward balance row. Current accounts print "BALANCE
+      // FORWARD" on every page; LOAN statements print "OPENING BALANCE" on page 1
+      // (often 0.00, before the drawdown) and "BALANCE FORWARD" on later pages.
+      // Both are balance checkpoints, and the FIRST one is the statement's opening
+      // — without recognising "OPENING BALANCE" the page-1 postings were counted
+      // while the opening was taken from page 2's forward (double-count → a
+      // failure by exactly the opening balance).
+      const upperDesc = description.toUpperCase();
+      if (upperDesc.startsWith("BALANCE FORWARD") || upperDesc.startsWith("OPENING BALANCE")) {
         if (cols.balance !== undefined) {
           running = cols.balance;
           if (!sawFirstBalanceForward) {

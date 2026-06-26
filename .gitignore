@@ -39,3 +39,7 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# real bank statements (client data) + reconciliation test results — never commit
+/statements/
+/.reconcile/

@@ -6,7 +6,9 @@
  * consistent on that bank's fixed layout. Banks without a parser fall back to AI
  * extraction in the pipeline.
  *
- * To add a bank: write its parser (like revolut-parser.ts) and add one entry here.
+ * To add a bank: write its parser (like revolut-parser.ts), add one entry here, and
+ * register it in the regression harness (`BANKS` in scripts/test-statements.mts) so its
+ * statements are covered. Only banks with a deterministic parser are tested.
  */
 
 import type { StatementData } from "./types"

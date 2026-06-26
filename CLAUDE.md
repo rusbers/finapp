@@ -485,6 +485,14 @@ layer (bank identification + saving results).
   pipeline, UI, config), update this file AND `WORKFLOW.md` in the SAME change.
   **`WORKFLOW.md` is the working playbook + bank-parser reference — read it before
   any parser/extraction work, especially in a fresh session.**
+- **After a parser change, offer the regression harness.** When you create or modify
+  a parser, ask whether to run `npm run test:statements -- <bank>` and report the diff
+  vs the saved baseline BEFORE committing. The harness (`scripts/test-statements.mts`)
+  runs real statements through the production path and flags any reconciliation change;
+  data (PDFs in `statements/`, results in `.reconcile/`) is gitignored. Each run also
+  writes a colour-coded, filterable HTML report (`.reconcile/report.html`, open with
+  `npm run test:report` or the `--open` flag) — a dev/local artifact only, nothing in
+  `app/`. See `WORKFLOW.md` → "Regression harness".
 - **Concise chat replies.** Keep prose responses in chat short and to the point.
   This applies ONLY to chat — code, diffs, and documentation are never shortened
   for the sake of brevity.

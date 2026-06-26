@@ -44,6 +44,9 @@ const OD_MARGIN = 5.0;         // an 'OD' token within this of the balance edge 
 const Y_TOL = 2;               // tokens within this Y distance are the same visual line
 
 const AMOUNT_RE = /^(\d{1,3}(?:,\d{3})*\.\d{2}|\d+\.\d{2})$/;
+// An overdraft balance where pdfjs JOINED the amount and the "OD" marker into one
+// token ("6.00 OD" = -6.00), instead of two separate tokens. Value is negated.
+const OD_BALANCE_RE = /^(\d{1,3}(?:,\d{3})*\.\d{2}|\d+\.\d{2})\s+OD$/;
 const DATE_RE = /^(\d{1,2})\s+([A-Za-z]{3})\s+(\d{4})$/;
 
 const MONTHS: Record<string, string> = {
@@ -237,8 +240,17 @@ export async function parseBoi(pdfBytes: Uint8Array): Promise<StatementData> {
       // Legal footer / page-number line → end of this page's table.
       if (joined.startsWith("Bank of Ireland") || joined.startsWith("Page ")) break;
 
-      // Is there an 'OD' overdraft marker just right of the balance edge?
+      // Overdraft marker. Two tokenizations: a SEPARATE "OD" token to the right of
+      // the balance, or pdfjs joining the amount + marker into one ("6.00 OD").
       const hasOD = line.tokens.some((t) => t.text === "OD" && t.x0 > balEdge - OD_MARGIN);
+      let glueOdBalance: number | undefined; // balance from a glued "6.00 OD" token
+      for (const t of line.tokens) {
+        const m = OD_BALANCE_RE.exec(t.text);
+        if (m && t.x0 > MONEY_LEFT_FRAC * width) {
+          const v = parseAmount(m[1]);
+          if (v !== null) glueOdBalance = -v;
+        }
+      }
 
       // Bucket tokens into date / description / money.
       const dateToks: Token[] = [];
@@ -246,7 +258,8 @@ export async function parseBoi(pdfBytes: Uint8Array): Promise<StatementData> {
       const moneyToks: Token[] = [];
       for (const t of line.tokens) {
         if (classifyAmount(t, anchors, width)) moneyToks.push(t);
-        else if (t.text === "OD" && t.x0 > balEdge - OD_MARGIN) continue; // overdraft marker
+        else if (t.text === "OD" && t.x0 > balEdge - OD_MARGIN) continue; // separate overdraft marker
+        else if (OD_BALANCE_RE.test(t.text) && t.x0 > MONEY_LEFT_FRAC * width) continue; // glued "6.00 OD"
         else if (t.x0 < DATE_RIGHT_FRAC * width) dateToks.push(t);
         else descToks.push(t);
       }
@@ -267,7 +280,8 @@ export async function parseBoi(pdfBytes: Uint8Array): Promise<StatementData> {
         if (c) cols[c.col] = c.value;
       }
       let balance = cols.balance;
-      if (balance !== undefined && hasOD) balance = -balance; // overdrawn
+      if (balance !== undefined && hasOD) balance = -balance; // overdrawn (separate OD)
+      if (glueOdBalance !== undefined) balance = glueOdBalance; // overdrawn (glued "X.XX OD")
 
       // BALANCE FORWARD: page-opening balance / cross-page checkpoint.
       if (description.toUpperCase().startsWith("BALANCE FORWARD")) {

@@ -385,8 +385,11 @@ pdfjs-dist`): for the target banks, reading the PDF's text positions (x/y) and
   amounts). Key differences from AIB: (a) out and in are SEPARATE columns — the
   same value can appear as both an out and an in (purchase + refund), only x1
   distinguishes them; (b) ONE LINE = ONE TRANSACTION (no separate detail/
-  reference lines); (c) overdraft is a SEPARATE "OD" token to the right of the
-  balance ("6.00 OD" = -6.00), unlike AIB's glued "dr"; (d) "SUBTOTAL:" is a
+  reference lines); (c) overdraft is marked by "OD" to the right of the balance
+  ("6.00 OD" = -6.00), unlike AIB's glued "dr" — handled whether pdfjs emits a
+  SEPARATE "OD" token or JOINS it to the amount as one token ("6.00 OD"); the
+  joined form was missing the final closing balance and made fee-ending statements
+  fail by exactly the maintenance fee; (d) "SUBTOTAL:" is a
   page-closing balance that equals the next page's BALANCE FORWARD (day blocks
   may span pages); (e) "FEE: ..." lines ARE real transactions; (f) FX originals/
   rates are embedded in the description token ("P2908IE700.00@1.16098"), only the
@@ -394,9 +397,10 @@ pdfjs-dist`): for the target banks, reading the PDF's text positions (x/y) and
   printed only sporadically (block checkpoint) and the Date is inherited downward.
   Validated against a real 7-page statement (231 transactions): reconciles to the
   cent and every transaction matches a separately-validated Python reference.
-  NOTE: validated by replaying the pdfplumber positional dump through the TS
-  logic; the in-app pdfjs path should be confirmed on a real BOI PDF (pdfjs may
-  tokenize the header differently, as seen with AIB — detection handles both).
+  Confirmed on the real in-app pdfjs path across multiple BOI statements (the
+  regression harness): current accounts incl. fee-ending and overdraft months, and
+  a loan statement (all-OD balance series), reconcile to the cent. The header and
+  the "OD" marker are both handled whether pdfjs splits or joins their tokens.
 - **Multi-PDF upload** (`combine.ts` + `extractAndReconcileMany` in pipeline.ts):
   banks like AIB only generate periodic statements (you can't pick a date range),
   so a user wanting a custom period has several PDFs. The app accepts multiple

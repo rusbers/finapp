@@ -200,8 +200,9 @@ spreads, where the gross crypto value is shown but only the net hits the balance
   unreadable layouts as a deterministic `no-tx`.
 - **Test statements** live (gitignored) under `statements/<bank>/…` inside the repo
   — moved there from `D:\work\statements`. All Revolut RO/EN/RU + consolidated, and
-  AIB/BOI current/business/saving statements reconcile; credit-card/loan layouts and
-  scanned PDFs are `no-tx`/`fail` (no parser / no text).
+  AIB/BOI current/business/saving statements reconcile (incl. the BOI loan series,
+  which is an all-overdraft balance chain); AIB credit-card/loan layouts and scanned
+  PDFs are `no-tx`/`fail` (no parser / no text).
 
 ---
 

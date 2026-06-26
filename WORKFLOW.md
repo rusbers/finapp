@@ -186,6 +186,18 @@ spreads, where the gross crypto value is shown but only the net hits the balance
   before touching a parser (e.g. `statements/BOI/2/*` are all scans). Scanned
   statements need the **AI vision path** (Gemini OCRs the image) + reconciliation;
   the deterministic harness correctly marks them `no-tx`.
+- **Anti-extraction fonts (PTSB) → digits absent from the text layer.** `PTSB-combined.pdf`
+  has a text layer, but the body uses the **"AllAndNone"** font whose ToUnicode is
+  poisoned: verified **0 digit mappings out of 1315** ToUnicode targets (letters map,
+  digits don't). Column X-positions and even descriptions are recoverable, but the
+  **amounts cannot be read as text at all** — they exist only as drawn glyph shapes.
+  So a deterministic parser is impossible without OCR/glyph-shape recognition; PTSB
+  stays on the **AI vision path**. (Revisit a deterministic parser only with several
+  PTSB samples AND if `fontkit` shows the embedded glyph *names* survived.)
+- **AI fallback on empty.** In the app, when a parser returns 0 transactions the
+  pipeline falls back to AI vision (`PipelineOptions.allowAiFallback`, default true).
+  The harness passes `allowAiFallback: false` → it never makes AI calls and keeps
+  unreadable layouts as a deterministic `no-tx`.
 - **Test statements** live (gitignored) under `statements/<bank>/…` inside the repo
   — moved there from `D:\work\statements`. All Revolut RO/EN/RU + consolidated, and
   AIB/BOI current/business/saving statements reconcile; credit-card/loan layouts and

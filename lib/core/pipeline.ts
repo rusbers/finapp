@@ -33,6 +33,13 @@ export interface PipelineOptions {
   fallbackModel?: string
   enableFallback?: boolean
   bank?: BankId // which bank's specialized prompt to use (default "generic")
+  /**
+   * When a deterministic parser yields ZERO transactions (an unreadable layout —
+   * a scanned PDF, or an anti-extraction font like PTSB's), fall back to AI vision
+   * instead of returning an empty result. Default true (the app). The regression
+   * harness passes false so it stays deterministic and makes no AI calls.
+   */
+  allowAiFallback?: boolean
 }
 
 export async function extractAndReconcile(
@@ -43,6 +50,7 @@ export async function extractAndReconcile(
   const fallbackModel = options.fallbackModel ?? DEFAULT_FALLBACK_MODEL
   const enableFallback = options.enableFallback ?? DEFAULT_ENABLE_FALLBACK
   const bank: BankId = options.bank ?? "generic"
+  const allowAiFallback = options.allowAiFallback ?? true
 
   // --- Deterministic parser path ---
   // If this bank has a deterministic parser, use it instead of AI: it's 100%
@@ -50,38 +58,58 @@ export async function extractAndReconcile(
   // We still run sign-correction and reconciliation so the output shape and the
   // completeness guarantee are identical to the AI path.
   const parser = getParser(bank)
+  // If the parser ran but found nothing, we remember the attempt so the AI
+  // fallback's trace shows the parser was tried first.
+  let parserAttempt: ExtractionAttempt | null = null
   if (parser) {
     const startedAt = Date.now()
     const parsed = await parser(pdfBytes)
-    const { data, corrections } = correctSignsFromBalance(parsed)
-    let reconciliation = checkReconciliation(data)
     const durationMs = Date.now() - startedAt
 
-    // Guard: if the parser found NO transactions, the layout wasn't recognized
-    // (e.g. a different statement language/format). Zero-vs-zero would otherwise
-    // look like a (false) successful reconciliation, so mark it as NOT passed.
-    if (data.transactions.length === 0) {
-      reconciliation = { ...reconciliation, passed: false }
+    if (parsed.transactions.length > 0) {
+      const { data, corrections } = correctSignsFromBalance(parsed)
+      const reconciliation = checkReconciliation(data)
+      return {
+        data,
+        reconciliation,
+        attempts: [
+          {
+            model: `parser:${bank}`,
+            reconciliationPassed: reconciliation.passed,
+            discrepancyCents: reconciliation.discrepancyCents,
+            durationMs,
+          },
+        ],
+        modelUsed: `parser:${bank}`,
+        fallbackUsed: false,
+        corrections,
+      }
     }
 
-    return {
-      data,
-      reconciliation,
-      attempts: [
-        {
-          model: `parser:${bank}`,
-          reconciliationPassed: reconciliation.passed,
-          discrepancyCents: reconciliation.discrepancyCents,
-          durationMs,
-        },
-      ],
-      modelUsed: `parser:${bank}`,
-      fallbackUsed: false,
-      corrections,
+    // Parser found NO transactions → the layout isn't readable deterministically
+    // (a scanned PDF, or an anti-extraction font like PTSB's). Record the attempt;
+    // then, if allowed, fall through to AI vision below (it reads the rendered
+    // page, so a broken/absent text layer doesn't matter).
+    parserAttempt = { model: `parser:${bank}`, reconciliationPassed: false, discrepancyCents: 0, durationMs }
+
+    if (!allowAiFallback) {
+      // Deterministic-only (e.g. the regression harness): return the empty result
+      // marked NOT passed; never make an AI call.
+      const { data, corrections } = correctSignsFromBalance(parsed)
+      const reconciliation = { ...checkReconciliation(data), passed: false }
+      return {
+        data,
+        reconciliation,
+        attempts: [parserAttempt],
+        modelUsed: `parser:${bank}`,
+        fallbackUsed: false,
+        corrections,
+      }
     }
+    // else: fall through to the AI extraction path below.
   }
 
-  // --- AI extraction path (banks without a deterministic parser) ---
+  // --- AI extraction path (banks without a parser, or parser fell back here) ---
   const prompt = getPrompt(bank)
 
   // Which models to try, in order. Without fallback, just the primary one.
@@ -91,7 +119,9 @@ export async function extractAndReconcile(
       ? [primaryModel, fallbackModel]
       : [primaryModel]
 
-  const attempts: ExtractionAttempt[] = []
+  // Seed with the (empty) parser attempt when we fell back from it, so the trace
+  // shows parser → AI and `fallbackUsed` reflects it.
+  const attempts: ExtractionAttempt[] = parserAttempt ? [parserAttempt] : []
   let last: {
     data: StatementData
     reconciliation: ReconciliationResult

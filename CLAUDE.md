@@ -341,7 +341,13 @@ pdfjs-dist`): for the target banks, reading the PDF's text positions (x/y) and
   **Now wired into the pipeline**: `parsers.ts` is a registry (bank → parser);
   `pipeline.ts` uses the deterministic parser when the selected bank has one
   (still running sign-correction + reconciliation for an identical output shape),
-  and falls back to AI extraction otherwise. **pdfjs is loaded LAZILY** via
+  and falls back to AI extraction otherwise. **AI fallback on empty**: if a
+  deterministic parser returns ZERO transactions (an unreadable layout — a scanned
+  PDF, or an anti-extraction font like PTSB's "AllAndNone", where the digits aren't
+  in the text layer at all), the pipeline falls back to AI vision, which reads the
+  rendered page. Controlled by `PipelineOptions.allowAiFallback` (default **true**
+  in the app; the regression harness passes **false** so it stays deterministic and
+  makes no AI calls). **pdfjs is loaded LAZILY** via
   `lib/core/pdf-loader.ts` (a dynamic `import()`), so it never loads on the AI/
   generic path. The loader installs a **minimal `DOMMatrix` polyfill** before
   importing pdfjs (Node on Vercel has no `DOMMatrix`; we only read text positions,

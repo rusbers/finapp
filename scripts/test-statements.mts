@@ -163,7 +163,9 @@ async function processStatement(bank: BankId, absPath: string): Promise<StmtReco
         })),
       }
     }
-    const r = await extractAndReconcile(bytes, { bank })
+    // allowAiFallback:false → deterministic only; an unreadable layout stays
+    // no-tx instead of triggering a (non-deterministic, paid) AI call.
+    const r = await extractAndReconcile(bytes, { bank, allowAiFallback: false })
     const n = r.data.transactions.length
     return {
       bank,

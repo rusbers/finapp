@@ -20,6 +20,7 @@ import type {
   ReconciliationResult,
   ExtractionAttempt,
   SignCorrection,
+  Transaction,
 } from "@/lib/core/types"
 import { BANK_LABELS, type BankId } from "@/lib/core/prompts"
 import { strings as s } from "@/lib/strings"
@@ -36,6 +37,21 @@ interface StatementGap {
   nextOpeningBalance: number | null
 }
 
+interface ConsolidatedAccount {
+  label: string
+  currency: string
+  transactionCount: number
+  openingBalance: number
+  closingBalance: number
+  reconciliation: ReconciliationResult
+  transactions: Transaction[]
+}
+interface ConsolidatedResponse {
+  bank: string
+  allReconciled: boolean
+  accounts: ConsolidatedAccount[]
+}
+
 interface ApiResponse {
   data: StatementData
   reconciliation: ReconciliationResult
@@ -48,6 +64,8 @@ interface ApiResponse {
   perFile?: PerFileResult[]
   gaps?: StatementGap[]
   fullyChained?: boolean
+  // Present only for a Revolut consolidated statement (per-account results):
+  consolidated?: ConsolidatedResponse
 }
 
 // Default test settings + where they're saved in the browser.
@@ -161,7 +179,7 @@ export default function Page() {
   }
 
   const r = result?.reconciliation
-  const transactions = result?.data.transactions ?? []
+  const transactions = result?.data?.transactions ?? []
   const hasBalances = transactions.some((t) => t.balance != null)
   // Row-by-row balance check — only meaningful when reconciliation failed.
   const breaks = result && r && !r.passed ? findBalanceBreaks(result.data) : []
@@ -266,6 +284,111 @@ export default function Page() {
       </section>
 
       {error && <div className="error">{error}</div>}
+
+      {result?.consolidated && (
+        <>
+          <div className={`verdict ${result.consolidated.allReconciled ? "pass" : "fail"}`}>
+            <div className="verdict-head">
+              <span className="pill">{result.consolidated.allReconciled ? "✓" : "!"}</span>
+              {result.consolidated.allReconciled ? s.consolidatedPass : s.consolidatedFail}
+            </div>
+          </div>
+          <div className="per-file">
+            <span className="per-file-title">
+              {s.consolidatedHeading(result.consolidated.accounts.length)}
+            </span>
+            <table>
+              <thead>
+                <tr>
+                  <th>{s.consolidatedColumns.account}</th>
+                  <th>{s.consolidatedColumns.count}</th>
+                  <th>{s.consolidatedColumns.range}</th>
+                  <th>{s.consolidatedColumns.status}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {result.consolidated.accounts.map((a, i) => (
+                  <tr key={i}>
+                    <td>{a.label}</td>
+                    <td>{a.transactionCount}</td>
+                    <td>
+                      {a.openingBalance.toFixed(2)} → {a.closingBalance.toFixed(2)} {a.currency}
+                    </td>
+                    <td className={a.transactionCount === 0 ? "" : a.reconciliation.passed ? "trace-ok" : "trace-fail"}>
+                      {a.transactionCount === 0
+                        ? "—"
+                        : a.reconciliation.passed
+                          ? "✓"
+                          : `✗ ${fromCents(Math.abs(a.reconciliation.discrepancyCents))}`}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Per-account detail: one table per current account, each exportable */}
+          {result.consolidated.accounts
+            .filter((a) => a.transactionCount > 0)
+            .map((a, ai) => (
+              <div key={ai} className="account-detail">
+                <div className="meta">
+                  <span>
+                    {s.metaBank}: <b>{a.label}</b>
+                  </span>
+                  <span>
+                    {s.metaTransactions}: <b>{a.transactionCount}</b>
+                  </span>
+                  <span className={a.reconciliation.passed ? "trace-ok" : "trace-fail"}>
+                    {a.reconciliation.passed
+                      ? `✓ ${s.attemptReconciled}`
+                      : `✗ ${fromCents(Math.abs(a.reconciliation.discrepancyCents))}`}
+                  </span>
+                  <button
+                    className="link-button"
+                    onClick={() =>
+                      downloadCsv(
+                        {
+                          bank: a.label,
+                          openingBalance: a.openingBalance,
+                          closingBalance: a.closingBalance,
+                          transactions: a.transactions,
+                        },
+                        `${result.fileName.replace(/\.pdf$/i, "")}-${a.currency}.csv`,
+                      )
+                    }
+                  >
+                    {s.downloadCsv}
+                  </button>
+                </div>
+                <table>
+                  <thead>
+                    <tr>
+                      <th className="rownum">#</th>
+                      <th className="date">{s.thDate}</th>
+                      <th>{s.thDescription}</th>
+                      <th className="num">{s.thDebit}</th>
+                      <th className="num">{s.thCredit}</th>
+                      <th className="num">{s.thBalance}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {a.transactions.map((t, i) => (
+                      <tr key={i}>
+                        <td className="rownum">{i + 1}</td>
+                        <td className="date">{t.date}</td>
+                        <td>{t.description}</td>
+                        <td className="num debit">{t.debit ? t.debit.toFixed(2) : ""}</td>
+                        <td className="num credit">{t.credit ? t.credit.toFixed(2) : ""}</td>
+                        <td className="num">{t.balance != null ? t.balance.toFixed(2) : ""}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ))}
+        </>
+      )}
 
       {result && r && (
         <>

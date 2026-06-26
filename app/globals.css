@@ -289,6 +289,17 @@ input[type="file"]::file-selector-button {
   font-weight: 600;
 }
 
+/* Per-account detail block (Revolut consolidated): one labelled, exportable
+   transaction table per current account, separated by a divider. */
+.account-detail {
+  margin-top: 40px;
+  padding-top: 20px;
+  border-top: 2px solid var(--line);
+}
+.account-detail .meta {
+  margin-top: 0;
+}
+
 /* Transactions table */
 table {
   width: 100%;

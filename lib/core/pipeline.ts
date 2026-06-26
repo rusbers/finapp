@@ -17,12 +17,14 @@ import type {
   ExtractionAttempt,
   PipelineResult,
   SignCorrection,
+  Transaction,
 } from "./types"
 import { extractStatement } from "./extraction"
 import { checkReconciliation } from "./reconciliation"
 import { correctSignsFromBalance } from "./sign-correction"
 import { getPrompt, type BankId } from "./prompts"
 import { getParser } from "./parsers"
+import { parseRevolutConsolidated } from "./revolut-consolidated-parser"
 import { combineStatements, type StatementGap } from "./combine"
 import { DEFAULT_ENABLE_FALLBACK, DEFAULT_PRIMARY_MODEL, DEFAULT_FALLBACK_MODEL } from "./config"
 
@@ -213,4 +215,56 @@ export async function extractAndReconcileMany(
   }
 
   return { result, perFile, gaps, fullyChained }
+}
+
+/** One current account inside a Revolut consolidated ("Custom") statement. */
+export interface ConsolidatedAccountResult {
+  label: string
+  currency: string
+  transactionCount: number
+  openingBalance: number
+  closingBalance: number
+  reconciliation: ReconciliationResult
+  transactions: Transaction[] // the account's rows (for the per-account table + CSV export)
+}
+
+/** Result of a Revolut consolidated statement: every current account, reconciled
+ * SEPARATELY (each has its own currency and balance series). */
+export interface ConsolidatedPipelineResult {
+  bank: string
+  accounts: ConsolidatedAccountResult[]
+  /** True if every non-empty account reconciles. */
+  allReconciled: boolean
+}
+
+/**
+ * Parse a Revolut consolidated/"Custom" statement (multiple current accounts in
+ * one PDF) and reconcile EACH current account on its own. Uses its own parser —
+ * `revolut-parser.ts` (the per-account parser) is untouched. Savings & crypto
+ * sections are out of scope for now (MVP).
+ */
+export async function extractConsolidated(pdfBytes: Uint8Array): Promise<ConsolidatedPipelineResult> {
+  const parsed = await parseRevolutConsolidated(pdfBytes)
+  const accounts: ConsolidatedAccountResult[] = parsed.accounts.map((a) => {
+    const data: StatementData = {
+      bank: parsed.bank,
+      openingBalance: a.openingBalance,
+      closingBalance: a.closingBalance,
+      transactions: a.transactions,
+    }
+    let reconciliation = checkReconciliation(data)
+    if (a.transactions.length === 0) reconciliation = { ...reconciliation, passed: false }
+    return {
+      label: a.label,
+      currency: a.currency,
+      transactionCount: a.transactions.length,
+      openingBalance: a.openingBalance,
+      closingBalance: a.closingBalance,
+      reconciliation,
+      transactions: a.transactions,
+    }
+  })
+  const withTx = accounts.filter((a) => a.transactionCount > 0)
+  const allReconciled = withTx.length > 0 && withTx.every((a) => a.reconciliation.passed)
+  return { bank: parsed.bank, accounts, allReconciled }
 }

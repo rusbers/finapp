@@ -43,6 +43,17 @@ export const strings = {
     "These statements don't link up by balance — one or more statements may be missing from the series. The closing balance of one statement should match the opening balance of the next.",
   chainedOk: "All statements link up by balance",
 
+  // Revolut consolidated ("Custom") statement — several current accounts in one PDF
+  consolidatedPass: "Reconciled — all accounts match",
+  consolidatedFail: "Out of balance — check the accounts below",
+  consolidatedHeading: (n: number) => `Consolidated statement — ${n} account${n === 1 ? "" : "s"}`,
+  consolidatedColumns: {
+    account: "Account",
+    count: "Transactions",
+    range: "Opening → Closing",
+    status: "Reconciled",
+  },
+
   eqOpening: "Opening balance",
   eqCredits: "Credits",
   eqDebits: "Debits",

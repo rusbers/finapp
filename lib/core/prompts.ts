@@ -15,11 +15,12 @@
  */
 
 /** Bank identifiers we have specialized handling for. "generic" = no specialization. */
-export type BankId = "generic" | "revolut" | "aib" | "boi" | "ptsb";
+export type BankId = "generic" | "revolut" | "revolut-consolidated" | "aib" | "boi" | "ptsb";
 
 export const BANK_LABELS: Record<BankId, string> = {
   generic: "Auto / Generic",
   revolut: "Revolut",
+  "revolut-consolidated": "Revolut (consolidated)",
   aib: "AIB",
   boi: "Bank of Ireland",
   ptsb: "Permanent TSB",

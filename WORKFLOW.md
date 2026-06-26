@@ -100,6 +100,11 @@ Per-bank status (specifics → `CLAUDE.md`):
 - **Revolut** (`revolut-parser.ts`) — RO/EN/RU, EUR/RON/GBP, both number & date
   formats (incl. Cyrillic months), summary-row + savings/vault-section handling
   ("Depuneri de la" / "Операции по … сейфам"), multi-statement PDFs.
+- **Revolut consolidated / "Custom"** (`revolut-consolidated-parser.ts`) — a
+  SEPARATE parser (bank `revolut-consolidated`): one PDF with many accounts and a
+  different layout (signed amount column + Balance, no debit/credit). MVP = current
+  accounts only (EN/RO/RU), each reconciled per-account and shown as its own
+  detailed, separately-exportable (CSV) table; savings/crypto deferred.
 - **AIB** (`aib-parser.ts`) — per-page anchors detected from the header (columns
   scale with page width), glued `dr` overdraft, balance-forward per page.
 - **BOI** (`boi-parser.ts`) — Payments-out / Payments-in columns, `OD` overdraft,

@@ -248,6 +248,8 @@ lib/
 │   ├── gemini.ts          → Gemini provider: API call, retries, JSON repair (server-only)
 │   ├── prompts.ts         → per-bank prompt registry (base + bank-specific rules)
 │   ├── revolut-parser.ts  → DETERMINISTIC Revolut parser (pdfjs text positions; 100%)
+│   ├── revolut-consolidated-parser.ts → SEPARATE parser for Revolut "Custom"/
+│   │                        consolidated statements (multi-account; per-account reconcile)
 │   ├── aib-parser.ts      → DETERMINISTIC AIB parser (pdfjs; right-aligned cols, scales w/ width)
 │   ├── boi-parser.ts      → DETERMINISTIC BOI parser (pdfjs; Payments-out/in cols, OD overdraft)
 │   ├── parsers.ts         → registry mapping banks → deterministic parsers
@@ -318,6 +320,21 @@ pdfjs-dist`): for the target banks, reading the PDF's text positions (x/y) and
   (RO "Depuneri de la …" / RU "Операции по … сейфам" — a separate Economii/Сейфы
   account). A single PDF may concatenate two statements + a savings section; the
   balance chains across them.
+- **Revolut consolidated / "Custom" statement** (`revolut-consolidated-parser.ts`):
+  a DIFFERENT document — ONE PDF bundling many accounts (several current accounts in
+  different currencies, plus savings & crypto) with lots of summary pages and a
+  different transaction layout (Date | Description | Category | signed amount |
+  Balance | Tax | Fees — no separate debit/credit columns). It gets its OWN parser
+  (the per-account `revolut-parser.ts` is untouched), selected via the separate bank
+  `revolut-consolidated`. **MVP scope: the current-account sections only** (EN/RO/RU),
+  each reconciled SEPARATELY (own currency + balance series); the pipeline returns
+  `ConsolidatedPipelineResult` (each account carries its own `transactions[]`) and the
+  UI shows a per-account summary plus one detailed, individually-exportable (CSV)
+  transaction table per account (0-tx accounts are listed but not detailed). Money values are
+  read with a grouping-aware regex (handles `1,000.00` / `1.000,00` / `9 271,00`,
+  € prefix/suffix, and amount+balance merged into one token). Savings/crypto sections
+  are out of scope for now. Verified: all current accounts across real EN/RO/RU
+  consolidated statements reconcile to the cent.
   **See `WORKFLOW.md` for the full Revolut template reference + diagnostic recipe.**
   Plan: same approach for AIB, BOI, PTSB; AI + reconciliation remains the
   fallback for rare banks / scanned PDFs.

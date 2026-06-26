@@ -8,7 +8,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server"
-import { extractAndReconcile, extractAndReconcileMany } from "@/lib/core/pipeline"
+import { extractAndReconcile, extractAndReconcileMany, extractConsolidated } from "@/lib/core/pipeline"
 import { isAllowedModel } from "@/lib/core/config"
 import { BANK_LABELS, type BankId } from "@/lib/core/prompts"
 import { strings } from "@/lib/strings"
@@ -61,6 +61,14 @@ export async function POST(req: NextRequest) {
       typeof rawBank === "string" && rawBank in BANK_LABELS ? (rawBank as BankId) : "generic"
 
     const options = { primaryModel, fallbackModel, enableFallback, bank }
+
+    // Revolut consolidated ("Custom") statement → one PDF with several current
+    // accounts, each reconciled separately. Its own parser/shape.
+    if (bank === "revolut-consolidated") {
+      const pdfBytes = new Uint8Array(await uploaded[0].arrayBuffer())
+      const consolidated = await extractConsolidated(pdfBytes)
+      return NextResponse.json({ consolidated, fileName: uploaded[0].name })
+    }
 
     // Single file → single-statement result (unchanged shape).
     if (uploaded.length === 1) {

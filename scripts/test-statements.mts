@@ -67,6 +67,7 @@ const BANKS: BankConfig[] = [
   { bank: "revolut-consolidated", dir: "Revolut/consolidated statement" },
   { bank: "aib", dir: "AIB" },
   { bank: "boi", dir: "BOI" },
+  { bank: "ptsb", dir: "PTSB" },
 ]
 
 // --- result records -------------------------------------------------------

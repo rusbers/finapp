@@ -252,6 +252,8 @@ lib/
 │   │                        consolidated statements (multi-account; per-account reconcile)
 │   ├── aib-parser.ts      → DETERMINISTIC AIB parser (pdfjs; right-aligned cols, scales w/ width)
 │   ├── boi-parser.ts      → DETERMINISTIC BOI parser (pdfjs; Payments-out/in cols, OD overdraft)
+│   ├── ptsb-parser.ts     → DETERMINISTIC PTSB parser (anti-extraction font; digit cipher
+│   │                        solved from balance arithmetic)
 │   ├── parsers.ts         → registry mapping banks → deterministic parsers
 │   ├── combine.ts         → chains multiple statements by balance, detects gaps
 │   ├── pdf.ts             → PDF splitting into page-chunks (pdf-lib, server-only)
@@ -406,6 +408,25 @@ pdfjs-dist`): for the target banks, reading the PDF's text positions (x/y) and
   regression harness): current accounts incl. fee-ending and overdraft months, and
   a loan statement (all-OD balance series), reconcile to the cent. The header and
   the "OD" marker are both handled whether pdfjs splits or joins their tokens.
+- **PTSB parser** (`ptsb-parser.ts`): permanent tsb renders the body in an
+  ANTI-EXTRACTION font ("AllAndNone", a CFF CIDFont) — glyphs display correctly but
+  the text layer is scrambled: ToUnicode has **0 digit mappings** and no glyph
+  names, so amounts can't be read as text. We decode the cipher from ARITHMETIC, not
+  the font. Columns are clean (Date | Details | Withdrawn | Paid In | Balance, anchored
+  from the header which is a normal font) and a Balance prints on ~every row. Each
+  money cell is a positional number over a small fixed set of "digit symbols" (the
+  decimal symbol is always 3 from the end), so each amount is a LINEAR function of the
+  unknown digit values. The running balance gives hundreds of equations (balance =
+  prevBalance + Σ signed movements since the last printed balance); a DFS solves the
+  symbol→digit bijection (all-different) — the constraints make the solution UNIQUE,
+  and reconciliation is the final proof. Dates: day/year are digits (solved), the
+  3-letter lowercase month maps via a FIXED table (the AllAndNone code→letter map is
+  constant across PTSB statements; month codes derived once by a CSP that makes the
+  triples spell the 12 months). Descriptions are best-effort with the same fixed
+  letter map (limited — the font's uppercase/other glyphs aren't all mapped). If the
+  solver can't find a UNIQUE map, the parser returns 0 transactions → AI fallback.
+  Validated on the regression harness: 9 real PTSB statements (current accounts,
+  including a 38-page combined file, 1394 tx) reconcile to the cent.
 - **Multi-PDF upload** (`combine.ts` + `extractAndReconcileMany` in pipeline.ts):
   banks like AIB only generate periodic statements (you can't pick a date range),
   so a user wanting a custom period has several PDFs. The app accepts multiple

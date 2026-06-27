@@ -95,9 +95,10 @@ breaks a previously-good statement is caught immediately.
 - **Scope:** deterministic parsers only (`revolut`, `revolut-consolidated`, `aib`, `boi`).
   AI banks (PTSB/Other) are excluded — non-deterministic + cost API. Add a bank by adding
   one entry to the `BANKS` array in the runner.
-- **Data lives OUTSIDE git** (both gitignored): input PDFs in `statements/<bank>/…`,
-  results in `.reconcile/` (`baseline.json` + a timestamped `runs/<ts>.json` log per run).
-  Override the input root with `STATEMENTS_DIR` if needed.
+- **Data lives OUTSIDE git** (all gitignored): input PDFs in `statements/<bank>/…`,
+  results in `.reconcile/` — `baseline.json` (accepted records), `snapshots/<key>.csv`
+  (the accepted ROWS, human-readable), and `last-run.json` (latest run, overwritten —
+  no timestamped history). Override the input root with `STATEMENTS_DIR` if needed.
 - **Commands:**
   - `npm run test:statements` — all banks · `-- <bank>` — just one (the changed parser's).
   - `-- --update-baseline` — accept the current result as the new reference.
@@ -112,6 +113,11 @@ breaks a previously-good statement is caught immediately.
   per account). **Diff vs baseline:** `NEW` · `UNCHANGED` · `CHANGED-CONTENT` (extraction
   differs but still reconciles — informational) · `CHANGED-RECON` (reconciliation outcome
   changed — the regression signal) · `MISSING`.
+- **Row-level diff on regression:** on any `CHANGED-CONTENT`/`CHANGED-RECON` the run prints
+  the changed rows (`+`/`-`) vs the saved CSV snapshot, so you see WHAT moved, not just a
+  hash flag. The snapshot is the accepted rows; it is refreshed under the same policy as
+  the baseline (NEW / first-seen / `--update-baseline`), never on an unaccepted change. The
+  full reusable CSVs live under `.reconcile/snapshots/` for opening/diffing by hand.
 - **Baseline policy:** NEW statements are recorded automatically (first time seen = the
   reference). CHANGED / MISSING are only written with `--update-baseline`, so a real change
   is a conscious decision. Exit code is non-zero on any `CHANGED-RECON`, `MISSING`, or

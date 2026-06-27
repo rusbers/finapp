@@ -11,7 +11,9 @@
  * non-deterministic, so a baseline diff would be noise (and would cost API credits).
  *
  * Data lives OUTSIDE git (see .gitignore): input PDFs in `statements/`, results in
- * `.reconcile/` (baseline.json + a timestamped log per run). Nothing here is committed.
+ * `.reconcile/` — baseline.json (the accepted records), `snapshots/<key>.csv` (the
+ * accepted rows, human-readable, for a row-level diff on regression), and
+ * last-run.json (the latest run, overwritten). Nothing here is committed.
  *
  * Usage (via npm):
  *   npm run test:statements                  # all banks, diff vs baseline
@@ -23,12 +25,12 @@
  */
 
 import { readFileSync, readdirSync, mkdirSync, writeFileSync, existsSync } from "node:fs"
-import { join, relative, sep } from "node:path"
+import { join, relative, sep, dirname } from "node:path"
 import { createHash } from "node:crypto"
 import { spawn } from "node:child_process"
 import { pathToFileURL } from "node:url"
 import { extractAndReconcile, extractConsolidated } from "../lib/core/pipeline"
-import { findBalanceBreaks, isExplainedByCryptoFees } from "../lib/core/verification"
+import { findBalanceBreaks, isExplainedByCryptoFees, toCsv } from "../lib/core/verification"
 import { renderReport } from "./report"
 import type { Status, Classification, ReportRow, ReportModel } from "./report"
 import type { BankId } from "../lib/core/prompts"
@@ -52,7 +54,10 @@ const STATEMENTS_DIR = process.env.STATEMENTS_DIR ?? join(process.cwd(), "statem
 /** Where results live (gitignored). */
 const RECONCILE_DIR = join(process.cwd(), ".reconcile")
 const BASELINE_PATH = join(RECONCILE_DIR, "baseline.json")
-const RUNS_DIR = join(RECONCILE_DIR, "runs")
+const LAST_RUN_PATH = join(RECONCILE_DIR, "last-run.json")
+/** Human-readable CSV snapshot of the ACCEPTED rows, one file per statement. Stored
+ * next to baseline.json (gitignored). Used to show a row-level diff on a regression. */
+const SNAPSHOTS_DIR = join(RECONCILE_DIR, "snapshots")
 
 interface BankConfig {
   bank: BankId
@@ -143,13 +148,14 @@ function statusOf(reconciledPassed: boolean, txCount: number, data?: { transacti
   return "fail"
 }
 
-/** Run one statement through the production code path → a comparable record. */
-async function processStatement(bank: BankId, absPath: string): Promise<StmtRecord> {
+/** Run one statement through the production code path → a comparable record PLUS a
+ * human-readable CSV of the extracted rows (the snapshot, for the regression diff). */
+async function processStatement(bank: BankId, absPath: string): Promise<{ record: StmtRecord; csv: string }> {
   const bytes = new Uint8Array(readFileSync(absPath))
   try {
     if (bank === "revolut-consolidated") {
       const c = await extractConsolidated(bytes)
-      return {
+      const record: StmtRecord = {
         bank,
         kind: "consolidated",
         allReconciled: c.allReconciled,
@@ -162,12 +168,21 @@ async function processStatement(bank: BankId, absPath: string): Promise<StmtReco
           fingerprint: fingerprint(a.transactions),
         })),
       }
+      // One CSV block per account (the snapshot is the whole multi-account document).
+      const csv = c.accounts
+        .map(
+          (a) =>
+            `# account: ${a.label} (${a.currency})\n` +
+            toCsv({ bank: c.bank, openingBalance: a.openingBalance, closingBalance: a.closingBalance, transactions: a.transactions }),
+        )
+        .join("\n")
+      return { record, csv }
     }
     // allowAiFallback:false → deterministic only; an unreadable layout stays
     // no-tx instead of triggering a (non-deterministic, paid) AI call.
     const r = await extractAndReconcile(bytes, { bank, allowAiFallback: false })
     const n = r.data.transactions.length
-    return {
+    const record: StmtRecord = {
       bank,
       kind: "standard",
       transactions: n,
@@ -175,12 +190,13 @@ async function processStatement(bank: BankId, absPath: string): Promise<StmtReco
       discrepancyCents: r.reconciliation.discrepancyCents,
       fingerprint: fingerprint(r.data.transactions),
     }
+    return { record, csv: toCsv(r.data) }
   } catch (e) {
     const error = e instanceof Error ? e.message : String(e)
     if (bank === "revolut-consolidated") {
-      return { bank, kind: "consolidated", allReconciled: false, accounts: [], error }
+      return { record: { bank, kind: "consolidated", allReconciled: false, accounts: [], error }, csv: "" }
     }
-    return { bank, kind: "standard", transactions: 0, status: "error", discrepancyCents: 0, fingerprint: "", error }
+    return { record: { bank, kind: "standard", transactions: 0, status: "error", discrepancyCents: 0, fingerprint: "", error }, csv: "" }
   }
 }
 
@@ -227,6 +243,39 @@ function classify(cur: StmtRecord, base: StmtRecord | undefined): Classification
   return "UNCHANGED"
 }
 
+// --- CSV snapshots + row-level diff ---------------------------------------
+
+/** Reference-CSV path for a statement key (mirrors the path; .pdf → .csv). */
+function snapshotPath(key: string): string {
+  return join(SNAPSHOTS_DIR, key.replace(/\.pdf$/i, "") + ".csv")
+}
+
+/** Print a compact, dependency-free row-level diff of two CSV snapshots: lines only
+ * in the reference (−) and only in the current (+), capped. A changed row shows as a
+ * matched −/+ pair; a pure reorder (same set, different order) is noted instead. */
+function printCsvDiff(baseCsv: string, curCsv: string, cap = 15): void {
+  const count = (csv: string) => {
+    const m = new Map<string, number>()
+    for (const l of csv.split("\n")) if (l.trim()) m.set(l, (m.get(l) ?? 0) + 1)
+    return m
+  }
+  const baseM = count(baseCsv)
+  const curM = count(curCsv)
+  const removed: string[] = []
+  const added: string[] = []
+  for (const [l, n] of baseM) for (let i = 0; i < n - (curM.get(l) ?? 0); i++) removed.push(l)
+  for (const [l, n] of curM) for (let i = 0; i < n - (baseM.get(l) ?? 0); i++) added.push(l)
+  if (removed.length === 0 && added.length === 0) {
+    console.log(`      (rows reordered — same set, different order)`)
+    return
+  }
+  console.log(`      diff: +${added.length} / -${removed.length} row(s) vs snapshot`)
+  for (const l of removed.slice(0, cap)) console.log(`      - ${l}`)
+  if (removed.length > cap) console.log(`      … ${removed.length - cap} more removed`)
+  for (const l of added.slice(0, cap)) console.log(`      + ${l}`)
+  if (added.length > cap) console.log(`      … ${added.length - cap} more added`)
+}
+
 // --- main -----------------------------------------------------------------
 
 async function main() {
@@ -259,7 +308,7 @@ async function main() {
     console.log(`\n${cfg.bank}  (${pdfs.length} statement${pdfs.length === 1 ? "" : "s"})`)
     for (const pdf of pdfs) {
       const key = relKey(pdf)
-      const rec = await processStatement(cfg.bank, pdf)
+      const { record: rec, csv } = await processStatement(cfg.bank, pdf)
       current[key] = rec
       const cls = classify(rec, baseline?.results[key])
       counts[cls]++
@@ -271,6 +320,21 @@ async function main() {
       const base = baseline?.results[key]
       const delta = cls === "CHANGED-RECON" && base ? `  (${reconLabel(base)} -> ${reconLabel(rec)})` : ""
       console.log(`  ${mark} ${reconLabel(rec).padEnd(28)} ${key}${delta}`)
+
+      // CSV snapshot (the accepted rows) + row-level diff on regression.
+      const snapPath = snapshotPath(key)
+      const oldSnap = existsSync(snapPath) ? readFileSync(snapPath, "utf8") : null
+      if ((cls === "CHANGED-CONTENT" || cls === "CHANGED-RECON") && oldSnap !== null && csv) {
+        printCsvDiff(oldSnap, csv)
+      }
+      // Write the reference snapshot under the SAME policy as baseline.json:
+      // a NEW statement, a missing snapshot (bootstrap already-accepted entries),
+      // or an explicit --update-baseline. A CHANGED snapshot is NOT overwritten
+      // otherwise, so it stays the reference until the change is consciously accepted.
+      if (csv && (cls === "NEW" || oldSnap === null || updateBaseline)) {
+        mkdirSync(dirname(snapPath), { recursive: true })
+        writeFileSync(snapPath, csv)
+      }
 
       reportRows.push({
         key,
@@ -308,11 +372,9 @@ async function main() {
     for (const m of missing) console.log(`  [MISSING] ${m}`)
   }
 
-  // Always write the full run log (history).
-  mkdirSync(RUNS_DIR, { recursive: true })
-  const stamp = new Date().toISOString().replace(/[:.]/g, "-")
-  const runPath = join(RUNS_DIR, `${stamp}.json`)
-  writeFileSync(runPath, JSON.stringify({ generatedAt: new Date().toISOString(), bankFilter: bankFilter ?? "all", results: current }, null, 2))
+  // Write the latest run (overwritten each time — no timestamped history).
+  mkdirSync(RECONCILE_DIR, { recursive: true })
+  writeFileSync(LAST_RUN_PATH, JSON.stringify({ generatedAt: new Date().toISOString(), bankFilter: bankFilter ?? "all", results: current }, null, 2))
 
   // Write the human-friendly HTML report (always reflects the latest run).
   const reportModel: ReportModel = {
@@ -335,7 +397,7 @@ async function main() {
       `${counts["CHANGED-CONTENT"]} content-changed, ${counts["CHANGED-RECON"]} recon-changed, ` +
       `${counts.MISSING} missing, ${counts.error} error`,
   )
-  console.log(`Run log: ${relative(process.cwd(), runPath)}`)
+  console.log(`Run log: ${relative(process.cwd(), LAST_RUN_PATH)}`)
   console.log(`Report:  ${pathToFileURL(reportPath).href}`)
 
   // Optionally open the report in the default browser (`--open`).

@@ -315,11 +315,17 @@ pdfjs-dist`): for the target banks, reading the PDF's text positions (x/y) and
   Description … Balance" / RU "Дата Описание Списания … Остаток") — matched by the
   description + money-out words, since the balance word can wrap onto its own line.
   It **skips per-statement summary rows** ("Cont"/"Account"/"Продукт"/"Total",
-  detected by a currency token in the opening-balance column at x0≈253), and stops
-  at the reverted tail ("Înapoiate"/"Reverted") AND the savings/vault sub-statement
-  (RO "Depuneri de la …" / RU "Операции по … сейфам" — a separate Economii/Сейфы
-  account). A single PDF may concatenate two statements + a savings section; the
-  balance chains across them.
+  detected by a currency token in the opening-balance column at x0≈253). A single PDF
+  may concatenate **several current-account periods** (each "Account transactions …"
+  + Balance summary + table + a "Reverted" tail), chained by balance — so the parser
+  does **NOT** stop at the reverted/refunded tail ("Înapoiate"/"Reverted"): those
+  rows have no Balance column and are skipped on their own, and the next period's
+  table header re-syncs extraction (proven on `en/7`: 2 periods, 3170 tx, full year).
+  It **hard-stops only at a SEPARATE-account sub-statement** — savings/deposits
+  (EN "Deposit transactions …" / RO "Depuneri de la …"), pockets/vaults (RO
+  "Tranzacții din Buzunare …" / RU "Операции по … сейфам") — which carry their own
+  balance series and always come after all current-account periods
+  (`isSeparateAccountSection`, matched on large ~12.4pt title lines).
 - **Revolut consolidated / "Custom" statement** (`revolut-consolidated-parser.ts`):
   a DIFFERENT document — ONE PDF bundling many accounts (several current accounts in
   different currencies, plus savings & crypto) with lots of summary pages and a

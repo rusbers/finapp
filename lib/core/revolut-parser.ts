@@ -22,8 +22,10 @@
  *   2. FX transactions keep the EUR amount on the MAIN row; the original-currency
  *      amount (e.g. "72.00 MDL") sits on a sub-row WITHOUT a € sign — ignore it.
  *   3. Informational tail sections ("Inapoiate"/"Reverted", etc.) have NO Balance
- *      column. A main row with no token at x1 ≈ 556 marks the start of that zone
- *      → stop extracting there.
+ *      column, so their rows are skipped automatically (a transaction needs a
+ *      Balance token at x1 ≈ 556). They are NOT a stop: a full-year statement can
+ *      concatenate several periods (each "Balance summary" + table + Reverted tail),
+ *      chained by balance. We only hard-stop at the savings/vault sub-statement.
  */
 
 import type { StatementData, Transaction } from "./types"
@@ -226,25 +228,31 @@ function isTableHeader(line: Line): boolean {
 }
 
 /**
- * Is this line the start of a section we must STOP at? After the current-account
- * transactions, Revolut appends non-current sections that would corrupt the
- * running balance if included:
- *   - the reverted/refunded tail ("Înapoiate din ..." / "Reverted ...");
- *   - the savings / vault sub-statement: "Depuneri de la ... până la ..." (RO) or
- *     "Операции по Личным и Групповым сейфам ..." (RU — the Сейфы/Vaults section,
- *     e.g. Plan Cashback). A SEPARATE account with its own balance series; each
- *     vault transfer's current-account side is already in the main section, so the
- *     section is purely supplementary. ("сейф" with a Latin "c" is a font quirk.)
- * Both always come AFTER the current-account transactions, so stopping here keeps
- * every real current-account row. (Section titles are large, ~12.4pt.)
+ * Is this line the start of a SEPARATE-ACCOUNT sub-statement — the sections we must
+ * permanently STOP at? These are NOT the current account: they have their own
+ * balance series that would corrupt the running balance if included. They always
+ * come AFTER all current-account transactions, so stopping here keeps every real
+ * current-account row. Observed titles (size ~12.4pt):
+ *   - savings/deposits: "Deposit transactions from ..." (EN), "Depuneri de la ..." (RO);
+ *   - pockets/vaults:   "Tranzacții din Buzunare personale și de grup ..." (RO),
+ *     "Операции по Личным и Групповым сейфам ..." (RU). ("сейф" with a Latin "c" is a
+ *     font quirk.) Each pocket/vault transfer's current-account side is already in the
+ *     main section, so these sections are purely supplementary.
+ *
+ * NOTE: the reverted/refunded tail ("Reverted ..." / "Înapoiate din ...") is NOT a
+ * hard stop. It is only the informational tail of the CURRENT period, and a full-
+ * year statement can concatenate SEVERAL periods (each "Account transactions ..." +
+ * table + Reverted tail), chained by balance — we must keep extracting past it.
+ * Reverted rows are excluded automatically: their table has no Balance column
+ * ("Start date | Description | Money out | Money in"), so `hasBalance` skips them.
  */
-function isSectionTitle(line: Line): boolean {
+function isSeparateAccountSection(line: Line): boolean {
   if (line.size < 10) return false // section titles are large (~12.4)
   const text = line.tokens
     .map((t) => t.text)
     .join(" ")
     .toLowerCase()
-  return /înapoiate|inapoiate|reverted|refunded|depuneri de la|[сc]ейф/.test(text)
+  return /deposit transactions|depuneri|buzunare|pocket|vault|[сc]ейф|депозит/.test(text)
 }
 
 /**
@@ -253,7 +261,10 @@ function isSectionTitle(line: Line): boolean {
  * Strategy (proven on real statements):
  *   - Extraction starts only AFTER the transaction-table header row, so the
  *     balance-summary block at the top is never mistaken for transactions.
- *   - Extraction stops at the "Inapoiate"/"Reverted" tail-section title.
+ *   - A single PDF may concatenate several periods (each balance-summary + table +
+ *     "Reverted" tail), chained by balance. Reverted rows have no Balance column so
+ *     they are skipped, and the next period's table header re-syncs extraction.
+ *     Extraction hard-stops only at the savings/vault sub-statement.
  *   - Each transaction's amounts come only from its MAIN row (size ≥ 7);
  *     sub-rows (fees, FX rates, references) are skipped.
  *   - Amounts are matched to columns by X anchor; only €/$ tokens count, so
@@ -267,16 +278,19 @@ export async function parseRevolut(pdfBytes: Uint8Array): Promise<StatementData>
   let closingBalance: number | null = null
   let currentDate = ""
   let started = false // have we passed the transaction-table header yet?
-  let reachedTail = false // have we hit the informational tail section?
+  let reachedSeparateAccount = false // hit a separate-account sub-statement (hard stop)?
 
   for (const pageTokens of pages) {
-    if (reachedTail) break
+    if (reachedSeparateAccount) break
     const lines = groupLines(pageTokens)
 
     for (const line of lines) {
-      // Stop at the informational tail section ("Inapoiate"/"Reverted").
-      if (isSectionTitle(line)) {
-        reachedTail = true
+      // Permanently stop only at a separate-account sub-statement (savings/deposits/
+      // pockets/vaults). The reverted/refunded tail is NOT a stop — a full-year
+      // statement can concatenate several periods, and reverted rows (no Balance
+      // column) are skipped by `hasBalance` below.
+      if (isSeparateAccountSection(line)) {
+        reachedSeparateAccount = true
         break
       }
       // Begin extracting only after the transaction-table header. (The header

@@ -137,14 +137,20 @@ documented per-bank in `CLAUDE.md` (keep them there, balanced across banks).
   by a currency symbol (€/$/£) or a 3-letter code suffix (e.g. `RON`).
 - **Dates** — `toIsoDate` accepts day-first and month-first orders.
 - **Start / skip / stop** — begin after the transaction-table header; skip
-  per-statement summary/recap rows (a value in the opening-balance column); stop at
-  non-transaction sections (reverted/refunded tails, savings sub-statements).
+  per-statement summary/recap rows (a value in the opening-balance column). A single
+  PDF may concatenate **several current-account periods**, each ending with a
+  "Reverted" tail (no Balance column → its rows are skipped automatically), so do
+  NOT stop at reverted — the next period re-syncs at its table header and chains by
+  balance. **Hard-stop only at a SEPARATE-account sub-statement** (savings/deposits/
+  pockets/vaults — `isSeparateAccountSection`), which carries its own balance series.
 
 Per-bank status (specifics → `CLAUDE.md`):
 
 - **Revolut** (`revolut-parser.ts`) — RO/EN/RU, EUR/RON/GBP, both number & date
-  formats (incl. Cyrillic months), summary-row + savings/vault-section handling
-  ("Depuneri de la" / "Операции по … сейфам"), multi-statement PDFs.
+  formats (incl. Cyrillic months), summary-row handling, multi-period PDFs (reverted
+  tails skipped, periods chained by balance), and separate-account hard-stop
+  (savings/deposits "Deposit transactions"/"Depuneri", pockets/vaults
+  "Buzunare"/"сейф").
 - **Revolut consolidated / "Custom"** (`revolut-consolidated-parser.ts`) — a
   SEPARATE parser (bank `revolut-consolidated`): one PDF with many accounts and a
   different layout (signed amount column + Balance, no debit/credit). MVP = current

@@ -323,9 +323,14 @@ pdfjs-dist`): for the target banks, reading the PDF's text positions (x/y) and
   table header re-syncs extraction (proven on `en/7`: 2 periods, 3170 tx, full year).
   It **hard-stops only at a SEPARATE-account sub-statement** — savings/deposits
   (EN "Deposit transactions …" / RO "Depuneri de la …"), pockets/vaults (RO
-  "Tranzacții din Buzunare …" / RU "Операции по … сейфам") — which carry their own
-  balance series and always come after all current-account periods
-  (`isSeparateAccountSection`, matched on large ~12.4pt title lines).
+  "Tranzacții din Buzunare …" / "Tranzacții din Seifuri …" / RU "Операции по … сейфам"),
+  and sub-accounts opened for others (RO "Tranzacții din contul pentru <Name> …" /
+  EN "account for <Name>") — all carry their own balance series and come after all
+  current-account periods (`isSeparateAccountSection`, matched on large ~12.4pt title
+  lines). NOT handled yet: a PDF bundling current accounts in DIFFERENT currencies
+  ("Extras EUR" + "Extras GBP"), and the Revolut CSV/Excel export rendered as PDF
+  (Type/Product/…/Amount/Fee/…/Balance columns) → those yield fail / no-tx
+  respectively (distinct features).
 - **Revolut consolidated / "Custom" statement** (`revolut-consolidated-parser.ts`):
   a DIFFERENT document — ONE PDF bundling many accounts (several current accounts in
   different currencies, plus savings & crypto) with lots of summary pages and a

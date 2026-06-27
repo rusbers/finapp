@@ -234,10 +234,13 @@ function isTableHeader(line: Line): boolean {
  * come AFTER all current-account transactions, so stopping here keeps every real
  * current-account row. Observed titles (size ~12.4pt):
  *   - savings/deposits: "Deposit transactions from ..." (EN), "Depuneri de la ..." (RO);
- *   - pockets/vaults:   "Tranzacții din Buzunare personale și de grup ..." (RO),
- *     "Операции по Личным и Групповым сейфам ..." (RU). ("сейф" with a Latin "c" is a
- *     font quirk.) Each pocket/vault transfer's current-account side is already in the
- *     main section, so these sections are purely supplementary.
+ *   - pockets/vaults:   "Tranzacții din Buzunare personale și de grup ..." (RO pockets),
+ *     "Tranzacții din Seifuri personale și de grup ..." (RO vaults), "Операции по Личным
+ *     и Групповым сейфам ..." (RU). ("сейф" with a Latin "c" is a font quirk.)
+ *   - sub-accounts:     "Tranzacții din contul pentru <Name> ..." (RO accounts opened for
+ *     family members) / "account for <Name>" (EN). A SEPARATE balance series.
+ * Each pocket/vault/sub-account transfer's current-account side is already in the main
+ * section, so these sections are purely supplementary.
  *
  * NOTE: the reverted/refunded tail ("Reverted ..." / "Înapoiate din ...") is NOT a
  * hard stop. It is only the informational tail of the CURRENT period, and a full-
@@ -252,7 +255,7 @@ function isSeparateAccountSection(line: Line): boolean {
     .map((t) => t.text)
     .join(" ")
     .toLowerCase()
-  return /deposit transactions|depuneri|buzunare|pocket|vault|[сc]ейф|депозит/.test(text)
+  return /deposit transactions|depuneri|buzunare|seif|pocket|vault|account for|contul pentru|[сc]ейф|депозит/.test(text)
 }
 
 /**

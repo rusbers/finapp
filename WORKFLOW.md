@@ -156,7 +156,9 @@ Per-bank status (specifics → `CLAUDE.md`):
   formats (incl. Cyrillic months), summary-row handling, multi-period PDFs (reverted
   tails skipped, periods chained by balance), and separate-account hard-stop
   (savings/deposits "Deposit transactions"/"Depuneri", pockets/vaults
-  "Buzunare"/"сейф").
+  "Buzunare"/"Seifuri"/"сейф", sub-accounts "contul pentru …"/"account for …").
+  NOT handled: multi-currency bundles ("Extras EUR" + "Extras GBP" in one PDF → fail)
+  and the Revolut CSV/Excel export rendered as PDF (single signed Amount column → no-tx).
 - **Revolut consolidated / "Custom"** (`revolut-consolidated-parser.ts`) — a
   SEPARATE parser (bank `revolut-consolidated`): one PDF with many accounts and a
   different layout (signed amount column + Balance, no debit/credit). MVP = current

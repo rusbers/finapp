@@ -215,7 +215,10 @@ Per-bank status (specifics → `CLAUDE.md`):
   scale with page width), glued `dr` overdraft, balance-forward per page.
 - **BOI** (`boi-parser.ts`) — Payments-out / Payments-in columns, `OD` overdraft,
   subtotal checkpoints.
-- **PTSB** — no deterministic parser yet (uses the AI + reconciliation fallback).
+- **PTSB** (`ptsb-parser.ts`) — anti-extraction font ("AllAndNone"): amounts aren't
+  text, so the digit cipher is solved from balance arithmetic (unique solution ⇒
+  reconciles). Dates via a fixed month table; descriptions best-effort. Falls back to
+  AI if the solve isn't unique.
 
 **Transaction provenance.** Every deterministic parser stamps each row with `page`
 (1-based PDF page); `extractAndReconcileMany` stamps `sourceFile` when combining
@@ -322,14 +325,16 @@ spreads, where the gross crypto value is shown but only the net hits the balance
   before touching a parser (e.g. `statements/BOI/2/*` are all scans). Scanned
   statements need the **AI vision path** (Gemini OCRs the image) + reconciliation;
   the deterministic harness correctly marks them `no-tx`.
-- **Anti-extraction fonts (PTSB) → digits absent from the text layer.** `PTSB-combined.pdf`
-  has a text layer, but the body uses the **"AllAndNone"** font whose ToUnicode is
-  poisoned: verified **0 digit mappings out of 1315** ToUnicode targets (letters map,
-  digits don't). Column X-positions and even descriptions are recoverable, but the
-  **amounts cannot be read as text at all** — they exist only as drawn glyph shapes.
-  So a deterministic parser is impossible without OCR/glyph-shape recognition; PTSB
-  stays on the **AI vision path**. (Revisit a deterministic parser only with several
-  PTSB samples AND if `fontkit` shows the embedded glyph *names* survived.)
+- **Anti-extraction fonts (PTSB) → digits absent from the text layer, SOLVED by
+  arithmetic.** PTSB's body uses the **"AllAndNone"** CFF CIDFont whose ToUnicode is
+  poisoned: **0 digit mappings out of 1315** targets, no glyph names. So amounts can't
+  be read as text or by glyph name. BUT the column positions are clean and a Balance
+  prints on ~every row, so `ptsb-parser.ts` decodes the digit cipher from the balance
+  ARITHMETIC (each amount is linear in the unknown digit values; the running-balance
+  equations make the symbol→digit bijection unique), validated by reconciliation. The
+  AllAndNone code→letter map is constant across statements (month table + best-effort
+  descriptions). Lesson: a poisoned font isn't necessarily a dead end — if a numeric
+  invariant (running balance) is present, the cipher can be solved deterministically.
 - **AI fallback on empty.** In the app, when a parser returns 0 transactions the
   pipeline falls back to AI vision (`PipelineOptions.allowAiFallback`, default true).
   The harness passes `allowAiFallback: false` → it never makes AI calls and keeps
@@ -504,12 +509,13 @@ client-safe `checkReconciliation` / `mergeAccounts` / `matchExpenses` as a norma
 
 - **Revolut**: production-ready across RO/EN, EUR/RON, both number/date formats;
   summary-row and savings-section handling; crypto "soft" verdict.
-- **AIB / BOI**: deterministic parsers exist (see `CLAUDE.md`). **PTSB**: no
-  deterministic parser yet (uses AI + reconciliation).
+- **AIB / BOI / PTSB**: deterministic parsers exist (see `CLAUDE.md`). All four target
+  banks (Revolut, AIB, BOI, PTSB) now parse deterministically; AI + reconciliation is
+  the fallback for rare banks / scanned / unsolvable layouts.
 - **Multi-account** (one client, several banks): combined table + per-account
   reconciliation shipped; NO transfer detection (out of scope). See section above.
 - **Expense reconciliation** (match an `expenses.csv` against statement debits):
   shipped; exact cents + supplier name (fuzzy) + ±5-day match, "Expense" tag, found/not-found. See above.
 - **Reconciled-CSV re-import** (re-load an exported transactions CSV → rebuild + reconcile
   client-side → match expenses): shipped; own-export format, one file. See section above.
-- Next candidates: PTSB parser; automatic bank identification; DB/auth (Phasing).
+- Next candidates: automatic bank identification; DB/auth (Phasing).

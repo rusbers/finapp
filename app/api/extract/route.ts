@@ -8,7 +8,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server"
-import { extractAndReconcile, extractAndReconcileMany, extractConsolidated } from "@/lib/core/pipeline"
+import { extractAndReconcile, extractAndReconcileMany, extractConsolidated, extractRevolut } from "@/lib/core/pipeline"
 import { isAllowedModel } from "@/lib/core/config"
 import { BANK_LABELS, type BankId } from "@/lib/core/prompts"
 import { strings } from "@/lib/strings"
@@ -70,9 +70,18 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ consolidated, fileName: uploaded[0].name })
     }
 
-    // Single file → single-statement result (unchanged shape).
+    // Single file → single-statement result (unchanged shape). Revolut goes through
+    // the smart entry, which returns a per-currency (consolidated-shaped) result for
+    // the rare PDF that bundles current accounts in several currencies.
     if (uploaded.length === 1) {
       const pdfBytes = new Uint8Array(await uploaded[0].arrayBuffer())
+      if (bank === "revolut") {
+        const r = await extractRevolut(pdfBytes, options)
+        if (r.kind === "multi") {
+          return NextResponse.json({ consolidated: r.consolidated, fileName: uploaded[0].name })
+        }
+        return NextResponse.json({ ...r.result, fileName: uploaded[0].name })
+      }
       const result = await extractAndReconcile(pdfBytes, options)
       return NextResponse.json({ ...result, fileName: uploaded[0].name })
     }

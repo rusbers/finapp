@@ -327,10 +327,14 @@ pdfjs-dist`): for the target banks, reading the PDF's text positions (x/y) and
   and sub-accounts opened for others (RO "Tranzacții din contul pentru <Name> …" /
   EN "account for <Name>") — all carry their own balance series and come after all
   current-account periods (`isSeparateAccountSection`, matched on large ~12.4pt title
-  lines). NOT handled yet: a PDF bundling current accounts in DIFFERENT currencies
-  ("Extras EUR" + "Extras GBP"), and the Revolut CSV/Excel export rendered as PDF
-  (Type/Product/…/Amount/Fee/…/Balance columns) → those yield fail / no-tx
-  respectively (distinct features).
+  lines). **Multi-currency bundles** (one PDF with current accounts in DIFFERENT
+  currencies, e.g. "Extras EUR" + "Extras GBP") ARE handled: `parseRevolutAccounts`
+  detects the per-page currency from the big page header and splits the pages by
+  currency; `extractRevolut` (pipeline) reconciles EACH currency separately and
+  returns the per-account (consolidated-shaped) result — single-currency statements
+  are untouched. NOT handled: the Revolut CSV/Excel export rendered as PDF
+  (Type/Product/…/Amount/Fee/…/Balance columns, one signed Amount) → yields no-tx
+  (a distinct format / future parser).
 - **Revolut consolidated / "Custom" statement** (`revolut-consolidated-parser.ts`):
   a DIFFERENT document — ONE PDF bundling many accounts (several current accounts in
   different currencies, plus savings & crypto) with lots of summary pages and a

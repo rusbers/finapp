@@ -29,12 +29,13 @@ import { join, relative, sep, dirname } from "node:path"
 import { createHash } from "node:crypto"
 import { spawn } from "node:child_process"
 import { pathToFileURL } from "node:url"
-import { extractAndReconcile, extractConsolidated } from "../lib/core/pipeline"
+import { extractAndReconcile, extractConsolidated, extractRevolut } from "../lib/core/pipeline"
+import type { ConsolidatedPipelineResult } from "../lib/core/pipeline"
 import { findBalanceBreaks, isExplainedByCryptoFees, toCsv } from "../lib/core/verification"
 import { renderReport } from "./report"
 import type { Status, Classification, ReportRow, ReportModel } from "./report"
 import type { BankId } from "../lib/core/prompts"
-import type { Transaction } from "../lib/core/types"
+import type { Transaction, StatementData, ReconciliationResult } from "../lib/core/types"
 
 // pdfjs logs a harmless per-font line ("Ensure that the `standardFontDataUrl` API
 // parameter is provided") when reading text without font data — we only need
@@ -148,49 +149,61 @@ function statusOf(reconciledPassed: boolean, txCount: number, data?: { transacti
   return "fail"
 }
 
+/** A multi-account (consolidated / multi-currency) result → record + per-account CSV. */
+function consolidatedRecord(bank: BankId, c: ConsolidatedPipelineResult): { record: StmtRecord; csv: string } {
+  const record: StmtRecord = {
+    bank,
+    kind: "consolidated",
+    allReconciled: c.allReconciled,
+    accounts: c.accounts.map((a) => ({
+      label: a.label,
+      currency: a.currency,
+      transactions: a.transactionCount,
+      status: statusOf(a.reconciliation.passed, a.transactionCount),
+      discrepancyCents: a.reconciliation.discrepancyCents,
+      fingerprint: fingerprint(a.transactions),
+    })),
+  }
+  const csv = c.accounts
+    .map(
+      (a) =>
+        `# account: ${a.label} (${a.currency})\n` +
+        toCsv({ bank: c.bank, openingBalance: a.openingBalance, closingBalance: a.closingBalance, transactions: a.transactions }),
+    )
+    .join("\n")
+  return { record, csv }
+}
+
+/** A single-statement result → standard record + CSV. */
+function standardRecord(bank: BankId, res: { data: StatementData; reconciliation: ReconciliationResult }): { record: StmtRecord; csv: string } {
+  const n = res.data.transactions.length
+  const record: StmtRecord = {
+    bank,
+    kind: "standard",
+    transactions: n,
+    status: statusOf(res.reconciliation.passed, n, res.data),
+    discrepancyCents: res.reconciliation.discrepancyCents,
+    fingerprint: fingerprint(res.data.transactions),
+  }
+  return { record, csv: toCsv(res.data) }
+}
+
 /** Run one statement through the production code path → a comparable record PLUS a
- * human-readable CSV of the extracted rows (the snapshot, for the regression diff). */
+ * human-readable CSV of the extracted rows (the snapshot, for the regression diff).
+ * allowAiFallback:false → deterministic only; an unreadable layout stays no-tx
+ * instead of triggering a (non-deterministic, paid) AI call. */
 async function processStatement(bank: BankId, absPath: string): Promise<{ record: StmtRecord; csv: string }> {
   const bytes = new Uint8Array(readFileSync(absPath))
   try {
     if (bank === "revolut-consolidated") {
-      const c = await extractConsolidated(bytes)
-      const record: StmtRecord = {
-        bank,
-        kind: "consolidated",
-        allReconciled: c.allReconciled,
-        accounts: c.accounts.map((a) => ({
-          label: a.label,
-          currency: a.currency,
-          transactions: a.transactionCount,
-          status: statusOf(a.reconciliation.passed, a.transactionCount),
-          discrepancyCents: a.reconciliation.discrepancyCents,
-          fingerprint: fingerprint(a.transactions),
-        })),
-      }
-      // One CSV block per account (the snapshot is the whole multi-account document).
-      const csv = c.accounts
-        .map(
-          (a) =>
-            `# account: ${a.label} (${a.currency})\n` +
-            toCsv({ bank: c.bank, openingBalance: a.openingBalance, closingBalance: a.closingBalance, transactions: a.transactions }),
-        )
-        .join("\n")
-      return { record, csv }
+      return consolidatedRecord(bank, await extractConsolidated(bytes))
     }
-    // allowAiFallback:false → deterministic only; an unreadable layout stays
-    // no-tx instead of triggering a (non-deterministic, paid) AI call.
-    const r = await extractAndReconcile(bytes, { bank, allowAiFallback: false })
-    const n = r.data.transactions.length
-    const record: StmtRecord = {
-      bank,
-      kind: "standard",
-      transactions: n,
-      status: statusOf(r.reconciliation.passed, n, r.data),
-      discrepancyCents: r.reconciliation.discrepancyCents,
-      fingerprint: fingerprint(r.data.transactions),
+    if (bank === "revolut") {
+      // Smart entry: per-currency (consolidated) for a multi-currency bundle, else single.
+      const r = await extractRevolut(bytes, { allowAiFallback: false })
+      return r.kind === "multi" ? consolidatedRecord(bank, r.consolidated) : standardRecord(bank, r.result)
     }
-    return { record, csv: toCsv(r.data) }
+    return standardRecord(bank, await extractAndReconcile(bytes, { bank, allowAiFallback: false }))
   } catch (e) {
     const error = e instanceof Error ? e.message : String(e)
     if (bank === "revolut-consolidated") {

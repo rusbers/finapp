@@ -25,6 +25,7 @@ import { correctSignsFromBalance } from "./sign-correction"
 import { getPrompt, type BankId } from "./prompts"
 import { getParser } from "./parsers"
 import { parseRevolutConsolidated } from "./revolut-consolidated-parser"
+import { parseRevolutAccounts } from "./revolut-parser"
 import { combineStatements, type StatementGap } from "./combine"
 import { DEFAULT_ENABLE_FALLBACK, DEFAULT_PRIMARY_MODEL, DEFAULT_FALLBACK_MODEL } from "./config"
 
@@ -297,4 +298,76 @@ export async function extractConsolidated(pdfBytes: Uint8Array): Promise<Consoli
   const withTx = accounts.filter((a) => a.transactionCount > 0)
   const allReconciled = withTx.length > 0 && withTx.every((a) => a.reconciliation.passed)
   return { bank: parsed.bank, accounts, allReconciled }
+}
+
+/** Result of the smart Revolut entry: a single statement, or — for a PDF bundling
+ * current accounts in several currencies — one reconciled account per currency. */
+export type RevolutExtractResult =
+  | { kind: "single"; result: PipelineResult }
+  | { kind: "multi"; consolidated: ConsolidatedPipelineResult }
+
+/**
+ * Parse a single Revolut PDF, handling the rare MULTI-CURRENCY bundle (e.g. a EUR
+ * account + a GBP account in one file) by reconciling each currency separately.
+ *
+ * The common single-currency statement returns `{ kind: "single" }` and behaves
+ * exactly like the deterministic parser path (sign-correction + reconciliation).
+ * Only when ≥2 currencies are detected do we return `{ kind: "multi" }` with one
+ * `ConsolidatedAccountResult` per currency — the same shape the consolidated UI and
+ * the harness already render.
+ */
+export async function extractRevolut(
+  pdfBytes: Uint8Array,
+  options: PipelineOptions = {},
+): Promise<RevolutExtractResult> {
+  const accounts = await parseRevolutAccounts(pdfBytes)
+
+  // Single currency. If it has transactions, build the result directly from the
+  // already-parsed data (no second parse). If it found nothing, defer to
+  // extractAndReconcile so the AI-on-empty fallback still applies (the app).
+  if (accounts.length <= 1) {
+    const parsed = accounts[0]?.data
+    if (!parsed || parsed.transactions.length === 0) {
+      return { kind: "single", result: await extractAndReconcile(pdfBytes, { ...options, bank: "revolut" }) }
+    }
+    const { data, corrections } = correctSignsFromBalance(parsed)
+    const reconciliation = checkReconciliation(data)
+    return {
+      kind: "single",
+      result: {
+        data,
+        reconciliation,
+        attempts: [
+          {
+            model: "parser:revolut",
+            reconciliationPassed: reconciliation.passed,
+            discrepancyCents: reconciliation.discrepancyCents,
+            durationMs: 0,
+          },
+        ],
+        modelUsed: "parser:revolut",
+        fallbackUsed: false,
+        corrections,
+      },
+    }
+  }
+
+  // Multi-currency: reconcile each currency's account on its own balance series.
+  const accs: ConsolidatedAccountResult[] = accounts.map((a) => {
+    const { data } = correctSignsFromBalance(a.data)
+    let reconciliation = checkReconciliation(data)
+    if (data.transactions.length === 0) reconciliation = { ...reconciliation, passed: false }
+    return {
+      label: a.currency || "account",
+      currency: a.currency,
+      transactionCount: data.transactions.length,
+      openingBalance: data.openingBalance,
+      closingBalance: data.closingBalance,
+      reconciliation,
+      transactions: data.transactions,
+    }
+  })
+  const withTx = accs.filter((a) => a.transactionCount > 0)
+  const allReconciled = withTx.length > 0 && withTx.every((a) => a.reconciliation.passed)
+  return { kind: "multi", consolidated: { bank: "Revolut", accounts: accs, allReconciled } }
 }

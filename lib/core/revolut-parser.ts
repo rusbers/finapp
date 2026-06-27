@@ -275,6 +275,15 @@ function isSeparateAccountSection(line: Line): boolean {
  */
 export async function parseRevolut(pdfBytes: Uint8Array): Promise<StatementData> {
   const pages = await extractTokens(pdfBytes)
+  return parseLines(pages)
+}
+
+/**
+ * Turn a sequence of page token-lists into one reconciled statement (one balance
+ * series). This is the core extraction; `parseRevolut` runs it over the whole PDF,
+ * and `parseRevolutAccounts` runs it per currency-section of a multi-currency PDF.
+ */
+function parseLines(pages: Token[][]): StatementData {
   const transactions: Transaction[] = []
 
   let openingBalance: number | null = null
@@ -340,6 +349,74 @@ export async function parseRevolut(pdfBytes: Uint8Array): Promise<StatementData>
     closingBalance: closingBalance ?? 0,
     transactions,
   }
+}
+
+// --- Multi-currency bundles --------------------------------------------------
+// One PDF can bundle several CURRENT accounts in DIFFERENT currencies (e.g. a
+// EUR account then a GBP account), each with its own "Extras <CUR>"/"<CUR>
+// Statement" page header, Balance summary and balance series. Those series do NOT
+// chain (different currencies), so they must be reconciled SEPARATELY. We detect
+// the per-page currency from the big page header and split the pages by currency.
+
+const KNOWN_CURRENCIES = new Set([
+  "EUR", "USD", "GBP", "RON", "MDL", "NOK", "DKK", "SEK", "PLN", "CHF",
+  "HUF", "CZK", "BGN", "TRY", "CAD", "AUD", "JPY", "UAH", "BRL", "ZAR",
+])
+
+/**
+ * The currency of a page, read from its largest-font header line ("Extras EUR" /
+ * "EUR Statement" / "Выписка EUR"). Returns a 3-letter code from the allow-list,
+ * or null if none is found (caller inherits the previous page's currency).
+ */
+function detectPageCurrency(tokens: Token[]): string | null {
+  if (!tokens.length) return null
+  const maxSize = Math.max(...tokens.map((t) => t.size))
+  if (maxSize < 14) return null // page headers are large (~20.6); body text is ~8
+  for (const t of tokens) {
+    if (t.size < maxSize - 1) continue
+    const m = t.text.toUpperCase().match(/[A-Z]{3}/g)
+    if (m) for (const code of m) if (KNOWN_CURRENCIES.has(code)) return code
+  }
+  return null
+}
+
+/**
+ * Parse a Revolut PDF into ONE account per currency. For the common single-
+ * currency statement this returns a single account whose `data` is exactly what
+ * `parseRevolut` produces (so that path is unchanged). For a multi-currency bundle
+ * it returns one account per currency, each parsed (and later reconciled) on its
+ * own page range.
+ */
+export async function parseRevolutAccounts(
+  pdfBytes: Uint8Array,
+): Promise<{ currency: string; data: StatementData }[]> {
+  const pages = await extractTokens(pdfBytes)
+
+  // Currency per page, carrying the last known currency forward across any page
+  // that has no detectable header.
+  const perPage: string[] = []
+  let last = ""
+  for (const page of pages) {
+    const c = detectPageCurrency(page) ?? last
+    perPage.push(c)
+    if (c) last = c
+  }
+
+  const distinct = new Set(perPage.filter(Boolean))
+  // Single currency (or undetectable) → behave exactly like parseRevolut.
+  if (distinct.size <= 1) {
+    return [{ currency: [...distinct][0] ?? "", data: parseLines(pages) }]
+  }
+
+  // Group CONTIGUOUS pages by currency, then parse each group on its own.
+  const groups: { currency: string; pages: Token[][] }[] = []
+  for (let i = 0; i < pages.length; i++) {
+    const cur = perPage[i]
+    const g = groups[groups.length - 1]
+    if (g && g.currency === cur) g.pages.push(pages[i])
+    else groups.push({ currency: cur, pages: [pages[i]] })
+  }
+  return groups.map((g) => ({ currency: g.currency, data: parseLines(g.pages) }))
 }
 
 /**

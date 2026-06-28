@@ -14,6 +14,8 @@ export const strings = {
   fileLabel: "Bank statement (PDF)",
   checkButton: "Check statement",
   checkingButton: "Checking…",
+  filesSelected: (n: number) => `${n} file${n === 1 ? "" : "s"} selected`,
+  removeFile: "Remove",
 
   // Processing feedback
   uploading: (pct: number) => `Uploading… ${pct}%`,

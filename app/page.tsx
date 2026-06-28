@@ -205,6 +205,13 @@ function postExtract(
   })
 }
 
+/** Human-readable file size. */
+function formatSize(bytes: number): string {
+  if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+  if (bytes >= 1024) return `${Math.round(bytes / 1024)} KB`
+  return `${bytes} B`
+}
+
 export default function Page() {
   const [files, setFiles] = useState<File[]>([])
   const [isLoading, setIsLoading] = useState(false)
@@ -335,9 +342,36 @@ export default function Page() {
             setDurationMs(null)
           }}
         />
-        {files.length > 1 && (
-          <div className="file-list">
-            {files.length} files selected: {files.map((f) => f.name).join(", ")}
+        {files.length > 0 && (
+          <div className="files">
+            <span className="files-title">{s.filesSelected(files.length)}</span>
+            <ul className="file-chips">
+              {files.map((f, i) => (
+                <li className="file-chip" key={`${f.name}-${i}`}>
+                  <span className="file-icon" aria-hidden="true">
+                    📄
+                  </span>
+                  <span className="file-name" title={f.name}>
+                    {f.name}
+                  </span>
+                  <span className="file-size">{formatSize(f.size)}</span>
+                  <button
+                    type="button"
+                    className="file-remove"
+                    aria-label={`${s.removeFile} ${f.name}`}
+                    disabled={isLoading}
+                    onClick={() => {
+                      setFiles(files.filter((_, idx) => idx !== i))
+                      setResult(null)
+                      setError(null)
+                      setDurationMs(null)
+                    }}
+                  >
+                    ✕
+                  </button>
+                </li>
+              ))}
+            </ul>
           </div>
         )}
         <button className="button" onClick={handleCheck} disabled={files.length === 0 || isLoading}>
@@ -710,8 +744,8 @@ export default function Page() {
             </div>
           )}
 
-          {/* Per-file breakdown when several statements were combined */}
-          {result.perFile && result.perFile.length > 1 && (
+          {/* Per-file breakdown when several statements were combined (dev view only) */}
+          {dev && result.perFile && result.perFile.length > 1 && (
             <div className="per-file">
               <span className="per-file-title">{s.perFileHeading}</span>
               {result.fullyChained && <span className="chained-ok">✓ {s.chainedOk}</span>}

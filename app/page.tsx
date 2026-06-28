@@ -12,7 +12,7 @@
  *   - row-by-row balance check that highlights where the balance stops adding up
  */
 
-import { useState, useSyncExternalStore } from "react"
+import { useState, useEffect, useSyncExternalStore } from "react"
 import { fromCents, checkReconciliation } from "@/lib/core/reconciliation"
 import { downloadCsv, findBalanceBreaks, isExplainedByCryptoFees } from "@/lib/core/verification"
 import type {
@@ -186,6 +186,16 @@ export default function Page() {
   const [error, setError] = useState<string | null>(null)
   const [durationMs, setDurationMs] = useState<number | null>(null)
   const [period, setPeriod] = useState<Period>({ kind: "all" })
+  const [showTop, setShowTop] = useState(false)
+
+  // Show a floating "back to top" button once the user has scrolled down — long
+  // transaction tables make scrolling back up tedious.
+  useEffect(() => {
+    const onScroll = () => setShowTop(window.scrollY > 500)
+    window.addEventListener("scroll", onScroll, { passive: true })
+    onScroll()
+    return () => window.removeEventListener("scroll", onScroll)
+  }, [])
 
   // Test controls — read from the localStorage-backed store (SSR-safe, no warnings).
   const settings = useSyncExternalStore(
@@ -740,6 +750,21 @@ export default function Page() {
             </tbody>
           </table>
         </>
+      )}
+
+      {showTop && (
+        <button
+          type="button"
+          className="scroll-top"
+          aria-label={s.backToTop}
+          title={s.backToTop}
+          onClick={() => {
+            const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches
+            window.scrollTo({ top: 0, behavior: reduce ? "auto" : "smooth" })
+          }}
+        >
+          ↑
+        </button>
       )}
     </main>
   )

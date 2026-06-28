@@ -55,6 +55,7 @@ export const strings = {
   periodCustom: "Custom…",
   periodCovers: (from: string, to: string) => `Covers ${from} → ${to}`,
   periodEmpty: "No transactions in this period",
+  backToTop: "Back to top",
 
   // Revolut consolidated ("Custom") statement — several current accounts in one PDF
   consolidatedPass: "Reconciled — all accounts match",

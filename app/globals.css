@@ -425,6 +425,34 @@ td.date {
   }
 }
 
+/* Floating "back to top" button — appears after scrolling down long tables */
+.scroll-top {
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: 0;
+  background: var(--action);
+  color: #fff;
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18);
+  display: grid;
+  place-items: center;
+  transition: background 0.15s;
+  z-index: 50;
+}
+.scroll-top:hover {
+  background: var(--action-hover);
+}
+.scroll-top:focus-visible {
+  outline: 2px solid var(--action);
+  outline-offset: 2px;
+}
+
 /* Row-by-row balance diagnosis */
 .breaks {
   margin-top: 18px;

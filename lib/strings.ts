@@ -15,7 +15,14 @@ export const strings = {
   checkButton: "Check statement",
   checkingButton: "Checking…",
 
-  // Test controls
+  // Processing feedback
+  uploading: (pct: number) => `Uploading… ${pct}%`,
+  processingSteps: { reading: "Reading pages", extracting: "Extracting", reconciling: "Reconciling" },
+
+  // View mode (clean production view vs full developer detail)
+  devView: (on: boolean) => `Developer view: ${on ? "On" : "Off"}`,
+
+  // Test controls (developer view only)
   bankLabel: "Bank",
   primaryModelLabel: "Primary model",
   fallbackModelLabel: "Fallback model",
@@ -44,6 +51,10 @@ export const strings = {
   /** One precise line per gap: which period is missing, with the balance jump. */
   gapMissingPeriod: (beforeEnd: string, afterStart: string, balBefore: string, balAfter: string) =>
     `A statement covering ${beforeEnd} → ${afterStart} appears to be missing: balance jumps from ${balBefore} (closing on ${beforeEnd}) to ${balAfter} (opening on ${afterStart}).`,
+  /** Production: just the missing period, no balance detail. */
+  gapMissingPeriodShort: (beforeEnd: string, afterStart: string) =>
+    `A statement covering ${beforeEnd} → ${afterStart} appears to be missing.`,
+  gapMissingGeneric: "A statement appears to be missing from this series.",
   /** Fallback line when we can't date the gap (a statement had no dated rows). */
   gapMissingBalances: (balBefore: string, balAfter: string) =>
     `Balances don't link up: one statement closes at ${balBefore} but the next opens at ${balAfter} — a statement may be missing between them.`,

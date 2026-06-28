@@ -78,6 +78,7 @@ const DEFAULTS = {
   fallbackModel: "gemini-2.5-pro",
   enableFallback: false,
   bank: "generic" as BankId,
+  devMode: false, // production view by default; toggled on for the full developer detail
 }
 const SETTINGS_KEY = "extractionSettings"
 type Settings = typeof DEFAULTS
@@ -179,6 +180,31 @@ function slicePeriod(data: StatementData, period: Period): StatementData {
   return { bank: data.bank, openingBalance, closingBalance, transactions: sliceTx }
 }
 
+/**
+ * POST the upload via XMLHttpRequest so we get real UPLOAD progress events (fetch
+ * has none). The request is a single multipart POST, so progress is the aggregate
+ * bytes-sent percentage; once the body is fully sent we switch to the (server-side)
+ * processing phase. Resolves with the parsed JSON and whether the status was 2xx.
+ */
+function postExtract(
+  fd: FormData,
+  cb: { onUploadProgress: (pct: number) => void; onUploaded: () => void },
+): Promise<{ ok: boolean; data: unknown }> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest()
+    xhr.open("POST", "/api/extract")
+    xhr.responseType = "json"
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable) cb.onUploadProgress(Math.round((e.loaded / e.total) * 100))
+    }
+    xhr.upload.onload = () => cb.onUploaded()
+    xhr.onload = () => resolve({ ok: xhr.status >= 200 && xhr.status < 300, data: xhr.response })
+    xhr.onerror = () => reject(new Error("Network error"))
+    xhr.ontimeout = () => reject(new Error("Request timed out"))
+    xhr.send(fd)
+  })
+}
+
 export default function Page() {
   const [files, setFiles] = useState<File[]>([])
   const [isLoading, setIsLoading] = useState(false)
@@ -187,6 +213,17 @@ export default function Page() {
   const [durationMs, setDurationMs] = useState<number | null>(null)
   const [period, setPeriod] = useState<Period>({ kind: "all" })
   const [showTop, setShowTop] = useState(false)
+  const [phase, setPhase] = useState<"idle" | "uploading" | "processing">("idle")
+  const [uploadPct, setUploadPct] = useState(0)
+  const [step, setStep] = useState(0) // cycling Reading→Extracting→Reconciling indicator
+
+  // While processing on the server, cycle the step label (cosmetic — conveys
+  // activity; the server phase isn't separately observable from one request).
+  useEffect(() => {
+    if (phase !== "processing") return
+    const id = setInterval(() => setStep((s) => (s + 1) % 3), 1200)
+    return () => clearInterval(id)
+  }, [phase])
 
   // Show a floating "back to top" button once the user has scrolled down — long
   // transaction tables make scrolling back up tedious.
@@ -203,7 +240,8 @@ export default function Page() {
     getSettingsSnapshot,
     getSettingsServerSnapshot,
   )
-  const { primaryModel, fallbackModel, enableFallback, bank } = settings
+  const { primaryModel, fallbackModel, enableFallback, bank, devMode } = settings
+  const dev = devMode // show full developer detail when on; clean production view when off
   const updateSettings = (patch: Partial<Settings>) => saveSettings({ ...settings, ...patch })
   const resetSettings = () => saveSettings(DEFAULTS)
 
@@ -214,6 +252,9 @@ export default function Page() {
     setResult(null)
     setDurationMs(null)
     setPeriod({ kind: "all" })
+    setPhase("uploading")
+    setUploadPct(0)
+    setStep(0)
     const startedAt = performance.now()
     try {
       const fd = new FormData()
@@ -227,15 +268,19 @@ export default function Page() {
       fd.append("fallbackModel", fallbackModel)
       fd.append("enableFallback", String(enableFallback))
       fd.append("bank", bank)
-      const res = await fetch("/api/extract", { method: "POST", body: fd })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error ?? s.errorGeneric)
-      setResult(data)
+      const { ok, data } = await postExtract(fd, {
+        onUploadProgress: (pct) => setUploadPct(pct),
+        onUploaded: () => setPhase("processing"),
+      })
+      if (!ok) throw new Error((data as { error?: string })?.error ?? s.errorGeneric)
+      setResult(data as ApiResponse)
     } catch (e) {
       setError(e instanceof Error ? e.message : s.errorUnknown)
     } finally {
       setDurationMs(performance.now() - startedAt)
       setIsLoading(false)
+      setPhase("idle")
+      setUploadPct(0)
     }
   }
 
@@ -261,10 +306,20 @@ export default function Page() {
   return (
     <main className="page">
       <header className="header">
-        <h1>
-          <span className="brand">{s.appName}</span> — {s.pageTitle}
-        </h1>
-        <p>{s.pageSubtitle}</p>
+        <div>
+          <h1>
+            <span className="brand">{s.appName}</span> — {s.pageTitle}
+          </h1>
+          <p>{s.pageSubtitle}</p>
+        </div>
+        <button
+          type="button"
+          className={`dev-toggle ${dev ? "on" : ""}`}
+          aria-pressed={dev}
+          onClick={() => updateSettings({ devMode: !dev })}
+        >
+          {s.devView(dev)}
+        </button>
       </header>
 
       <section className="upload">
@@ -289,7 +344,36 @@ export default function Page() {
           {isLoading ? s.checkingButton : s.checkButton}
         </button>
 
-        {/* Test controls */}
+        {/* Processing feedback: real upload % then an indeterminate processing phase */}
+        {isLoading && (
+          <div className="progress-panel">
+            {phase === "uploading" ? (
+              <>
+                <div className="progress">
+                  <div className="progress-fill" style={{ width: `${uploadPct}%` }} />
+                </div>
+                <span className="progress-label">{s.uploading(uploadPct)}</span>
+              </>
+            ) : (
+              <>
+                <div className="progress">
+                  <div className="progress-indet" />
+                </div>
+                <div className="steps">
+                  {[s.processingSteps.reading, s.processingSteps.extracting, s.processingSteps.reconciling].map(
+                    (label, i) => (
+                      <span key={i} className={`step ${i === step ? "active" : ""}`}>
+                        {label}
+                      </span>
+                    ),
+                  )}
+                </div>
+              </>
+            )}
+          </div>
+        )}
+
+        {/* Bank — an everyday choice, kept visible */}
         <div className="controls">
           <div className="control">
             <label className="control-label">{s.bankLabel}</label>
@@ -305,52 +389,57 @@ export default function Page() {
               ))}
             </select>
           </div>
-
-          <div className="control">
-            <label className="control-label">{s.primaryModelLabel}</label>
-            <select
-              value={primaryModel}
-              onChange={(e) => updateSettings({ primaryModel: e.target.value })}
-              disabled={isLoading}
-            >
-              <option value="gemini-2.5-flash-lite">{s.modelLiteName}</option>
-              <option value="gemini-2.5-flash">{s.modelFlashName}</option>
-              <option value="gemini-2.5-pro">{s.modelProName}</option>
-            </select>
-          </div>
-
-          <label className="toggle">
-            <input
-              type="checkbox"
-              checked={enableFallback}
-              onChange={(e) => updateSettings({ enableFallback: e.target.checked })}
-              disabled={isLoading}
-            />
-            {s.enableFallbackLabel}
-          </label>
-
-          <div className="control" style={{ opacity: enableFallback ? 1 : 0.5 }}>
-            <label className="control-label">{s.fallbackModelLabel}</label>
-            <select
-              value={fallbackModel}
-              onChange={(e) => updateSettings({ fallbackModel: e.target.value })}
-              disabled={isLoading || !enableFallback}
-            >
-              <option value="gemini-2.5-flash-lite">{s.modelLiteName}</option>
-              <option value="gemini-2.5-flash">{s.modelFlashName}</option>
-              <option value="gemini-2.5-pro">{s.modelProName}</option>
-            </select>
-          </div>
-
-          <button
-            className="link-button reset-button"
-            onClick={resetSettings}
-            disabled={isLoading}
-            type="button"
-          >
-            {s.resetButton}
-          </button>
         </div>
+
+        {/* Developer / test controls — only in developer view */}
+        {dev && (
+          <div className="controls">
+            <div className="control">
+              <label className="control-label">{s.primaryModelLabel}</label>
+              <select
+                value={primaryModel}
+                onChange={(e) => updateSettings({ primaryModel: e.target.value })}
+                disabled={isLoading}
+              >
+                <option value="gemini-2.5-flash-lite">{s.modelLiteName}</option>
+                <option value="gemini-2.5-flash">{s.modelFlashName}</option>
+                <option value="gemini-2.5-pro">{s.modelProName}</option>
+              </select>
+            </div>
+
+            <label className="toggle">
+              <input
+                type="checkbox"
+                checked={enableFallback}
+                onChange={(e) => updateSettings({ enableFallback: e.target.checked })}
+                disabled={isLoading}
+              />
+              {s.enableFallbackLabel}
+            </label>
+
+            <div className="control" style={{ opacity: enableFallback ? 1 : 0.5 }}>
+              <label className="control-label">{s.fallbackModelLabel}</label>
+              <select
+                value={fallbackModel}
+                onChange={(e) => updateSettings({ fallbackModel: e.target.value })}
+                disabled={isLoading || !enableFallback}
+              >
+                <option value="gemini-2.5-flash-lite">{s.modelLiteName}</option>
+                <option value="gemini-2.5-flash">{s.modelFlashName}</option>
+                <option value="gemini-2.5-pro">{s.modelProName}</option>
+              </select>
+            </div>
+
+            <button
+              className="link-button reset-button"
+              onClick={resetSettings}
+              disabled={isLoading}
+              type="button"
+            >
+              {s.resetButton}
+            </button>
+          </div>
+        )}
       </section>
 
       {error && <div className="error">{error}</div>}
@@ -531,32 +620,55 @@ export default function Page() {
               {r.passed ? s.verdictPass : softExplained ? s.verdictSoft : s.verdictFail}
             </div>
 
-            <div className="equation">
-              <div className="term">
-                <span className="lbl">{s.eqOpening}</span>
-                <span className="val">{fromCents(r.openingBalanceCents)}</span>
+            {dev ? (
+              /* Developer: the full reconciliation equation (how the balance is derived) */
+              <div className="equation">
+                <div className="term">
+                  <span className="lbl">{s.eqOpening}</span>
+                  <span className="val">{fromCents(r.openingBalanceCents)}</span>
+                </div>
+                <span className="op">+</span>
+                <div className="term">
+                  <span className="lbl">{s.eqCredits}</span>
+                  <span className="val">{fromCents(r.totalCreditCents)}</span>
+                </div>
+                <span className="op">−</span>
+                <div className="term">
+                  <span className="lbl">{s.eqDebits}</span>
+                  <span className="val">{fromCents(r.totalDebitCents)}</span>
+                </div>
+                <span className="op">=</span>
+                <div className="term">
+                  <span className="lbl">{s.eqComputed}</span>
+                  <span className="val">{fromCents(r.computedBalanceCents)}</span>
+                </div>
+                <span className="op">vs</span>
+                <div className="term">
+                  <span className="lbl">{s.eqClosing}</span>
+                  <span className="val">{fromCents(r.closingBalanceCents)}</span>
+                </div>
               </div>
-              <span className="op">+</span>
-              <div className="term">
-                <span className="lbl">{s.eqCredits}</span>
-                <span className="val">{fromCents(r.totalCreditCents)}</span>
+            ) : (
+              /* Production: a clean figures summary (the year's totals) */
+              <div className="summary">
+                <div className="term">
+                  <span className="lbl">{s.eqOpening}</span>
+                  <span className="val">{fromCents(r.openingBalanceCents)}</span>
+                </div>
+                <div className="term">
+                  <span className="lbl">{s.eqCredits}</span>
+                  <span className="val">{fromCents(r.totalCreditCents)}</span>
+                </div>
+                <div className="term">
+                  <span className="lbl">{s.eqDebits}</span>
+                  <span className="val">{fromCents(r.totalDebitCents)}</span>
+                </div>
+                <div className="term">
+                  <span className="lbl">{s.eqClosing}</span>
+                  <span className="val">{fromCents(r.closingBalanceCents)}</span>
+                </div>
               </div>
-              <span className="op">−</span>
-              <div className="term">
-                <span className="lbl">{s.eqDebits}</span>
-                <span className="val">{fromCents(r.totalDebitCents)}</span>
-              </div>
-              <span className="op">=</span>
-              <div className="term">
-                <span className="lbl">{s.eqComputed}</span>
-                <span className="val">{fromCents(r.computedBalanceCents)}</span>
-              </div>
-              <span className="op">vs</span>
-              <div className="term">
-                <span className="lbl">{s.eqClosing}</span>
-                <span className="val">{fromCents(r.closingBalanceCents)}</span>
-              </div>
-            </div>
+            )}
 
             {!r.passed && transactions.length === 0 && (
               <div className="discrepancy-note">{s.noTransactionsNote}</div>
@@ -584,9 +696,13 @@ export default function Page() {
                       : "—"
                   return (
                     <li key={i}>
-                      {g.beforeEnd && g.afterStart
-                        ? s.gapMissingPeriod(g.beforeEnd, g.afterStart, balBefore, balAfter)
-                        : s.gapMissingBalances(balBefore, balAfter)}
+                      {dev
+                        ? g.beforeEnd && g.afterStart
+                          ? s.gapMissingPeriod(g.beforeEnd, g.afterStart, balBefore, balAfter)
+                          : s.gapMissingBalances(balBefore, balAfter)
+                        : g.beforeEnd && g.afterStart
+                          ? s.gapMissingPeriodShort(g.beforeEnd, g.afterStart)
+                          : s.gapMissingGeneric}
                     </li>
                   )
                 })}
@@ -605,7 +721,7 @@ export default function Page() {
                     <th>{s.perFileColumns.file}</th>
                     <th>{s.perFileColumns.count}</th>
                     <th>{s.perFileColumns.period}</th>
-                    <th>{s.perFileColumns.range}</th>
+                    {dev && <th>{s.perFileColumns.range}</th>}
                   </tr>
                 </thead>
                 <tbody>
@@ -616,10 +732,12 @@ export default function Page() {
                       <td className="date">
                         {pf.periodStart && pf.periodEnd ? `${pf.periodStart} → ${pf.periodEnd}` : "—"}
                       </td>
-                      <td>
-                        {fromCents(Math.round(pf.openingBalance * 100))} →{" "}
-                        {fromCents(Math.round(pf.closingBalance * 100))}
-                      </td>
+                      {dev && (
+                        <td>
+                          {fromCents(Math.round(pf.openingBalance * 100))} →{" "}
+                          {fromCents(Math.round(pf.closingBalance * 100))}
+                        </td>
+                      )}
                     </tr>
                   ))}
                 </tbody>
@@ -627,27 +745,29 @@ export default function Page() {
             </div>
           )}
 
-          {/* Extraction trace — which models were tried, which reconciled */}
-          <div className="trace">
-            <span className="trace-title">{s.extractionHeading}</span>
-            {result.attempts.map((a, i) => (
-              <div className="trace-row" key={i}>
-                <span className="trace-model">{a.model}</span>
-                <span className={a.reconciliationPassed ? "trace-ok" : "trace-fail"}>
-                  {a.reconciliationPassed ? `✓ ${s.attemptReconciled}` : `✗ ${s.attemptFailed}`}
-                  {!a.reconciliationPassed &&
-                    ` (off by ${fromCents(Math.abs(a.discrepancyCents))})`}
-                </span>
-                <span className="trace-time">{(a.durationMs / 1000).toFixed(1)}s</span>
-              </div>
-            ))}
-            <span className="trace-summary">
-              {result.fallbackUsed ? s.fallbackTriggered : s.firstTry}
-            </span>
-          </div>
+          {/* Extraction trace — which models were tried, which reconciled (dev only) */}
+          {dev && (
+            <div className="trace">
+              <span className="trace-title">{s.extractionHeading}</span>
+              {result.attempts.map((a, i) => (
+                <div className="trace-row" key={i}>
+                  <span className="trace-model">{a.model}</span>
+                  <span className={a.reconciliationPassed ? "trace-ok" : "trace-fail"}>
+                    {a.reconciliationPassed ? `✓ ${s.attemptReconciled}` : `✗ ${s.attemptFailed}`}
+                    {!a.reconciliationPassed &&
+                      ` (off by ${fromCents(Math.abs(a.discrepancyCents))})`}
+                  </span>
+                  <span className="trace-time">{(a.durationMs / 1000).toFixed(1)}s</span>
+                </div>
+              ))}
+              <span className="trace-summary">
+                {result.fallbackUsed ? s.fallbackTriggered : s.firstTry}
+              </span>
+            </div>
+          )}
 
-          {/* Auto-corrections made from the running balance (transparency) */}
-          {result.corrections.length > 0 && (
+          {/* Auto-corrections made from the running balance (transparency, dev only) */}
+          {dev && result.corrections.length > 0 && (
             <div className="corrections">
               <p className="corrections-msg">{s.correctionsHeading(result.corrections.length)}</p>
               <ul className="corrections-list">
@@ -661,33 +781,33 @@ export default function Page() {
             </div>
           )}
 
-          {/* Row-by-row balance diagnosis (only when failed) */}
-          {!r.passed && (
-            <div className="breaks">
-              {!hasBalances ? (
+          {/* Row-by-row balance diagnosis (only when failed). The list of flagged
+              rows is collapsible and closed by default — the cause is summarized. */}
+          {!r.passed &&
+            (!hasBalances ? (
+              <div className="breaks">
                 <p className="breaks-msg">{s.breaksNoBalance}</p>
-              ) : breaks.length === 0 ? (
+              </div>
+            ) : breaks.length === 0 ? (
+              <div className="breaks">
                 <p className="breaks-msg">{s.breaksNone}</p>
-              ) : (
-                <>
-                  <p className="breaks-msg">
-                    {softExplained
-                      ? s.breaksHeadingCrypto(breaks.length)
-                      : s.breaksHeading(breaks.length)}
-                  </p>
-                  <ul className="breaks-list">
-                    {breaks.map((b) => (
-                      <li key={b.index}>
-                        <b>Row {b.index + 1}</b> — {b.transaction.date} {b.transaction.description}:
-                        expected {fromCents(b.expectedCents)}, shows {fromCents(b.actualCents)} (off
-                        by {fromCents(Math.abs(b.deltaCents))})
-                      </li>
-                    ))}
-                  </ul>
-                </>
-              )}
-            </div>
-          )}
+              </div>
+            ) : (
+              <details className="breaks">
+                <summary className="breaks-summary">
+                  {softExplained ? s.breaksHeadingCrypto(breaks.length) : s.breaksHeading(breaks.length)}
+                </summary>
+                <ul className="breaks-list">
+                  {breaks.map((b) => (
+                    <li key={b.index}>
+                      <b>Row {b.index + 1}</b> — {b.transaction.date} {b.transaction.description}:
+                      expected {fromCents(b.expectedCents)}, shows {fromCents(b.actualCents)} (off by{" "}
+                      {fromCents(Math.abs(b.deltaCents))})
+                    </li>
+                  ))}
+                </ul>
+              </details>
+            ))}
 
           {/* Details + actions */}
           <div className="meta">
@@ -697,7 +817,7 @@ export default function Page() {
             <span>
               {s.metaTransactions}: <b>{transactions.length}</b>
             </span>
-            {durationMs != null && (
+            {dev && durationMs != null && (
               <span>
                 {s.metaDuration}: <b>{(durationMs / 1000).toFixed(1)}s</b>
               </span>

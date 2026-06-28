@@ -243,6 +243,15 @@ input[type="file"]::file-selector-button {
   font-size: 14px;
   color: var(--ink);
 }
+.gap-list {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  font-size: 14px;
+  color: var(--ink);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
 
 /* Per-file breakdown when several statements are combined */
 .per-file {

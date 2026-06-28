@@ -30,11 +30,15 @@ interface PerFileResult {
   transactionCount: number
   openingBalance: number
   closingBalance: number
+  periodStart: string | null
+  periodEnd: string | null
 }
 
 interface StatementGap {
   afterClosingBalance: number
   nextOpeningBalance: number | null
+  beforeEnd: string | null
+  afterStart: string | null
 }
 
 interface ConsolidatedAccount {
@@ -438,11 +442,27 @@ export default function Page() {
             )}
           </div>
 
-          {/* Gap warning — statements don't link up by balance (one may be missing) */}
+          {/* Gap warning — statements don't link up by balance (one may be missing).
+              Show WHICH period is missing when we have dates, else the balance jump. */}
           {result.gaps && result.gaps.length > 0 && (
             <div className="gap-warning">
               <strong>{s.gapWarningTitle}</strong>
-              <p>{s.gapWarningBody}</p>
+              <ul className="gap-list">
+                {result.gaps.map((g, i) => {
+                  const balBefore = fromCents(Math.round(g.afterClosingBalance * 100))
+                  const balAfter =
+                    g.nextOpeningBalance != null
+                      ? fromCents(Math.round(g.nextOpeningBalance * 100))
+                      : "—"
+                  return (
+                    <li key={i}>
+                      {g.beforeEnd && g.afterStart
+                        ? s.gapMissingPeriod(g.beforeEnd, g.afterStart, balBefore, balAfter)
+                        : s.gapMissingBalances(balBefore, balAfter)}
+                    </li>
+                  )
+                })}
+              </ul>
             </div>
           )}
 
@@ -456,6 +476,7 @@ export default function Page() {
                   <tr>
                     <th>{s.perFileColumns.file}</th>
                     <th>{s.perFileColumns.count}</th>
+                    <th>{s.perFileColumns.period}</th>
                     <th>{s.perFileColumns.range}</th>
                   </tr>
                 </thead>
@@ -464,6 +485,9 @@ export default function Page() {
                     <tr key={i}>
                       <td>{pf.fileName}</td>
                       <td>{pf.transactionCount}</td>
+                      <td className="date">
+                        {pf.periodStart && pf.periodEnd ? `${pf.periodStart} → ${pf.periodEnd}` : "—"}
+                      </td>
                       <td>
                         {fromCents(Math.round(pf.openingBalance * 100))} →{" "}
                         {fromCents(Math.round(pf.closingBalance * 100))}

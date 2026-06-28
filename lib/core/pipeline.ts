@@ -171,6 +171,9 @@ export interface PerFileResult {
   transactionCount: number
   openingBalance: number
   closingBalance: number
+  /** Covered period (ISO dates, min/max of the file's transactions), if known. */
+  periodStart: string | null
+  periodEnd: string | null
 }
 
 /** Result of processing several PDFs as one chained series. */
@@ -222,12 +225,17 @@ export async function extractAndReconcileMany(
 
   // 4. Build the per-file summary in the resolved chain order. (We match each
   // chained statement back to its file by identity.)
-  const perFile: PerFileResult[] = perFileRaw.map((p) => ({
-    fileName: p.name,
-    transactionCount: p.statement.transactions.length,
-    openingBalance: p.statement.openingBalance,
-    closingBalance: p.statement.closingBalance,
-  }))
+  const perFile: PerFileResult[] = perFileRaw.map((p) => {
+    const dates = p.statement.transactions.map((t) => t.date).filter((d): d is string => !!d).sort()
+    return {
+      fileName: p.name,
+      transactionCount: p.statement.transactions.length,
+      openingBalance: p.statement.openingBalance,
+      closingBalance: p.statement.closingBalance,
+      periodStart: dates[0] ?? null,
+      periodEnd: dates[dates.length - 1] ?? null,
+    }
+  })
 
   const result: PipelineResult = {
     data,

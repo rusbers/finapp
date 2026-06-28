@@ -37,10 +37,16 @@ export const strings = {
   errorTooManyFiles: "Too many files. Please upload fewer statements at once.",
   // Multi-statement (combining several PDFs of the same account)
   perFileHeading: "Statements combined",
-  perFileColumns: { file: "File", count: "Transactions", range: "Balance range" },
+  perFileColumns: { file: "File", count: "Transactions", period: "Period", range: "Balance range" },
   gapWarningTitle: "Possible missing statement",
   gapWarningBody:
     "These statements don't link up by balance — one or more statements may be missing from the series. The closing balance of one statement should match the opening balance of the next.",
+  /** One precise line per gap: which period is missing, with the balance jump. */
+  gapMissingPeriod: (beforeEnd: string, afterStart: string, balBefore: string, balAfter: string) =>
+    `A statement covering ${beforeEnd} → ${afterStart} appears to be missing: balance jumps from ${balBefore} (closing on ${beforeEnd}) to ${balAfter} (opening on ${afterStart}).`,
+  /** Fallback line when we can't date the gap (a statement had no dated rows). */
+  gapMissingBalances: (balBefore: string, balAfter: string) =>
+    `Balances don't link up: one statement closes at ${balBefore} but the next opens at ${balAfter} — a statement may be missing between them.`,
   chainedOk: "All statements link up by balance",
 
   // Revolut consolidated ("Custom") statement — several current accounts in one PDF

@@ -25,6 +25,11 @@ export interface StatementGap {
   afterClosingBalance: number
   /** The next statement we did find, whose opening doesn't match (if any). */
   nextOpeningBalance: number | null
+  /** Last transaction date of the statement before the gap (ISO), if known. */
+  beforeEnd: string | null
+  /** First transaction date of the statement after the gap (ISO), if known —
+   * together with `beforeEnd` this is the period the missing statement covers. */
+  afterStart: string | null
 }
 
 export interface CombineResult {
@@ -65,57 +70,72 @@ export function combineStatements(statements: StatementData[]): CombineResult {
     }
   }
 
-  // Build the chain. Find a head: a statement whose opening balance is not the
-  // closing balance of any other statement.
+  // Group statements into balance-linked SEGMENTS. A missing statement splits the
+  // series into more than one segment; each segment is internally chained
+  // (closing → opening). We then order the segments chronologically and report a
+  // gap between each consecutive pair — one gap per real break, never a spurious
+  // input-order/"wrap" one.
   const isClosingOfAnother = (opening: number, selfIndex: number): boolean =>
     statements.some((s, i) => i !== selfIndex && approxEqual(s.closingBalance, opening))
 
-  const heads = statements
-    .map((s, i) => ({ s, i }))
-    .filter(({ s, i }) => !isClosingOfAnother(s.openingBalance, i))
-
-  // Ideal case: exactly one head. If zero or many (ambiguous/cyclic/duplicate),
-  // fall back to the input order but still chain-check for gaps.
   const used = new Set<number>()
-  const ordered: StatementData[] = []
-  let cleanChain = true
+  const segments: StatementData[][] = []
+  const nextInChain = (closing: number): number =>
+    statements.findIndex((s, i) => !used.has(i) && approxEqual(s.openingBalance, closing))
 
-  if (heads.length === 1) {
-    let currentIndex: number | null = heads[0].i
-    while (currentIndex !== null && !used.has(currentIndex)) {
-      const current = statements[currentIndex]
-      ordered.push(current)
-      used.add(currentIndex)
-      // Find the next statement whose opening matches this closing.
-      const nextIndex = statements.findIndex(
-        (s, i) => !used.has(i) && approxEqual(s.openingBalance, current.closingBalance),
-      )
-      currentIndex = nextIndex === -1 ? null : nextIndex
+  // Start a chain from each head (an opening that isn't any other's closing), then
+  // from any still-unused statement (covers cycles / ambiguous balances) — so every
+  // statement lands in exactly one segment and nothing is dropped.
+  const startOrder = [
+    ...statements.map((_, i) => i).filter((i) => !isClosingOfAnother(statements[i].openingBalance, i)),
+    ...statements.map((_, i) => i),
+  ]
+  for (const start of startOrder) {
+    if (used.has(start)) continue
+    const seg: StatementData[] = []
+    let cur: number | null = start
+    while (cur !== null && !used.has(cur)) {
+      used.add(cur)
+      seg.push(statements[cur])
+      const nx = nextInChain(statements[cur].closingBalance)
+      cur = nx === -1 ? null : nx
     }
-    // Any statements not reached belong to a broken/separate chain.
-    if (used.size !== statements.length) cleanChain = false
-  } else {
-    cleanChain = false
+    if (seg.length) segments.push(seg)
   }
 
-  // Append any statements not placed by chaining, in their original order, so
-  // nothing is silently dropped.
-  if (ordered.length !== statements.length) {
-    statements.forEach((s, i) => {
-      if (!used.has(i)) ordered.push(s)
-    })
+  // Each segment's covered period = min/max of its transaction dates (ISO → sortable).
+  const segPeriod = (seg: StatementData[]): { start: string; end: string } | null => {
+    const dates = seg
+      .flatMap((s) => s.transactions.map((t) => t.date))
+      .filter((d): d is string => !!d)
+      .sort()
+    return dates.length ? { start: dates[0], end: dates[dates.length - 1] } : null
   }
 
-  // Detect gaps: walk the ordered list; a gap exists wherever a statement's
-  // closing balance doesn't equal the next statement's opening balance.
+  // Order segments chronologically (undated segments kept last, stable).
+  segments.sort((a, b) => {
+    const sa = segPeriod(a)?.start ?? null
+    const sb = segPeriod(b)?.start ?? null
+    if (sa && sb) return sa < sb ? -1 : sa > sb ? 1 : 0
+    if (sa) return -1
+    if (sb) return 1
+    return 0
+  })
+
+  const ordered: StatementData[] = segments.flat()
+
+  // One gap per consecutive segment pair = one real missing statement, with the
+  // bracketing dates so the UI can name the missing period.
   const gaps: StatementGap[] = []
-  for (let i = 0; i < ordered.length - 1; i++) {
-    if (!approxEqual(ordered[i].closingBalance, ordered[i + 1].openingBalance)) {
-      gaps.push({
-        afterClosingBalance: ordered[i].closingBalance,
-        nextOpeningBalance: ordered[i + 1].openingBalance,
-      })
-    }
+  for (let i = 0; i < segments.length - 1; i++) {
+    const a = segments[i]
+    const b = segments[i + 1]
+    gaps.push({
+      afterClosingBalance: a[a.length - 1].closingBalance,
+      nextOpeningBalance: b[0].openingBalance,
+      beforeEnd: segPeriod(a)?.end ?? null,
+      afterStart: segPeriod(b)?.start ?? null,
+    })
   }
 
   const combined: StatementData = {
@@ -129,6 +149,6 @@ export function combineStatements(statements: StatementData[]): CombineResult {
     combined,
     orderedCount: ordered.length,
     gaps,
-    fullyChained: cleanChain && gaps.length === 0,
+    fullyChained: segments.length === 1,
   }
 }

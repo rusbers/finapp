@@ -322,12 +322,6 @@ export default function Page() {
   return (
     <main className="page">
       <header className="header">
-        <div>
-          <h1>
-            <span className="brand">{s.appName}</span> — {s.pageTitle}
-          </h1>
-          <p>{s.pageSubtitle}</p>
-        </div>
         <button
           type="button"
           className={`dev-toggle ${dev ? "on" : ""}`}

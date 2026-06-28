@@ -129,6 +129,70 @@ input[type="file"]::file-selector-button {
   border: 1px solid #f3cdb9;
 }
 
+/* Financial-period selector (year chips + custom range), above the verdict */
+.period-bar {
+  margin-top: 28px;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px 14px;
+}
+.period-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ink-soft);
+  font-weight: 600;
+}
+.period-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.chip {
+  padding: 6px 12px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--card);
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 500;
+  font-family: var(--font-num);
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s;
+}
+.chip:hover {
+  border-color: var(--action);
+}
+.chip.active {
+  background: var(--action);
+  border-color: var(--action);
+  color: #fff;
+}
+.period-range {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.period-range input[type="date"] {
+  font-size: 13px;
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-num);
+}
+.period-arrow {
+  color: var(--ink-soft);
+}
+.period-covers,
+.period-empty {
+  font-size: 12px;
+  color: var(--ink-soft);
+  font-family: var(--font-num);
+}
+
 /* Reconciliation verdict — the signature element */
 .verdict {
   margin-top: 32px;

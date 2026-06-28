@@ -49,6 +49,13 @@ export const strings = {
     `Balances don't link up: one statement closes at ${balBefore} but the next opens at ${balAfter} — a statement may be missing between them.`,
   chainedOk: "All statements link up by balance",
 
+  // Financial-period filter (slice the result to a year / custom range)
+  periodLabel: "Financial period",
+  periodAll: "All",
+  periodCustom: "Custom…",
+  periodCovers: (from: string, to: string) => `Covers ${from} → ${to}`,
+  periodEmpty: "No transactions in this period",
+
   // Revolut consolidated ("Custom") statement — several current accounts in one PDF
   consolidatedPass: "Reconciled — all accounts match",
   consolidatedFail: "Out of balance — check the accounts below",

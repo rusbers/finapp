@@ -13,7 +13,7 @@
  */
 
 import { useState, useSyncExternalStore } from "react"
-import { fromCents } from "@/lib/core/reconciliation"
+import { fromCents, checkReconciliation } from "@/lib/core/reconciliation"
 import { downloadCsv, findBalanceBreaks, isExplainedByCryptoFees } from "@/lib/core/verification"
 import type {
   StatementData,
@@ -134,12 +134,58 @@ function saveSettings(next: Settings): void {
   settingsListeners.forEach((l) => l()) // notify this tab
 }
 
+/* ------------------------------------------------------------------ *
+ * Financial-period filtering.
+ * The accountant reconciles a closing financial YEAR. A combined upload can span
+ * past the year boundary (e.g. end-2024 → start-2026); selecting a period slices
+ * the extracted series into its own statement — deriving the period's OPENING
+ * (the running balance entering it) and CLOSING (the running balance at its end) —
+ * so the verdict is a REAL reconciliation of that period, not just hidden rows.
+ * ------------------------------------------------------------------ */
+type Period = { kind: "all" } | { kind: "year"; year: string } | { kind: "range"; from: string; to: string }
+
+function slicePeriod(data: StatementData, period: Period): StatementData {
+  if (period.kind === "all") return data
+  const from = period.kind === "year" ? `${period.year}-01-01` : period.from
+  const to = period.kind === "year" ? `${period.year}-12-31` : period.to
+  const tx = data.transactions
+  const inRange = (d: string) => (!from || d >= from) && (!to || d <= to)
+
+  const firstIdx = tx.findIndex((t) => !!t.date && inRange(t.date))
+  if (firstIdx === -1) {
+    return { bank: data.bank, openingBalance: 0, closingBalance: 0, transactions: [] }
+  }
+  const sliceTx = tx.filter((t) => !!t.date && inRange(t.date))
+
+  // Opening = printed running balance of the row just before the period's first row
+  // (in series order); if the period starts at/before the data, the statement's own
+  // opening. Fallback (no balances): opening + Σ(credit−debit) of the rows before it.
+  const prev = firstIdx > 0 ? tx[firstIdx - 1] : null
+  const openingBalance =
+    firstIdx === 0
+      ? data.openingBalance
+      : prev && prev.balance != null
+        ? prev.balance
+        : data.openingBalance +
+          tx.slice(0, firstIdx).reduce((sum, t) => sum + (t.credit || 0) - (t.debit || 0), 0)
+
+  // Closing = printed running balance of the period's last row (fallback: computed).
+  const last = sliceTx[sliceTx.length - 1]
+  const closingBalance =
+    last.balance != null
+      ? last.balance
+      : openingBalance + sliceTx.reduce((sum, t) => sum + (t.credit || 0) - (t.debit || 0), 0)
+
+  return { bank: data.bank, openingBalance, closingBalance, transactions: sliceTx }
+}
+
 export default function Page() {
   const [files, setFiles] = useState<File[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [result, setResult] = useState<ApiResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [durationMs, setDurationMs] = useState<number | null>(null)
+  const [period, setPeriod] = useState<Period>({ kind: "all" })
 
   // Test controls — read from the localStorage-backed store (SSR-safe, no warnings).
   const settings = useSyncExternalStore(
@@ -157,6 +203,7 @@ export default function Page() {
     setError(null)
     setResult(null)
     setDurationMs(null)
+    setPeriod({ kind: "all" })
     const startedAt = performance.now()
     try {
       const fd = new FormData()
@@ -182,11 +229,20 @@ export default function Page() {
     }
   }
 
-  const r = result?.reconciliation
-  const transactions = result?.data?.transactions ?? []
+  // Distinct calendar years present (for the financial-period chips).
+  const years = result?.data
+    ? [...new Set(result.data.transactions.map((t) => t.date?.slice(0, 4)).filter((y): y is string => !!y))].sort()
+    : []
+
+  // The result, SLICED to the selected financial period (single/combined path).
+  // For "all" this is the whole extraction; for a year/range it's that period
+  // reconciled on its own (opening/closing derived from the running balance).
+  const viewData = result?.data ? slicePeriod(result.data, period) : null
+  const r = viewData ? checkReconciliation(viewData) : null
+  const transactions = viewData?.transactions ?? []
   const hasBalances = transactions.some((t) => t.balance != null)
   // Row-by-row balance check — only meaningful when reconciliation failed.
-  const breaks = result && r && !r.passed ? findBalanceBreaks(result.data) : []
+  const breaks = viewData && r && !r.passed ? findBalanceBreaks(viewData) : []
   const breakIndexes = new Set(breaks.map((b) => b.index))
   // Out of balance, but fully explained by Revolut's hidden crypto-sell fees —
   // the extraction is faithful, so show it softer (not a hard failure).
@@ -396,6 +452,68 @@ export default function Page() {
 
       {result && r && (
         <>
+          {/* Financial period — slice the result to a year/custom range and
+              re-reconcile it (opening/closing derived from the running balance). */}
+          {result.data && result.data.transactions.length > 0 && (
+            <div className="period-bar">
+              <span className="period-label">{s.periodLabel}</span>
+              <div className="period-chips">
+                <button
+                  type="button"
+                  className={`chip ${period.kind === "all" ? "active" : ""}`}
+                  onClick={() => setPeriod({ kind: "all" })}
+                >
+                  {s.periodAll}
+                </button>
+                {years.map((y) => (
+                  <button
+                    key={y}
+                    type="button"
+                    className={`chip ${period.kind === "year" && period.year === y ? "active" : ""}`}
+                    onClick={() => setPeriod({ kind: "year", year: y })}
+                  >
+                    {y}
+                  </button>
+                ))}
+                <button
+                  type="button"
+                  className={`chip ${period.kind === "range" ? "active" : ""}`}
+                  onClick={() =>
+                    setPeriod({
+                      kind: "range",
+                      from: years[0] ? `${years[0]}-01-01` : "",
+                      to: years.length ? `${years[years.length - 1]}-12-31` : "",
+                    })
+                  }
+                >
+                  {s.periodCustom}
+                </button>
+              </div>
+              {period.kind === "range" && (
+                <div className="period-range">
+                  <input
+                    type="date"
+                    value={period.from}
+                    onChange={(e) => setPeriod({ kind: "range", from: e.target.value, to: period.to })}
+                  />
+                  <span className="period-arrow">→</span>
+                  <input
+                    type="date"
+                    value={period.to}
+                    onChange={(e) => setPeriod({ kind: "range", from: period.from, to: e.target.value })}
+                  />
+                </div>
+              )}
+              {period.kind !== "all" && (
+                <span className="period-covers">
+                  {transactions.length > 0
+                    ? s.periodCovers(transactions[0].date, transactions[transactions.length - 1].date)
+                    : s.periodEmpty}
+                </span>
+              )}
+            </div>
+          )}
+
           {/* Verdict — the signature element */}
           <div className={`verdict ${r.passed ? "pass" : softExplained ? "soft" : "fail"}`}>
             <div className="verdict-head">
@@ -580,7 +698,16 @@ export default function Page() {
             <button
               className="link-button"
               onClick={() =>
-                downloadCsv(result.data, result.fileName.replace(/\.pdf$/i, "") + ".csv")
+                downloadCsv(
+                  viewData ?? result.data,
+                  result.fileName.replace(/\.pdf$/i, "") +
+                    (period.kind === "year"
+                      ? `-${period.year}`
+                      : period.kind === "range"
+                        ? `-${period.from}_${period.to}`
+                        : "") +
+                    ".csv",
+                )
               }
             >
               {s.downloadCsv}

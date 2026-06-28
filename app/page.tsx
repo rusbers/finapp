@@ -249,6 +249,15 @@ export default function Page() {
   )
   const { primaryModel, fallbackModel, enableFallback, bank, devMode } = settings
   const dev = devMode // show full developer detail when on; clean production view when off
+
+  // PTSB is hidden for now: its parser extracts only the numbers, not the
+  // descriptions (see the feature/ptsb-parser branch). To re-enable, drop it
+  // from HIDDEN_BANKS. We keep BankId/BANK_LABELS intact — this is UI-only.
+  const HIDDEN_BANKS: BankId[] = ["ptsb"]
+  const visibleBanks = (Object.keys(BANK_LABELS) as BankId[]).filter((id) => !HIDDEN_BANKS.includes(id))
+  // A stale "ptsb" persisted in localStorage falls back to "generic" so we never
+  // post a hidden bank to the backend.
+  const selectedBank: BankId = visibleBanks.includes(bank) ? bank : "generic"
   const updateSettings = (patch: Partial<Settings>) => saveSettings({ ...settings, ...patch })
   const resetSettings = () => saveSettings(DEFAULTS)
 
@@ -274,7 +283,7 @@ export default function Page() {
       fd.append("primaryModel", primaryModel)
       fd.append("fallbackModel", fallbackModel)
       fd.append("enableFallback", String(enableFallback))
-      fd.append("bank", bank)
+      fd.append("bank", selectedBank)
       const { ok, data } = await postExtract(fd, {
         onUploadProgress: (pct) => setUploadPct(pct),
         onUploaded: () => setPhase("processing"),
@@ -374,6 +383,24 @@ export default function Page() {
             </ul>
           </div>
         )}
+        {/* Bank — an everyday choice the user makes before checking, kept visible */}
+        <div className="controls">
+          <div className="control">
+            <label className="control-label">{s.bankLabel}</label>
+            <select
+              value={selectedBank}
+              onChange={(e) => updateSettings({ bank: e.target.value as BankId })}
+              disabled={isLoading}
+            >
+              {visibleBanks.map((id) => (
+                <option key={id} value={id}>
+                  {BANK_LABELS[id]}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+
         <button className="button" onClick={handleCheck} disabled={files.length === 0 || isLoading}>
           {isLoading ? s.checkingButton : s.checkButton}
         </button>
@@ -406,24 +433,6 @@ export default function Page() {
             )}
           </div>
         )}
-
-        {/* Bank — an everyday choice, kept visible */}
-        <div className="controls">
-          <div className="control">
-            <label className="control-label">{s.bankLabel}</label>
-            <select
-              value={bank}
-              onChange={(e) => updateSettings({ bank: e.target.value as BankId })}
-              disabled={isLoading}
-            >
-              {(Object.keys(BANK_LABELS) as BankId[]).map((id) => (
-                <option key={id} value={id}>
-                  {BANK_LABELS[id]}
-                </option>
-              ))}
-            </select>
-          </div>
-        </div>
 
         {/* Developer / test controls — only in developer view */}
         {dev && (

@@ -210,6 +210,8 @@ export interface DuplicateStatement {
   fileName: string // the ignored copy
   duplicateOf: string // the file it is identical to (the one we kept)
   transactionCount: number
+  openingBalance: number
+  closingBalance: number
   periodStart: string | null
   periodEnd: string | null
 }
@@ -285,6 +287,8 @@ export async function extractAndReconcileMany(
         fileName: p.name,
         duplicateOf: firstName,
         transactionCount: p.statement.transactions.length,
+        openingBalance: p.statement.openingBalance,
+        closingBalance: p.statement.closingBalance,
         periodStart: dates[0] ?? null,
         periodEnd: dates[dates.length - 1] ?? null,
       })

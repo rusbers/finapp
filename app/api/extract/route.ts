@@ -96,9 +96,12 @@ export async function POST(req: NextRequest) {
     const multiResult = await extractAndReconcileMany(filesWithBytes, options)
 
     // Flatten so the UI gets the same top-level result fields, plus multi extras.
+    // The file label reflects the files actually used (unique = perFile), so ignored
+    // duplicates aren't counted.
+    const usedCount = multiResult.perFile.length
     return NextResponse.json({
       ...multiResult.result,
-      fileName: `${uploaded.length} files`,
+      fileName: `${usedCount} file${usedCount === 1 ? "" : "s"}`,
       perFile: multiResult.perFile,
       gaps: multiResult.gaps,
       fullyChained: multiResult.fullyChained,

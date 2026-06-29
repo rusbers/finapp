@@ -303,12 +303,20 @@ input[type="file"]::file-selector-button {
   background: var(--discrepancy-bg);
 }
 
-/* Selected-files list under the upload input — clean chips with size + remove */
+/* Files table — the uploaded files as a clean table (same style as the others). Each
+   row fills in after a check (transactions · period · balance range). A duplicate gets
+   a red warning badge + note, so the user knows which file to remove (✕ on the row). */
 .files {
   flex: 1 1 100%;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
+}
+.files-head {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  flex-wrap: wrap;
 }
 .files-title {
   font-size: 11px;
@@ -317,43 +325,58 @@ input[type="file"]::file-selector-button {
   color: var(--ink-soft);
   font-weight: 600;
 }
-.file-chips {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  max-height: 180px;
-  overflow-y: auto;
+.files-head .chained-ok {
+  font-size: 13px;
+  color: var(--ledger-green);
+  font-weight: 600;
 }
-.file-chip {
-  display: inline-flex;
+.files-table {
+  margin-top: 0; /* sits right under the head (the base table has a top margin) */
+  font-size: 13px;
+}
+/* FILE column is greedy so it absorbs the table's slack — the name + badges fit on
+   one line and the other columns sit compactly next to their content. */
+.files-table th:first-child {
+  width: 100%;
+}
+.files-name {
+  display: flex;
   align-items: center;
   gap: 8px;
-  max-width: 320px;
-  padding: 6px 10px;
-  background: var(--paper);
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  font-size: 13px;
+  flex-wrap: wrap;
+  color: var(--ink); /* UI font (not monospace) → narrower names, room for badges */
+  overflow-wrap: anywhere; /* fall back gracefully on a very long name */
 }
-.file-icon {
-  font-size: 13px;
-  line-height: 1;
-}
-.file-name {
-  font-family: var(--font-num);
-  color: var(--ink);
-  overflow: hidden;
-  text-overflow: ellipsis;
+/* Subtle "Duplicate" flag — present on every file in a duplicate group, but it does
+   not need to shout (soft amber, no row tint). */
+.file-badge {
+  flex-shrink: 0;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--soft);
+  background: var(--soft-bg);
+  border-radius: 999px;
+  padding: 2px 9px;
   white-space: nowrap;
 }
-.file-size {
-  flex-shrink: 0;
+/* "Ignored" — only on the excluded copy; neutral grey, even quieter than Duplicate. */
+.file-badge--ignored {
+  color: var(--ink-soft);
+  background: #eef1f5;
+}
+.files-pending {
   color: var(--ink-soft);
   font-family: var(--font-num);
-  font-size: 12px;
+}
+.files-range {
+  font-family: var(--font-num);
+  color: var(--ink-soft);
+  white-space: nowrap; /* keep "1432.20 → 436.40" on one line */
+}
+.files-x {
+  width: 1%;
+  text-align: right;
+  white-space: nowrap;
 }
 .file-remove {
   flex-shrink: 0;

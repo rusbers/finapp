@@ -47,6 +47,10 @@ export const strings = {
   // Multi-statement (combining several PDFs of the same account)
   perFileHeading: "Statements combined",
   perFileColumns: { file: "File", count: "Transactions", period: "Period", range: "Balance range" },
+  // Files table — duplicate row badges
+  fileBadgeDuplicate: "Duplicate",
+  fileBadgeIgnored: "Ignored", // the copy that was excluded from the combined series
+  fileDuplicateSubtitle: (other: string) => `Same statement as ${other} — remove it`,
   gapWarningTitle: "Possible missing statement",
   gapWarningBody:
     "These statements don't link up by balance — one or more statements may be missing from the series. The closing balance of one statement should match the opening balance of the next.",

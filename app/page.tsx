@@ -45,6 +45,8 @@ interface DuplicateStatement {
   fileName: string
   duplicateOf: string
   transactionCount: number
+  openingBalance: number
+  closingBalance: number
   periodStart: string | null
   periodEnd: string | null
 }
@@ -357,6 +359,61 @@ export default function Page() {
   // the extraction is faithful, so show it softer (not a hard failure).
   const softExplained = !!r && !r.passed && isExplainedByCryptoFees(breaks)
 
+  // Files table enrichment (after a check): map each uploaded file by name to its
+  // per-file summary or its duplicate record; a single file derives its summary from
+  // the whole result.
+  const perFileByName = new Map((result?.perFile ?? []).map((p) => [p.fileName, p]))
+  const dupByName = new Map((result?.duplicates ?? []).map((d) => [d.fileName, d]))
+  const singleSummary =
+    result?.data && !result.perFile && !result.consolidated
+      ? (() => {
+          const dates = result.data.transactions
+            .map((t) => t.date)
+            .filter((d): d is string => !!d)
+            .sort()
+          return {
+            transactionCount: result.data.transactions.length,
+            periodStart: dates[0] ?? null,
+            periodEnd: dates[dates.length - 1] ?? null,
+            openingBalance: result.data.openingBalance,
+            closingBalance: result.data.closingBalance,
+          }
+        })()
+      : null
+  const balRange = (open: number, close: number) =>
+    `${fromCents(Math.round(open * 100))} → ${fromCents(Math.round(close * 100))}`
+  const filesChecked = !!(result && result.data)
+  // Every file involved in a duplicate group (the kept original AND its copies) gets a
+  // "Duplicate" badge — so each looks the same and the user can drop whichever.
+  const duplicateNames = new Set<string>()
+  for (const d of result?.duplicates ?? []) {
+    duplicateNames.add(d.fileName)
+    duplicateNames.add(d.duplicateOf)
+  }
+  // Rows for the Files table: each uploaded file with its summary (a kept file's
+  // perFile entry, or a copy's own identical figures), sorted CHRONOLOGICALLY by covered
+  // period after a check (undated / before-check keep upload order). `i` stays the
+  // original index so ✕ removes the right file.
+  const fileRows = files
+    .map((f, i) => {
+      const sum = perFileByName.get(f.name) ?? dupByName.get(f.name) ?? (i === 0 ? singleSummary : null)
+      return {
+        f,
+        i,
+        isDuplicate: duplicateNames.has(f.name),
+        isIgnored: dupByName.has(f.name), // the copy that was excluded from the series
+        sum,
+        periodStart: sum?.periodStart ?? null,
+      }
+    })
+    .sort((a, b) => {
+      if (a.periodStart && b.periodStart && a.periodStart !== b.periodStart)
+        return a.periodStart < b.periodStart ? -1 : 1
+      if (a.periodStart && !b.periodStart) return -1
+      if (!a.periodStart && b.periodStart) return 1
+      return a.i - b.i // undated or equal → keep upload order
+    })
+
   return (
     <main className="page">
       <header className="header">
@@ -385,34 +442,72 @@ export default function Page() {
         />
         {files.length > 0 && (
           <div className="files">
-            <span className="files-title">{s.filesSelected(files.length)}</span>
-            <ul className="file-chips">
-              {files.map((f, i) => (
-                <li className="file-chip" key={`${f.name}-${i}`}>
-                  <span className="file-icon" aria-hidden="true">
-                    📄
-                  </span>
-                  <span className="file-name" title={f.name}>
-                    {f.name}
-                  </span>
-                  <span className="file-size">{formatSize(f.size)}</span>
-                  <button
-                    type="button"
-                    className="file-remove"
-                    aria-label={`${s.removeFile} ${f.name}`}
-                    disabled={isLoading}
-                    onClick={() => {
-                      setFiles(files.filter((_, idx) => idx !== i))
-                      setResult(null)
-                      setError(null)
-                      setDurationMs(null)
-                    }}
-                  >
-                    ✕
-                  </button>
-                </li>
-              ))}
-            </ul>
+            <div className="files-head">
+              <span className="files-title">{s.filesSelected(files.length)}</span>
+              {result?.fullyChained && result.perFile && result.perFile.length > 1 && (
+                <span className="chained-ok">✓ {s.chainedOk}</span>
+              )}
+            </div>
+            <table className="files-table">
+              <thead>
+                <tr>
+                  <th>{s.perFileColumns.file}</th>
+                  <th className="num">{s.perFileColumns.count}</th>
+                  <th>{s.perFileColumns.period}</th>
+                  <th>{s.perFileColumns.range}</th>
+                  <th className="files-x" aria-hidden="true"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {fileRows.map(({ f, i, isDuplicate, isIgnored, sum }) => {
+                  const removeBtn = (
+                    <button
+                      type="button"
+                      className="file-remove"
+                      aria-label={`${s.removeFile} ${f.name}`}
+                      disabled={isLoading}
+                      onClick={() => {
+                        setFiles(files.filter((_, idx) => idx !== i))
+                        setResult(null)
+                        setError(null)
+                        setDurationMs(null)
+                      }}
+                    >
+                      ✕
+                    </button>
+                  )
+                  return (
+                    <tr key={`${f.name}-${i}`}>
+                      <td className="files-name">
+                        {f.name}
+                        {isDuplicate && <span className="file-badge">{s.fileBadgeDuplicate}</span>}
+                        {isIgnored && (
+                          <span className="file-badge file-badge--ignored">{s.fileBadgeIgnored}</span>
+                        )}
+                      </td>
+                      {sum ? (
+                        <>
+                          <td className="num">{sum.transactionCount}</td>
+                          <td className="date">
+                            {sum.periodStart && sum.periodEnd
+                              ? `${sum.periodStart} → ${sum.periodEnd}`
+                              : "—"}
+                          </td>
+                          <td className="files-range">
+                            {balRange(sum.openingBalance, sum.closingBalance)}
+                          </td>
+                        </>
+                      ) : (
+                        <td className="files-pending" colSpan={3}>
+                          {filesChecked ? "—" : formatSize(f.size)}
+                        </td>
+                      )}
+                      <td className="files-x">{removeBtn}</td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
           </div>
         )}
         {/* Bank — an everyday choice the user makes before checking, kept visible */}
@@ -768,18 +863,8 @@ export default function Page() {
             )}
           </div>
 
-          {/* Duplicate warning — the same statement was uploaded twice (often under a
-              different name). The copy was ignored; we name both files. */}
-          {result.duplicates && result.duplicates.length > 0 && (
-            <div className="gap-warning">
-              <strong>{s.duplicateWarningTitle}</strong>
-              <ul className="gap-list">
-                {result.duplicates.map((d, i) => (
-                  <li key={i}>{s.duplicateOfLine(d.fileName, d.duplicateOf)}</li>
-                ))}
-              </ul>
-            </div>
-          )}
+          {/* Duplicates are surfaced in the Files table (a red "Duplicate" badge on the
+              row), so there is no separate warning block here. */}
 
           {/* Gap warning — statements don't link up by balance (one may be missing).
               Show WHICH period is missing when we have dates, else the balance jump. */}
@@ -809,40 +894,7 @@ export default function Page() {
             </div>
           )}
 
-          {/* Per-file breakdown when several statements were combined (dev view only) */}
-          {dev && result.perFile && result.perFile.length > 1 && (
-            <div className="per-file">
-              <span className="per-file-title">{s.perFileHeading}</span>
-              {result.fullyChained && <span className="chained-ok">✓ {s.chainedOk}</span>}
-              <table>
-                <thead>
-                  <tr>
-                    <th>{s.perFileColumns.file}</th>
-                    <th>{s.perFileColumns.count}</th>
-                    <th>{s.perFileColumns.period}</th>
-                    {dev && <th>{s.perFileColumns.range}</th>}
-                  </tr>
-                </thead>
-                <tbody>
-                  {result.perFile.map((pf, i) => (
-                    <tr key={i}>
-                      <td>{pf.fileName}</td>
-                      <td>{pf.transactionCount}</td>
-                      <td className="date">
-                        {pf.periodStart && pf.periodEnd ? `${pf.periodStart} → ${pf.periodEnd}` : "—"}
-                      </td>
-                      {dev && (
-                        <td>
-                          {fromCents(Math.round(pf.openingBalance * 100))} →{" "}
-                          {fromCents(Math.round(pf.closingBalance * 100))}
-                        </td>
-                      )}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
+          {/* The per-file breakdown now lives in the Files table (production), above. */}
 
           {/* Extraction trace — which models were tried, which reconciled (dev only) */}
           {dev && (

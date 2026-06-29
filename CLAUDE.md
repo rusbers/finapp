@@ -362,8 +362,18 @@ pdfjs-dist`): for the target banks, reading the PDF's text positions (x/y) and
   transaction table per account (0-tx accounts are listed but not detailed). Money values are
   read with a grouping-aware regex (handles `1,000.00` / `1.000,00` / `9 271,00`,
   € prefix/suffix, and amount+balance merged into one token). Savings/crypto sections
-  are out of scope for now. Verified: all current accounts across real EN/RO/RU
-  consolidated statements reconcile to the cent.
+  are out of scope for now. **A user can hold BOTH a personal and a JOINT current
+  account in the same currency** — `ACCOUNT_TITLE` matches "Cont personal"/"Personal
+  Account"/"Личный счет" AND "Cont comun"/"Joint Account"/"Совместный счет" (each is a
+  SEPARATE account + balance series, so both must start a new account; missing "Cont
+  comun" merged its rows into the personal account and broke reconciliation).
+  **No current accounts in scope ≠ failure**: a consolidated PDF with NO
+  "Current Accounts transaction statements" section (savings/crypto-only, or an empty
+  period) has nothing to reconcile in MVP scope — the parser reports
+  `currentAccountsSection: false` and the pipeline returns `allReconciled: true` (0
+  accounts), NOT a fail. Verified: all current accounts across real EN/RO/RU
+  consolidated statements reconcile to the cent; savings/crypto-only and empty
+  consolidated statements pass as "nothing in scope".
   **See `WORKFLOW.md` for the full Revolut template reference + diagnostic recipe.**
   Plan: same approach for AIB, BOI, PTSB; AI + reconciliation remains the
   fallback for rare banks / scanned PDFs.

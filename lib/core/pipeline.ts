@@ -332,7 +332,13 @@ export async function extractConsolidated(pdfBytes: Uint8Array): Promise<Consoli
     }
   })
   const withTx = accounts.filter((a) => a.transactionCount > 0)
-  const allReconciled = withTx.length > 0 && withTx.every((a) => a.reconciliation.passed)
+  // A consolidated PDF with NO current-account section at all (savings/crypto-only,
+  // or an empty period) has nothing to reconcile in MVP scope — that's not a
+  // failure. Only when the current-accounts section IS present do we require its
+  // accounts to reconcile.
+  const allReconciled = parsed.currentAccountsSection
+    ? withTx.length > 0 && withTx.every((a) => a.reconciliation.passed)
+    : true
   return { bank: parsed.bank, accounts, allReconciled }
 }
 

@@ -33,6 +33,11 @@ export interface ConsolidatedAccount {
 export interface ConsolidatedStatement {
   bank: string
   accounts: ConsolidatedAccount[]
+  /** True if the "Current Accounts transaction statements" section was present.
+   * When false, the PDF has no current accounts in MVP scope (e.g. a savings/
+   * crypto-only or an empty consolidated statement) — there is simply nothing to
+   * reconcile, which is NOT an extraction failure. */
+  currentAccountsSection: boolean
 }
 
 // --- column geometry ---
@@ -63,8 +68,12 @@ const SECTION_START =
   /current accounts transaction statements|conturi curente extrasuri de tranzac|текущие счета выписки по операциям/i
 const SECTION_STOP =
   /information about|informații despre|informaţii despre|информация о выписке|savings accounts|crypto|conturi de economii|economii|сбережени|крипто/i
-// Per-account title (size ≈9.6), currency in parentheses.
-const ACCOUNT_TITLE = /(?:personal account|cont personal|личный счет)\s*\(([a-zA-Z]{3})\)/i
+// Per-account title (size ≈9.6), currency in parentheses. A user can hold both a
+// PERSONAL and a JOINT current account in the same currency ("Cont comun (EUR)" /
+// "Joint Account (EUR)" / "Совместный счет (EUR)") — each is its own account with
+// its own balance series, so both wordings must start a new account.
+const ACCOUNT_TITLE =
+  /(?:personal account|joint account|cont personal|cont comun|личный счет|совместный счет)\s*\(([a-zA-Z]{3})\)/i
 
 interface Token {
   text: string
@@ -286,5 +295,5 @@ export async function parseRevolutConsolidated(pdfBytes: Uint8Array): Promise<Co
     }
   }
 
-  return { bank: "Revolut (consolidated)", accounts }
+  return { bank: "Revolut (consolidated)", accounts, currentAccountsSection: started }
 }

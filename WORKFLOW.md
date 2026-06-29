@@ -172,7 +172,11 @@ Per-bank status (specifics → `CLAUDE.md`):
   SEPARATE parser (bank `revolut-consolidated`): one PDF with many accounts and a
   different layout (signed amount column + Balance, no debit/credit). MVP = current
   accounts only (EN/RO/RU), each reconciled per-account and shown as its own
-  detailed, separately-exportable (CSV) table; savings/crypto deferred.
+  detailed, separately-exportable (CSV) table; savings/crypto deferred. Recognizes
+  BOTH personal and JOINT current accounts ("Cont comun"/"Joint Account"/"Совместный
+  счет") — a user can hold both in one currency. A PDF with NO current-accounts
+  section (savings/crypto-only or empty period) reports `currentAccountsSection:
+  false` → `allReconciled: true` (nothing in scope), NOT a fail.
 - **AIB** (`aib-parser.ts`) — per-page anchors detected from the header (columns
   scale with page width), glued `dr` overdraft, balance-forward per page.
 - **BOI** (`boi-parser.ts`) — Payments-out / Payments-in columns, `OD` overdraft,

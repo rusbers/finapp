@@ -22,8 +22,20 @@ export async function splitPdfIntoChunks(
   let source: PDFDocument
   try {
     source = await PDFDocument.load(pdfBytes)
-  } catch {
-    throw new Error("Could not read the PDF (it may be corrupted or password-protected).")
+  } catch (e) {
+    // pdf-lib refuses encrypted PDFs (its error message contains "encrypted").
+    // Many bank PDFs are permission-protected with an EMPTY user password — they
+    // open fine in the deterministic readers (pdfjs decrypts them) but not here,
+    // and `ignoreEncryption` doesn't help (pdf-lib can't decrypt the streams, so
+    // the chunks come out corrupt). Point the user at the deterministic path.
+    if (/encrypt/i.test(String((e as Error)?.message))) {
+      throw new Error(
+        "This PDF is password- or permission-protected. If it's a supported bank " +
+          "(e.g. Bank of Ireland), select that bank so the deterministic reader, " +
+          "which can open it, is used.",
+      )
+    }
+    throw new Error("Could not read the PDF (it may be corrupted).")
   }
 
   const totalPages = source.getPageCount()
@@ -47,6 +59,14 @@ export async function splitPdfIntoChunks(
 
 /** Count the pages in a PDF (without splitting). */
 export async function countPdfPages(pdfBytes: Uint8Array): Promise<number> {
-  const doc = await PDFDocument.load(pdfBytes)
+  let doc: PDFDocument
+  try {
+    doc = await PDFDocument.load(pdfBytes)
+  } catch (e) {
+    if (/encrypt/i.test(String((e as Error)?.message))) {
+      throw new Error("This PDF is password- or permission-protected.")
+    }
+    throw new Error("Could not read the PDF (it may be corrupted).")
+  }
   return doc.getPageCount()
 }

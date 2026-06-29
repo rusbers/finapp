@@ -362,7 +362,14 @@ pdfjs-dist`): for the target banks, reading the PDF's text positions (x/y) and
   in the text layer at all), the pipeline falls back to AI vision, which reads the
   rendered page. Controlled by `PipelineOptions.allowAiFallback` (default **true**
   in the app; the regression harness passes **false** so it stays deterministic and
-  makes no AI calls). **pdfjs is loaded LAZILY** via
+  makes no AI calls). **Exception — valid empty statement**: 0 transactions is NOT
+  always "unreadable". A dormant/no-activity month is a real, readable statement
+  with no postings. So before falling back, the pipeline checks: if the parser
+  returned 0 tx but the result **reconciles** (opening == closing) AND a **real
+  balance was read** (`openingBalance !== 0 || closingBalance !== 0`), it's a valid
+  empty statement → returned as a PASS, no AI call. The "balance ≠ 0" gate
+  separates a genuine empty month (e.g. opening = closing = 383.35) from an
+  unreadable PDF (parser finds nothing → 0/0 → still falls back to AI). **pdfjs is loaded LAZILY** via
   `lib/core/pdf-loader.ts` (a dynamic `import()`), so it never loads on the AI/
   generic path. The loader installs a **minimal `DOMMatrix` polyfill** before
   importing pdfjs (Node on Vercel has no `DOMMatrix`; we only read text positions,
@@ -413,14 +420,22 @@ pdfjs-dist`): for the target banks, reading the PDF's text positions (x/y) and
   page-closing balance that equals the next page's BALANCE FORWARD (day blocks
   may span pages); (e) "FEE: ..." lines ARE real transactions; (f) FX originals/
   rates are embedded in the description token ("P2908IE700.00@1.16098"), only the
-  EUR value lands in a money column; (g) no sidebar. Like AIB, the Balance is
-  printed only sporadically (block checkpoint) and the Date is inherited downward.
-  Validated against a real 7-page statement (231 transactions): reconciles to the
-  cent and every transaction matches a separately-validated Python reference.
-  Confirmed on the real in-app pdfjs path across multiple BOI statements (the
-  regression harness): current accounts incl. fee-ending and overdraft months, and
-  a loan statement (all-OD balance series), reconcile to the cent. The header and
-  the "OD" marker are both handled whether pdfjs splits or joins their tokens.
+  EUR value lands in a money column; (g) no sidebar; (h) a **no-activity month**
+  (page has only "BALANCE FORWARD", no postings, no SUBTOTAL) sets
+  `closingBalance = the balance forward` on the BALANCE FORWARD branch, so opening
+  == closing and it reconciles with 0 transactions (the pipeline's "valid empty
+  statement" rule then returns it as a PASS instead of falling back to AI). Like
+  AIB, the Balance is printed only sporadically (block checkpoint) and the Date is
+  inherited downward. Validated against a real 7-page statement (231 transactions):
+  reconciles to the cent and every transaction matches a separately-validated
+  Python reference. Confirmed on the real in-app pdfjs path across multiple BOI
+  statements (the regression harness): current accounts incl. fee-ending,
+  overdraft, and no-activity months, and a loan statement (all-OD balance series),
+  reconcile to the cent. The header and the "OD" marker are both handled whether
+  pdfjs splits or joins their tokens. **Encrypted PDFs**: BOI exports are often
+  permission-encrypted with an EMPTY user password; pdfjs decrypts them
+  transparently, so the deterministic parser reads them with no special handling.
+  (pdf-lib — used only on the AI path — cannot open them; see `pdf.ts`.)
 - **Multi-PDF upload** (`combine.ts` + `extractAndReconcileMany` in pipeline.ts):
   banks like AIB only generate periodic statements (you can't pick a date range),
   so a user wanting a custom period has several PDFs. The app accepts multiple

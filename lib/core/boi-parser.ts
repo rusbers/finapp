@@ -291,6 +291,11 @@ export async function parseBoi(pdfBytes: Uint8Array): Promise<StatementData> {
             openingBalance = balance;
             sawOpening = true;
           }
+          // Also treat it as the latest known closing balance. In a normal
+          // statement this is overwritten by the postings/SUBTOTAL that follow;
+          // in a no-activity month (only BALANCE FORWARD, no transactions) it
+          // stays, so closing == opening and the statement reconciles with 0 tx.
+          closingBalance = balance;
         }
         continue;
       }

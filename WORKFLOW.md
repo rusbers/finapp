@@ -215,10 +215,29 @@ spreads, where the gross crypto value is shown but only the net hits the balance
   pipeline falls back to AI vision (`PipelineOptions.allowAiFallback`, default true).
   The harness passes `allowAiFallback: false` → it never makes AI calls and keeps
   unreadable layouts as a deterministic `no-tx`.
+  - **Exception — valid empty statement.** 0 tx ≠ always unreadable. A dormant /
+    no-activity month is a real statement with no postings. Before falling back, the
+    pipeline returns the result as a **PASS** when it **reconciles** (opening ==
+    closing) AND a **real balance was read** (`openingBalance !== 0 ||
+    closingBalance !== 0`) — no AI call. The "balance ≠ 0" gate separates a genuine
+    empty month (e.g. 383.35/383.35) from an unreadable PDF (parser finds nothing →
+    0/0 → still falls back). In the harness, such a statement now shows **`pass`**
+    (not `no-tx`); `no-tx` is reserved for 0 tx that did NOT reconcile.
+- **Encrypted bank PDFs.** Some banks (notably **BOI**) export statements
+  permission-encrypted with an EMPTY user password. **pdfjs decrypts them
+  transparently**, so the deterministic parsers read them with no special handling.
+  **pdf-lib cannot** (it refuses encrypted PDFs, and `ignoreEncryption:true` only
+  skips the check — it does NOT decrypt the streams, so the chunks come out
+  corrupt). pdf-lib is used ONLY on the AI path (`pdf.ts` splitting); there, an
+  encrypted PDF now throws a clear, actionable error pointing the user to select the
+  supported bank (deterministic reader). Net effect: encrypted statements of a
+  supported bank just work via the deterministic parser; the AI path stays honest.
 - **Test statements** live (gitignored) under `statements/<bank>/…` inside the repo
   — moved there from `D:\work\statements`. All Revolut RO/EN/RU + consolidated, and
   AIB/BOI current/business/saving statements reconcile — including AIB and BOI **loan**
-  statements (all-overdraft balance chains; AIB loans open with "OPENING BALANCE").
+  statements (all-overdraft balance chains; AIB loans open with "OPENING BALANCE"),
+  BOI **no-activity months** (only BALANCE FORWARD → 0 tx, opening == closing →
+  `pass`), and BOI **permission-encrypted** PDFs (pdfjs decrypts them).
   AIB credit-card layouts and scanned PDFs stay `no-tx` (no parser / no text layer).
 
 ---

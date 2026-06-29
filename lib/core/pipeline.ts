@@ -87,10 +87,38 @@ export async function extractAndReconcile(
       }
     }
 
-    // Parser found NO transactions → the layout isn't readable deterministically
-    // (a scanned PDF, or an anti-extraction font like PTSB's). Record the attempt;
-    // then, if allowed, fall through to AI vision below (it reads the rendered
-    // page, so a broken/absent text layer doesn't matter).
+    // Zero transactions can mean two very different things. Distinguish them:
+    //
+    //  (a) A readable statement with NO activity (e.g. a dormant month): the
+    //      parser DID read a real opening/closing balance, there are simply no
+    //      postings. If it reconciles (opening == closing) and a real balance was
+    //      read (not the 0/0 default), it's a valid empty statement — return it as
+    //      a pass rather than wastefully falling back to AI (which would also find
+    //      nothing, or fail on an encrypted PDF).
+    //  (b) An unreadable layout (a scanned PDF, or an anti-extraction font like
+    //      PTSB's): the parser found nothing at all → opening/closing default to 0.
+    //      Fall through to AI vision below, which reads the rendered page.
+    const emptyRecon = checkReconciliation(parsed)
+    const readARealBalance = parsed.openingBalance !== 0 || parsed.closingBalance !== 0
+    if (emptyRecon.passed && readARealBalance) {
+      return {
+        data: parsed,
+        reconciliation: emptyRecon,
+        attempts: [
+          {
+            model: `parser:${bank}`,
+            reconciliationPassed: emptyRecon.passed,
+            discrepancyCents: emptyRecon.discrepancyCents,
+            durationMs,
+          },
+        ],
+        modelUsed: `parser:${bank}`,
+        fallbackUsed: false,
+        corrections: [],
+      }
+    }
+
+    // Case (b): record the attempt; then, if allowed, fall through to AI vision.
     parserAttempt = { model: `parser:${bank}`, reconciliationPassed: false, discrepancyCents: 0, durationMs }
 
     if (!allowAiFallback) {

@@ -143,7 +143,11 @@ function findPdfs(root: string, excludeDirs: string[] = []): string[] {
 }
 
 function statusOf(reconciledPassed: boolean, txCount: number, data?: { transactions: Transaction[]; openingBalance: number; closingBalance: number; bank: string }): Status {
-  if (txCount === 0) return "no-tx"
+  // A 0-tx statement that RECONCILED is a valid no-activity month (opening ==
+  // closing), not an unreadable layout — report it as a pass. Only a 0-tx that did
+  // NOT reconcile is "no-tx" (a scanned PDF / anti-extraction font the parser
+  // couldn't read, which the app then sends to AI vision).
+  if (txCount === 0) return reconciledPassed ? "pass" : "no-tx"
   if (reconciledPassed) return "pass"
   if (data && isExplainedByCryptoFees(findBalanceBreaks(data))) return "soft"
   return "fail"

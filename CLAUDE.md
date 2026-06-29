@@ -322,12 +322,26 @@ pdfjs-dist`): for the target banks, reading the PDF's text positions (x/y) and
   rows have no Balance column and are skipped on their own, and the next period's
   table header re-syncs extraction (proven on `en/7`: 2 periods, 3170 tx, full year).
   It **hard-stops only at a SEPARATE-account sub-statement** — savings/deposits
-  (EN "Deposit transactions …" / RO "Depuneri de la …"), pockets/vaults (RO
-  "Tranzacții din Buzunare …" / "Tranzacții din Seifuri …" / RU "Операции по … сейфам"),
-  and sub-accounts opened for others (RO "Tranzacții din contul pentru <Name> …" /
-  EN "account for <Name>") — all carry their own balance series and come after all
-  current-account periods (`isSeparateAccountSection`, matched on large ~12.4pt title
-  lines). **Multi-currency bundles** (one PDF with current accounts in DIFFERENT
+  (EN "Deposit transactions …" / RO "Depuneri de la …" / RU "Операции пополнения …"),
+  pockets/vaults (RO "Tranzacții din Buzunare …" / "Tranzacții din Seifuri …" / RU
+  "Операции по … сейфам" and pockets "Операции по … кошелькам"), and sub-accounts
+  opened for others (RO "Tranzacții din contul pentru <Name> …" / EN "account for
+  <Name>" / RU "Операции по счету пользователя <Name> …") — all carry their own
+  balance series and come after all current-account periods (`isSeparateAccountSection`,
+  matched on large ~12.4pt title lines; the size gate keeps the everyday "Пополнение
+  счета" top-up *transactions* from matching the savings-section word). Missing these
+  RU sections previously corrupted the closing balance (their last row, often 0.00,
+  overwrote it) and made several RU statements fail.
+  **Glued description+amount tokens**: pdfjs sometimes emits an outgoing transfer row
+  ("Перевод SWIFT … 607,00€") as ONE text item that glues the description and its
+  trailing amount, with x0 in the description zone but x1 reaching a money column —
+  so the amount would be missed and the row would show 0/0. `splitGluedAmount` detects
+  this (a currency token with real description text before a trailing amount) and
+  splits it into a description token + a synthetic amount token placed EXACTLY at the
+  matching column anchor (debit vs credit chosen by the token's right edge). A PURE
+  amount whose currency is a 3-letter code (e.g. "168.99 RON", the summary "Sold
+  inițial" cell) is NOT split — there is no description text before the amount — so
+  RON-currency summary rows keep their position and are still skipped. **Multi-currency bundles** (one PDF with current accounts in DIFFERENT
   currencies, e.g. "Extras EUR" + "Extras GBP") ARE handled: `parseRevolutAccounts`
   detects the per-page currency from the big page header and splits the pages by
   currency; `extractRevolut` (pipeline) reconciles EACH currency separately and

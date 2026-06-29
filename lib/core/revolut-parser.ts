@@ -204,6 +204,65 @@ function buildDescription(line: Line): string {
   return parts.join(" ").replace(/\s+/g, " ").trim()
 }
 
+// A money amount at the END of a token's text: a 2-decimal number (optional
+// space/comma/dot thousands grouping) with a currency symbol or 3-letter code,
+// as a suffix ("607,00€" / "500,00 RON") or a prefix ("€607.00").
+const TRAILING_AMOUNT_RE =
+  /(\d[\d.,\s]*[.,]\d{2}\s*(?:[€$£]|[A-Z]{3})|[€$£]\s*\d[\d.,\s]*[.,]\d{2})$/
+
+/**
+ * Split a token that GLUES a description and its trailing money amount into one
+ * text item. pdfjs sometimes emits an outgoing transfer row ("Перевод SWIFT,
+ * получатель: … 607,00€") as a single token whose x0 sits in the description zone
+ * but whose x1 reaches into a money column. The amount would then be missed (its
+ * x0 doesn't match a column anchor) and the row would show 0/0. We detect that
+ * case and return a description token + a synthetic amount token positioned EXACTLY
+ * at the matching column anchor, so the normal column matching picks it up.
+ *
+ * The amount is LEFT-aligned in its column; the debit (x0≈335) and credit (x0≈417)
+ * columns are far enough apart that the token's right edge (x1) cleanly tells them
+ * apart (a debit amount ends well before X_CREDIT; a credit amount ends after it).
+ */
+function splitGluedAmount(t: Token): { desc: Token; amount: Token } | null {
+  if (!isCurrencyToken(t.text)) return null
+  if (!/[A-Za-zЀ-ӿ]/.test(t.text)) return null // no letters → already a pure amount token
+  if (t.x0 >= X_DEBIT - X_TOL) return null // doesn't start in the description zone
+  if (t.x1 >= X1_BALANCE - 40) return null // amount sits in the balance column → leave it
+
+  const m = t.text.match(TRAILING_AMOUNT_RE)
+  if (!m) return null
+  const amountText = m[0].trim()
+  if (parseAmount(amountText) === null) return null
+
+  // The text before the amount must be real description. If it's empty, this is a
+  // PURE amount token whose currency is a 3-letter code (e.g. "168.99 RON") — the
+  // "letters" are just the code, NOT a glued description. Leave it where it is, so
+  // amounts in non-symbol-currency columns (incl. the summary "Sold inițial"
+  // column) keep their position and are matched/skipped normally.
+  const descText = t.text.slice(0, t.text.length - m[0].length).trim()
+  if (!descText) return null
+
+  const anchor = t.x1 < X_CREDIT ? X_DEBIT : X_CREDIT
+  return {
+    desc: { text: descText, x0: t.x0, x1: Math.max(t.x0, anchor - 2), y: t.y, size: t.size },
+    amount: { text: amountText, x0: anchor, x1: t.x1, y: t.y, size: t.size },
+  }
+}
+
+/** Expand any glued description+amount tokens in a line (others pass through). */
+function expandGluedTokens(tokens: Token[]): Token[] {
+  const out: Token[] = []
+  for (const t of tokens) {
+    const split = splitGluedAmount(t)
+    if (split) {
+      out.push(split.desc, split.amount)
+    } else {
+      out.push(t)
+    }
+  }
+  return out
+}
+
 /**
  * Is this line the transaction-table header?
  * Revolut statements come in Romanian ("Dată Descriere Sume retrase Sume
@@ -233,12 +292,17 @@ function isTableHeader(line: Line): boolean {
  * balance series that would corrupt the running balance if included. They always
  * come AFTER all current-account transactions, so stopping here keeps every real
  * current-account row. Observed titles (size ~12.4pt):
- *   - savings/deposits: "Deposit transactions from ..." (EN), "Depuneri de la ..." (RO);
+ *   - savings/deposits: "Deposit transactions from ..." (EN), "Depuneri de la ..." (RO),
+ *     "Операции пополнения ..." (RU savings). The RU word "пополнени" also appears in the
+ *     everyday "Пополнение счета" top-up TRANSACTIONS (size ~8.2), so we only match it as
+ *     part of the section phrase and rely on the caller's size gate.
  *   - pockets/vaults:   "Tranzacții din Buzunare personale și de grup ..." (RO pockets),
  *     "Tranzacții din Seifuri personale și de grup ..." (RO vaults), "Операции по Личным
- *     и Групповым сейфам ..." (RU). ("сейф" with a Latin "c" is a font quirk.)
+ *     и Групповым сейфам ..." (RU vaults) / "... кошелькам ..." (RU pockets). ("сейф"
+ *     with a Latin "c" is a font quirk.)
  *   - sub-accounts:     "Tranzacții din contul pentru <Name> ..." (RO accounts opened for
- *     family members) / "account for <Name>" (EN). A SEPARATE balance series.
+ *     family members) / "account for <Name>" (EN) / "Операции по счету пользователя
+ *     <Name> ..." (RU). A SEPARATE balance series.
  * Each pocket/vault/sub-account transfer's current-account side is already in the main
  * section, so these sections are purely supplementary.
  *
@@ -255,7 +319,7 @@ function isSeparateAccountSection(line: Line): boolean {
     .map((t) => t.text)
     .join(" ")
     .toLowerCase()
-  return /deposit transactions|depuneri|buzunare|seif|pocket|vault|account for|contul pentru|[сc]ейф|депозит/.test(text)
+  return /deposit transactions|depuneri|buzunare|seif|pocket|vault|account for|contul pentru|[сc]ейф|депозит|кошельк|пользовател|операции пополнени/.test(text)
 }
 
 /**
@@ -314,19 +378,23 @@ function parseLines(pages: Token[][]): StatementData {
       if (!started) continue
       if (!line.isMain) continue // sub-rows belong to their main row; skip them
 
+      // Split any token that glues a description and its trailing amount (e.g. an
+      // outgoing "Перевод SWIFT … 607,00€") so the amount lands in its column.
+      const work: Line = { ...line, tokens: expandGluedTokens(line.tokens) }
+
       // Real transaction rows always carry a balance (x1 ≈ 556). Lines without
       // one are stray/non-transaction main lines — skip, don't stop.
-      if (!hasBalance(line)) continue
-      if (isSummaryRow(line)) continue // per-section "Cont"/"Depunere"/"Total" summary, not a transaction
+      if (!hasBalance(work)) continue
+      if (isSummaryRow(work)) continue // per-section "Cont"/"Depunere"/"Total" summary, not a transaction
 
-      const debit = amountAt(line, X_DEBIT, "x0") ?? 0
-      const credit = amountAt(line, X_CREDIT, "x0") ?? 0
-      const balance = amountAt(line, X1_BALANCE, "x1")
+      const debit = amountAt(work, X_DEBIT, "x0") ?? 0
+      const credit = amountAt(work, X_CREDIT, "x0") ?? 0
+      const balance = amountAt(work, X1_BALANCE, "x1")
 
-      const dateText = normalizeDate(line)
+      const dateText = normalizeDate(work)
       if (dateText) currentDate = dateText
 
-      const description = buildDescription(line)
+      const description = buildDescription(work)
 
       transactions.push({
         date: currentDate,

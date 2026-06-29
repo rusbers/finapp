@@ -155,8 +155,14 @@ Per-bank status (specifics → `CLAUDE.md`):
 - **Revolut** (`revolut-parser.ts`) — RO/EN/RU, EUR/RON/GBP, both number & date
   formats (incl. Cyrillic months), summary-row handling, multi-period PDFs (reverted
   tails skipped, periods chained by balance), and separate-account hard-stop
-  (savings/deposits "Deposit transactions"/"Depuneri", pockets/vaults
-  "Buzunare"/"Seifuri"/"сейф", sub-accounts "contul pentru …"/"account for …").
+  (savings/deposits "Deposit transactions"/"Depuneri"/RU "Операции пополнения",
+  pockets/vaults "Buzunare"/"Seifuri"/RU "сейф"/"кошельк", sub-accounts
+  "contul pentru …"/"account for …"/RU "счету пользователя …"). The savings word is
+  gated by font size so the everyday "Пополнение счета" top-up *transactions* don't
+  match. **Glued description+amount tokens** (pdfjs emits an outgoing "Перевод SWIFT
+  … 607,00€" as ONE item gluing description + amount in a money column) are split by
+  `splitGluedAmount` so the amount is counted; a pure code-currency amount with no
+  description (e.g. "168.99 RON") is left in place so summary rows still skip.
   Multi-currency bundles ("Extras EUR" + "Extras GBP" in one PDF) ARE handled —
   `parseRevolutAccounts` splits pages by header currency and `extractRevolut`
   reconciles each currency separately (per-account result, like consolidated).

@@ -56,6 +56,12 @@ interface Line {
   isMain: boolean
 }
 
+/** One PDF page's tokens, tagged with its 1-based page number (for the Source column). */
+interface PageTokens {
+  page: number
+  tokens: Token[]
+}
+
 /**
  * Parse a money token to a number, handling BOTH number formats Revolut prints:
  *   - English style:  "1,234.56" / "€200.00"  (comma = thousands, dot = decimal)
@@ -93,7 +99,7 @@ function isCurrencyToken(text: string): boolean {
 }
 
 /** Extract all tokens (text + position + size) from every page, in reading order. */
-async function extractTokens(pdfBytes: Uint8Array): Promise<Token[][]> {
+async function extractTokens(pdfBytes: Uint8Array): Promise<PageTokens[]> {
   const pdfjs = await loadPdfjs()
   const doc = await pdfjs.getDocument({
     data: new Uint8Array(pdfBytes), // pdfjs detaches the buffer it's given; copy so the caller's bytes survive
@@ -108,7 +114,7 @@ async function extractTokens(pdfBytes: Uint8Array): Promise<Token[][]> {
     disableWorker: true,
   }).promise
 
-  const pages: Token[][] = []
+  const pages: PageTokens[] = []
   for (let p = 1; p <= doc.numPages; p++) {
     const page = await doc.getPage(p)
     const viewportHeight = page.getViewport({ scale: 1 }).height
@@ -135,7 +141,7 @@ async function extractTokens(pdfBytes: Uint8Array): Promise<Token[][]> {
         size: item.height || 0,
       })
     }
-    pages.push(tokens)
+    pages.push({ page: p, tokens })
   }
   return pages
 }
@@ -347,7 +353,7 @@ export async function parseRevolut(pdfBytes: Uint8Array): Promise<StatementData>
  * series). This is the core extraction; `parseRevolut` runs it over the whole PDF,
  * and `parseRevolutAccounts` runs it per currency-section of a multi-currency PDF.
  */
-function parseLines(pages: Token[][]): StatementData {
+function parseLines(pages: PageTokens[]): StatementData {
   const transactions: Transaction[] = []
 
   let openingBalance: number | null = null
@@ -356,7 +362,7 @@ function parseLines(pages: Token[][]): StatementData {
   let started = false // have we passed the transaction-table header yet?
   let reachedSeparateAccount = false // hit a separate-account sub-statement (hard stop)?
 
-  for (const pageTokens of pages) {
+  for (const { page, tokens: pageTokens } of pages) {
     if (reachedSeparateAccount) break
     const lines = groupLines(pageTokens)
 
@@ -402,6 +408,7 @@ function parseLines(pages: Token[][]): StatementData {
         debit,
         credit,
         balance,
+        page,
       })
 
       if (openingBalance === null && balance !== null) {
@@ -465,7 +472,7 @@ export async function parseRevolutAccounts(
   const perPage: string[] = []
   let last = ""
   for (const page of pages) {
-    const c = detectPageCurrency(page) ?? last
+    const c = detectPageCurrency(page.tokens) ?? last
     perPage.push(c)
     if (c) last = c
   }
@@ -476,8 +483,9 @@ export async function parseRevolutAccounts(
     return [{ currency: [...distinct][0] ?? "", data: parseLines(pages) }]
   }
 
-  // Group CONTIGUOUS pages by currency, then parse each group on its own.
-  const groups: { currency: string; pages: Token[][] }[] = []
+  // Group CONTIGUOUS pages by currency, then parse each group on its own. Each page
+  // keeps its absolute PDF page number, so the Source column stays correct.
+  const groups: { currency: string; pages: PageTokens[] }[] = []
   for (let i = 0; i < pages.length; i++) {
     const cur = perPage[i]
     const g = groups[groups.length - 1]

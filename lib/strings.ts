@@ -115,6 +115,7 @@ export const strings = {
   thDebit: "Debit",
   thCredit: "Credit",
   thBalance: "Balance",
+  thSource: "Source",
 
   // Row-by-row balance check messages
   breaksHeading: (n: number) =>

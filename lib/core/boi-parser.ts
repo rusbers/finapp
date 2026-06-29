@@ -220,7 +220,8 @@ export async function parseBoi(pdfBytes: Uint8Array): Promise<StatementData> {
   let currentDate = "";
   let sawOpening = false;
 
-  for (const { tokens, width } of pages) {
+  for (const [pageIdx, { tokens, width }] of pages.entries()) {
+    const page = pageIdx + 1;
     const lines = groupLines(tokens);
     const { anchors, headerY } = detectAnchors(lines, width);
     const balEdge = anchors.balance ?? width;
@@ -313,6 +314,7 @@ export async function parseBoi(pdfBytes: Uint8Array): Promise<StatementData> {
           debit: out ?? 0,
           credit: paidIn ?? 0,
           balance: running,
+          page,
         });
       }
 

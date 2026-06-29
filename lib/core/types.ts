@@ -10,6 +10,8 @@ export interface Transaction {
   debit: number // money out, positive number (0 if not applicable)
   credit: number // money in, positive number (0 if not applicable)
   balance: number | null // running balance after this transaction (null if the statement doesn't show one)
+  page?: number // 1-based page of the source PDF this row came from (deterministic parsers only)
+  sourceFile?: string // file this row came from (set only when several PDFs are combined)
 }
 
 export interface StatementData {

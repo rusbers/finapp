@@ -516,6 +516,15 @@ pdfjs-dist`): for the target banks, reading the PDF's text positions (x/y) and
   `isExplainedByCryptoFees` in `verification.ts`), so it's visually distinct from a
   genuine reconciliation failure. Extraction stays faithful; only the verdict's
   presentation softens.
+- **Transaction provenance (Source column)**: each `Transaction` carries an optional
+  `page` (1-based PDF page, set by the deterministic parsers — Revolut/AIB/BOI/
+  consolidated) and an optional `sourceFile` (set only when several PDFs are combined,
+  in `extractAndReconcileMany`). The transaction table and CSV export show a **Source**
+  column ("file.pdf, page 23") via `transactionSource(t, fallbackFile)` in
+  `verification.ts` — the file falls back to the uploaded name for a single-file run.
+  The AI/vision path does NOT set `page` (it works on multi-page chunks), so those rows
+  show the file only. These fields are NOT part of the reconciliation or the regression
+  fingerprint (which hashes only date/description/debit/credit/balance).
 
 ### Known testing notes
 

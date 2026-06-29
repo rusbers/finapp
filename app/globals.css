@@ -39,7 +39,7 @@ body {
 }
 
 .page {
-  max-width: 880px;
+  max-width: 1040px;
   margin: 0 auto;
   padding: 48px 24px 96px;
 }
@@ -495,6 +495,64 @@ td.date {
   font-family: var(--font-num);
   color: var(--ink-soft);
   white-space: nowrap;
+}
+/* The Description column absorbs the table's leftover width, so every other column
+   (incl. Source) shrinks to its own content instead of being padded out. */
+th.desc {
+  width: 100%;
+}
+th.source {
+  color: var(--ink-soft);
+  font-size: 12px;
+  white-space: nowrap;
+}
+/* Source cell: the file name + page live together in one horizontally-scrollable
+   box, scrolled to the END by default (scrollToEnd ref) so the meaningful tail
+   ("…_154765.pdf, page 1") shows first; scroll left for the start. Full text is on the
+   cell title (hover) and in the CSV. Single-file rows carry no sourceFile, so they show
+   just "page N". The scrollbar is subtle: invisible until you hover the cell, then a
+   thin semi-transparent thumb. */
+td.source {
+  font-size: 12px;
+  white-space: nowrap;
+}
+.src-scroll {
+  /* Block fills the (now content-sized) Source cell; max-width caps how wide the
+     column can get — a longer name scrolls instead of widening the column. */
+  display: block;
+  max-width: 140px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  white-space: nowrap;
+  color: var(--ink-soft);
+  scrollbar-width: thin; /* Firefox */
+  scrollbar-color: transparent transparent; /* Firefox: hidden until hover */
+}
+.src-scroll:hover {
+  scrollbar-color: rgba(120, 120, 130, 0.3) transparent; /* Firefox */
+}
+.src-scroll::-webkit-scrollbar {
+  height: 6px;
+}
+/* No increment/decrement arrow buttons. */
+.src-scroll::-webkit-scrollbar-button {
+  display: none;
+  width: 0;
+  height: 0;
+}
+.src-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+.src-scroll::-webkit-scrollbar-thumb {
+  background: transparent;
+}
+.src-scroll:hover::-webkit-scrollbar-thumb {
+  /* subtle, semi-transparent, hover only; the transparent border insets the thumb
+     so it reads thinner than the 6px track. */
+  background: rgba(120, 120, 130, 0.3);
+  border-radius: 999px;
+  border: 1px solid transparent;
+  background-clip: padding-box;
 }
 .credit {
   color: var(--ledger-green);

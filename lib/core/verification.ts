@@ -18,24 +18,36 @@ function csvCell(value: string | number): string {
 }
 
 /**
- * Build a CSV string from the extracted statement.
- * Columns: Date, Description, Debit, Credit, Balance — in statement order.
+ * Where a transaction came from, as a single label: "file.pdf, page 3" /
+ * "page 3" / "file.pdf" / "". The file falls back to `fallbackFile` (the uploaded
+ * name) for a single-file run, where rows don't carry their own `sourceFile`.
  */
-export function toCsv(data: StatementData): string {
-  const header = ["Date", "Description", "Debit", "Credit", "Balance"]
+export function transactionSource(t: Transaction, fallbackFile?: string): string {
+  const file = t.sourceFile ?? fallbackFile ?? ""
+  const page = t.page != null ? `page ${t.page}` : ""
+  return [file, page].filter(Boolean).join(", ")
+}
+
+/**
+ * Build a CSV string from the extracted statement.
+ * Columns: Date, Description, Debit, Credit, Balance, Source — in statement order.
+ */
+export function toCsv(data: StatementData, opts: { defaultSource?: string } = {}): string {
+  const header = ["Date", "Description", "Debit", "Credit", "Balance", "Source"]
   const rows = (data.transactions ?? []).map((t) => [
     csvCell(t.date),
     csvCell(t.description),
     csvCell(t.debit ? t.debit.toFixed(2) : ""),
     csvCell(t.credit ? t.credit.toFixed(2) : ""),
     csvCell(t.balance != null ? t.balance.toFixed(2) : ""),
+    csvCell(transactionSource(t, opts.defaultSource)),
   ])
   return [header, ...rows].map((r) => r.join(",")).join("\n")
 }
 
 /** Trigger a CSV download in the browser. */
-export function downloadCsv(data: StatementData, fileName: string): void {
-  const csv = toCsv(data)
+export function downloadCsv(data: StatementData, fileName: string, defaultSource?: string): void {
+  const csv = toCsv(data, { defaultSource })
   const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" })
   const url = URL.createObjectURL(blob)
   const a = document.createElement("a")

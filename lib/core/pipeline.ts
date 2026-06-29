@@ -233,11 +233,17 @@ export async function extractAndReconcileMany(
 ): Promise<MultiPipelineResult> {
   if (files.length === 0) throw new Error("No files provided")
 
-  // 1. Parse each file independently, keeping its statement + file name.
+  // 1. Parse each file independently, keeping its statement + file name. Tag every
+  // row with its source file so the combined table/CSV can show where it came from
+  // (the page is already set per row by the deterministic parser).
   const perFileRaw: { name: string; statement: StatementData }[] = []
   for (const file of files) {
     const r = await extractAndReconcile(file.bytes, options)
-    perFileRaw.push({ name: file.name, statement: r.data })
+    const statement: StatementData = {
+      ...r.data,
+      transactions: r.data.transactions.map((t) => ({ ...t, sourceFile: file.name })),
+    }
+    perFileRaw.push({ name: file.name, statement })
   }
 
   // 2. Chain + merge them (orders by balance, detects gaps).

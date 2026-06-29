@@ -194,8 +194,9 @@ export async function parseRevolutConsolidated(pdfBytes: Uint8Array): Promise<Co
   let done = false
   let acc: ConsolidatedAccount | null = null
 
-  for (const lines of pages) {
+  for (const [pageIdx, lines] of pages.entries()) {
     if (done) break
+    const page = pageIdx + 1
     for (const line of lines) {
       if (!started) {
         if (line.size >= 12 && SECTION_START.test(line.text)) started = true
@@ -262,6 +263,7 @@ export async function parseRevolutConsolidated(pdfBytes: Uint8Array): Promise<Co
         debit: amount < 0 ? -amount : 0,
         credit: amount > 0 ? amount : 0,
         balance,
+        page,
       })
     }
   }

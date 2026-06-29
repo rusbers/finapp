@@ -183,6 +183,13 @@ Per-bank status (specifics → `CLAUDE.md`):
   subtotal checkpoints.
 - **PTSB** — no deterministic parser yet (uses the AI + reconciliation fallback).
 
+**Transaction provenance.** Every deterministic parser stamps each row with `page`
+(1-based PDF page); `extractAndReconcileMany` stamps `sourceFile` when combining
+several PDFs. The UI table + CSV show a **Source** column ("file.pdf, page 23") via
+`transactionSource()`. The AI path leaves `page` unset (chunked pages) → file only.
+These fields don't affect reconciliation or the harness fingerprint, so a new parser
+must set `page` but it won't change the regression baseline.
+
 When adding a bank, follow the rules above and record its anchors/quirks in
 `CLAUDE.md`.
 

@@ -229,7 +229,8 @@ export async function parseAib(pdfBytes: Uint8Array): Promise<StatementData> {
   let currentDate = "";
   let sawFirstBalanceForward = false;
 
-  for (const { tokens, width } of pages) {
+  for (const [pageIdx, { tokens, width }] of pages.entries()) {
+    const page = pageIdx + 1;
     const lines = groupLines(tokens);
     const { anchors, headerY } = detectAnchors(lines, width);
 
@@ -307,6 +308,7 @@ export async function parseAib(pdfBytes: Uint8Array): Promise<StatementData> {
           debit: debit ?? 0,
           credit: credit ?? 0,
           balance: running,
+          page,
         });
       }
 

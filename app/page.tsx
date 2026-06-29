@@ -14,7 +14,7 @@
 
 import { useState, useEffect, useSyncExternalStore } from "react"
 import { fromCents, checkReconciliation } from "@/lib/core/reconciliation"
-import { downloadCsv, findBalanceBreaks, isExplainedByCryptoFees } from "@/lib/core/verification"
+import { downloadCsv, findBalanceBreaks, isExplainedByCryptoFees, transactionSource } from "@/lib/core/verification"
 import type {
   StatementData,
   ReconciliationResult,
@@ -202,6 +202,18 @@ function postExtract(
     xhr.onerror = () => reject(new Error("Network error"))
     xhr.ontimeout = () => reject(new Error("Request timed out"))
     xhr.send(fd)
+  })
+}
+
+/** Ref callback: scroll a horizontally-scrollable cell to its END (so a long file
+ * name + page show the tail by default). Defined at module scope so the ref is stable
+ * — it runs once per row mount and does NOT reset the scroll on re-renders. We set
+ * scrollLeft in requestAnimationFrame so it runs AFTER layout (the width cap is
+ * applied), otherwise scrollWidth == clientWidth and the box stays at the start. */
+function scrollToEnd(el: HTMLSpanElement | null): void {
+  if (!el) return
+  requestAnimationFrame(() => {
+    el.scrollLeft = el.scrollWidth
   })
 }
 
@@ -568,6 +580,7 @@ export default function Page() {
                           transactions: a.transactions,
                         },
                         `${result.fileName.replace(/\.pdf$/i, "")}-${a.currency}.csv`,
+                        result.fileName,
                       )
                     }
                   >
@@ -579,10 +592,11 @@ export default function Page() {
                     <tr>
                       <th className="rownum">#</th>
                       <th className="date">{s.thDate}</th>
-                      <th>{s.thDescription}</th>
+                      <th className="desc">{s.thDescription}</th>
                       <th className="num">{s.thDebit}</th>
                       <th className="num">{s.thCredit}</th>
                       <th className="num">{s.thBalance}</th>
+                      <th className="source">{s.thSource}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -594,6 +608,15 @@ export default function Page() {
                         <td className="num debit">{t.debit ? t.debit.toFixed(2) : ""}</td>
                         <td className="num credit">{t.credit ? t.credit.toFixed(2) : ""}</td>
                         <td className="num">{t.balance != null ? t.balance.toFixed(2) : ""}</td>
+                        <td className="source" title={transactionSource(t, result.fileName)}>
+                          <span className="src-scroll" ref={scrollToEnd}>
+                            {t.sourceFile
+                              ? `${t.sourceFile}${t.page != null ? `, page ${t.page}` : ""}`
+                              : t.page != null
+                                ? `page ${t.page}`
+                                : ""}
+                          </span>
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -901,6 +924,7 @@ export default function Page() {
                         ? `-${period.from}_${period.to}`
                         : "") +
                     ".csv",
+                  result.fileName,
                 )
               }
             >
@@ -914,10 +938,11 @@ export default function Page() {
               <tr>
                 <th className="rownum">#</th>
                 <th className="date">{s.thDate}</th>
-                <th>{s.thDescription}</th>
+                <th className="desc">{s.thDescription}</th>
                 <th className="num">{s.thDebit}</th>
                 <th className="num">{s.thCredit}</th>
                 <th className="num">{s.thBalance}</th>
+                <th className="source">{s.thSource}</th>
               </tr>
             </thead>
             <tbody>
@@ -933,6 +958,15 @@ export default function Page() {
                   <td className="num debit">{t.debit ? t.debit.toFixed(2) : ""}</td>
                   <td className="num credit">{t.credit ? t.credit.toFixed(2) : ""}</td>
                   <td className="num">{t.balance != null ? t.balance.toFixed(2) : ""}</td>
+                  <td className="source" title={transactionSource(t, result.fileName)}>
+                    <span className="src-scroll" ref={scrollToEnd}>
+                      {t.sourceFile
+                        ? `${t.sourceFile}${t.page != null ? `, page ${t.page}` : ""}`
+                        : t.page != null
+                          ? `page ${t.page}`
+                          : ""}
+                    </span>
+                  </td>
                 </tr>
               ))}
             </tbody>

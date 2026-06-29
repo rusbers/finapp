@@ -204,6 +204,16 @@ export interface PerFileResult {
   periodEnd: string | null
 }
 
+/** A statement that duplicates another already-uploaded one (same content, often a
+ * different file name) — ignored from the combined series, reported to the user. */
+export interface DuplicateStatement {
+  fileName: string // the ignored copy
+  duplicateOf: string // the file it is identical to (the one we kept)
+  transactionCount: number
+  periodStart: string | null
+  periodEnd: string | null
+}
+
 /** Result of processing several PDFs as one chained series. */
 export interface MultiPipelineResult {
   /** The combined, chained statement plus its reconciliation/trace. */
@@ -214,6 +224,18 @@ export interface MultiPipelineResult {
   gaps: StatementGap[]
   /** True if all files linked into one clean balance chain with no gaps. */
   fullyChained: boolean
+  /** Files that duplicate another upload (same content) — excluded from the series. */
+  duplicates: DuplicateStatement[]
+}
+
+/** A content fingerprint of a statement: same parsed content → same key, regardless
+ * of the file name (so a duplicate uploaded under a different name still matches). */
+function contentKey(s: StatementData): string {
+  return JSON.stringify([
+    Math.round(s.openingBalance * 100),
+    Math.round(s.closingBalance * 100),
+    s.transactions.map((t) => [t.date, t.description, t.debit, t.credit, t.balance]),
+  ])
 }
 
 /**
@@ -246,10 +268,36 @@ export async function extractAndReconcileMany(
     perFileRaw.push({ name: file.name, statement })
   }
 
-  // 2. Chain + merge them (orders by balance, detects gaps).
-  const { combined, gaps, fullyChained } = combineStatements(perFileRaw.map((p) => p.statement))
+  // 2. Drop exact-content duplicates (the same statement uploaded twice, often under a
+  // different name). Keep the first occurrence; report the rest. Two identical
+  // statements share opening AND closing, so they don't chain — leaving them in would
+  // double the transactions and show a false gap. Only statements WITH transactions
+  // are considered (so two genuinely empty months with the same balance aren't flagged).
+  const seen = new Map<string, string>() // content key → first file name
+  const uniqueRaw: typeof perFileRaw = []
+  const duplicates: DuplicateStatement[] = []
+  for (const p of perFileRaw) {
+    const key = contentKey(p.statement)
+    const firstName = p.statement.transactions.length > 0 ? seen.get(key) : undefined
+    if (firstName) {
+      const dates = p.statement.transactions.map((t) => t.date).filter((d): d is string => !!d).sort()
+      duplicates.push({
+        fileName: p.name,
+        duplicateOf: firstName,
+        transactionCount: p.statement.transactions.length,
+        periodStart: dates[0] ?? null,
+        periodEnd: dates[dates.length - 1] ?? null,
+      })
+    } else {
+      if (p.statement.transactions.length > 0) seen.set(key, p.name)
+      uniqueRaw.push(p)
+    }
+  }
 
-  // 3. Reconcile the combined series, with the same sign-correction + 0-tx guard
+  // 3. Chain + merge the UNIQUE statements (orders by balance, detects gaps).
+  const { combined, gaps, fullyChained } = combineStatements(uniqueRaw.map((p) => p.statement))
+
+  // 4. Reconcile the combined series, with the same sign-correction + 0-tx guard
   // used for a single statement.
   const { data, corrections } = correctSignsFromBalance(combined)
   let reconciliation = checkReconciliation(data)
@@ -257,9 +305,9 @@ export async function extractAndReconcileMany(
     reconciliation = { ...reconciliation, passed: false }
   }
 
-  // 4. Build the per-file summary in the resolved chain order. (We match each
-  // chained statement back to its file by identity.)
-  const perFile: PerFileResult[] = perFileRaw.map((p) => {
+  // 5. Build the per-file summary (unique files only — duplicates are reported
+  // separately and excluded from the series).
+  const perFile: PerFileResult[] = uniqueRaw.map((p) => {
     const dates = p.statement.transactions.map((t) => t.date).filter((d): d is string => !!d).sort()
     return {
       fileName: p.name,
@@ -287,7 +335,7 @@ export async function extractAndReconcileMany(
     corrections,
   }
 
-  return { result, perFile, gaps, fullyChained }
+  return { result, perFile, gaps, fullyChained, duplicates }
 }
 
 /** One current account inside a Revolut consolidated ("Custom") statement. */

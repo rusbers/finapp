@@ -190,6 +190,13 @@ several PDFs. The UI table + CSV show a **Source** column ("file.pdf, page 23") 
 These fields don't affect reconciliation or the harness fingerprint, so a new parser
 must set `page` but it won't change the regression baseline.
 
+**Multi-PDF combine.** `extractAndReconcileMany` chains several PDFs by balance, flags
+missing statements (gaps) and **duplicates**. Duplicates are matched by CONTENT
+(`contentKey` = opening/closing + every transaction), so the same statement uploaded
+under a different name is caught; the copy is excluded from the series and reported in
+`duplicates[]` (otherwise identical statements wouldn't chain → false gap + doubled
+rows). Empty statements (0 tx) are never flagged as duplicates.
+
 When adding a bank, follow the rules above and record its anchors/quirks in
 `CLAUDE.md`.
 

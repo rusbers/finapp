@@ -41,6 +41,14 @@ interface StatementGap {
   afterStart: string | null
 }
 
+interface DuplicateStatement {
+  fileName: string
+  duplicateOf: string
+  transactionCount: number
+  periodStart: string | null
+  periodEnd: string | null
+}
+
 interface ConsolidatedAccount {
   label: string
   currency: string
@@ -68,6 +76,7 @@ interface ApiResponse {
   perFile?: PerFileResult[]
   gaps?: StatementGap[]
   fullyChained?: boolean
+  duplicates?: DuplicateStatement[]
   // Present only for a Revolut consolidated statement (per-account results):
   consolidated?: ConsolidatedResponse
 }
@@ -758,6 +767,19 @@ export default function Page() {
               </div>
             )}
           </div>
+
+          {/* Duplicate warning — the same statement was uploaded twice (often under a
+              different name). The copy was ignored; we name both files. */}
+          {result.duplicates && result.duplicates.length > 0 && (
+            <div className="gap-warning">
+              <strong>{s.duplicateWarningTitle}</strong>
+              <ul className="gap-list">
+                {result.duplicates.map((d, i) => (
+                  <li key={i}>{s.duplicateOfLine(d.fileName, d.duplicateOf)}</li>
+                ))}
+              </ul>
+            </div>
+          )}
 
           {/* Gap warning — statements don't link up by balance (one may be missing).
               Show WHICH period is missing when we have dates, else the balance jump. */}

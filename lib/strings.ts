@@ -62,6 +62,12 @@ export const strings = {
     `Balances don't link up: one statement closes at ${balBefore} but the next opens at ${balAfter} — a statement may be missing between them.`,
   chainedOk: "All statements link up by balance",
 
+  // Duplicate statements (the same statement uploaded twice, often under a different name)
+  duplicateWarningTitle: "Duplicate statement ignored",
+  /** One line per duplicate: which file was ignored and which it matches. */
+  duplicateOfLine: (fileName: string, duplicateOf: string) =>
+    `${fileName} is the same statement as ${duplicateOf} — it was ignored.`,
+
   // Financial-period filter (slice the result to a year / custom range)
   periodLabel: "Financial period",
   periodAll: "All",

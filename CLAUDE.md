@@ -471,13 +471,20 @@ pdfjs-dist`): for the target banks, reading the PDF's text positions (x/y) and
   would break within-day order and the balance). It detects GAPS (a closing with
   no matching opening = a missing statement) and warns. One reconciliation runs
   over the whole combined series (first opening + Σcredits − Σdebits = last
-  closing), which also confirms the statements chain correctly. API
-  (app/api/extract/route.ts) accepts "file" (single, unchanged shape) or "files"
-  (multiple → returns result + perFile[] + gaps[] + fullyChained). UI shows a gap
-  warning, a per-file breakdown table, and a "statements link up" indicator.
-  Tested: clean chain orders correctly from shuffled input and reconciles; a
-  missing statement is flagged; two real AIB PDFs of different accounts correctly
-  report fullyChained=false with a gap.
+  closing), which also confirms the statements chain correctly. **Duplicate
+  detection**: before chaining, `extractAndReconcileMany` drops exact-content
+  duplicates — the SAME statement uploaded twice, often under a DIFFERENT file name
+  (matched by `contentKey` = opening/closing + every transaction, NOT the file name).
+  Only statements WITH transactions are considered (two genuinely empty months with
+  the same balance aren't flagged). The first copy is kept; the rest are returned in
+  `duplicates[]` and excluded from the series — otherwise two identical statements
+  (same opening AND closing) wouldn't chain, doubling transactions and showing a FALSE
+  gap. API (app/api/extract/route.ts) accepts "file" (single, unchanged shape) or
+  "files" (multiple → returns result + perFile[] + gaps[] + fullyChained +
+  duplicates[]). UI shows a duplicate warning, a gap warning, a per-file breakdown
+  table, and a "statements link up" indicator. Tested: clean chain orders correctly
+  from shuffled input and reconciles; a missing statement is flagged; a renamed copy
+  is detected, excluded, and yields the same result as not uploading it.
 - **Per-bank prompts** (`prompts.ts`): a base prompt (generic, any bank) plus
   optional bank-specific rules appended for known banks. `getPrompt(bank)`
   returns the right one. Revolut rules are implemented (e.g. the "Comision/Fee"

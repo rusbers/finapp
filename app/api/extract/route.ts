@@ -102,6 +102,7 @@ export async function POST(req: NextRequest) {
       perFile: multiResult.perFile,
       gaps: multiResult.gaps,
       fullyChained: multiResult.fullyChained,
+      duplicates: multiResult.duplicates,
     })
   } catch (e: unknown) {
     const message = e instanceof Error ? e.message : strings.errorUnknown

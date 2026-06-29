@@ -69,6 +69,8 @@ export const strings = {
   periodCovers: (from: string, to: string) => `Covers ${from} → ${to}`,
   periodEmpty: "No transactions in this period",
   backToTop: "Back to top",
+  /** Floating navigator that jumps to each row where the running balance doesn't add up. */
+  nextDiscrepancy: (k: number, n: number) => `Next discrepancy (${k}/${n})`,
 
   // Revolut consolidated ("Custom") statement — several current accounts in one PDF
   consolidatedPass: "Reconciled — all accounts match",

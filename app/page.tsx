@@ -223,6 +223,8 @@ export default function Page() {
   const [phase, setPhase] = useState<"idle" | "uploading" | "processing">("idle")
   const [uploadPct, setUploadPct] = useState(0)
   const [step, setStep] = useState(0) // cycling Reading→Extracting→Reconciling indicator
+  const [flashRow, setFlashRow] = useState<number | null>(null) // row briefly highlighted after a jump
+  const [breakCursor, setBreakCursor] = useState(-1) // index of the balance error currently jumped to (-1 = none yet)
 
   // While processing on the server, cycle the step label (cosmetic — conveys
   // activity; the server phase isn't separately observable from one request).
@@ -240,6 +242,9 @@ export default function Page() {
     onScroll()
     return () => window.removeEventListener("scroll", onScroll)
   }, [])
+
+  // Reset the "Next error" navigator on a new result/period (first click → error 1).
+  useEffect(() => setBreakCursor(-1), [result, period])
 
   // Test controls — read from the localStorage-backed store (SSR-safe, no warnings).
   const settings = useSyncExternalStore(
@@ -260,6 +265,18 @@ export default function Page() {
   const selectedBank: BankId = visibleBanks.includes(bank) ? bank : "generic"
   const updateSettings = (patch: Partial<Settings>) => saveSettings({ ...settings, ...patch })
   const resetSettings = () => saveSettings(DEFAULTS)
+
+  // Scroll the transaction table to a specific row and briefly highlight it, so a
+  // listed balance error links straight to its row (no manual scrolling through a
+  // long table). Respects prefers-reduced-motion, like the back-to-top button.
+  function jumpToRow(index: number) {
+    const el = document.getElementById(`row-${index}`)
+    if (!el) return
+    const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches
+    el.scrollIntoView({ behavior: reduce ? "auto" : "smooth", block: "center" })
+    setFlashRow(index)
+    window.setTimeout(() => setFlashRow((cur) => (cur === index ? null : cur)), 1500)
+  }
 
   async function handleCheck() {
     if (files.length === 0) return
@@ -835,10 +852,20 @@ export default function Page() {
                   {softExplained ? s.breaksHeadingCrypto(breaks.length) : s.breaksHeading(breaks.length)}
                 </summary>
                 <ul className="breaks-list">
-                  {breaks.map((b) => (
+                  {breaks.map((b, bi) => (
                     <li key={b.index}>
-                      <b>Row {b.index + 1}</b> — {b.transaction.date} {b.transaction.description}:
-                      expected {fromCents(b.expectedCents)}, shows {fromCents(b.actualCents)} (off by{" "}
+                      <button
+                        type="button"
+                        className="row-jump"
+                        onClick={() => {
+                          jumpToRow(b.index)
+                          setBreakCursor(bi) // keep the "Next error" navigator in sync
+                        }}
+                      >
+                        Row {b.index + 1}
+                      </button>{" "}
+                      — {b.transaction.date} {b.transaction.description}: expected{" "}
+                      {fromCents(b.expectedCents)}, shows {fromCents(b.actualCents)} (off by{" "}
                       {fromCents(Math.abs(b.deltaCents))})
                     </li>
                   ))}
@@ -895,7 +922,11 @@ export default function Page() {
             </thead>
             <tbody>
               {transactions.map((t, i) => (
-                <tr key={i} className={breakIndexes.has(i) ? "break-row" : ""}>
+                <tr
+                  key={i}
+                  id={`row-${i}`}
+                  className={`${breakIndexes.has(i) ? "break-row" : ""}${flashRow === i ? " flash" : ""}`}
+                >
                   <td className="rownum">{i + 1}</td>
                   <td className="date">{t.date}</td>
                   <td>{t.description}</td>
@@ -907,6 +938,32 @@ export default function Page() {
             </tbody>
           </table>
         </>
+      )}
+
+      {r && !r.passed && breaks.length > 0 && (
+        (() => {
+          const n = breaks.length
+          // `breakCursor` is the error we're currently on (-1 before the first jump).
+          // The counter shows that position; clicking advances to the NEXT error and
+          // jumps there, so the badge always matches the row you land on.
+          const here = breakCursor < 0 ? -1 : breakCursor % n
+          const label = s.nextDiscrepancy(here < 0 ? 1 : here + 1, n)
+          return (
+            <button
+              type="button"
+              className="next-error"
+              aria-label={label}
+              title={label}
+              onClick={() => {
+                const next = (here + 1 + n) % n
+                jumpToRow(breaks[next].index)
+                setBreakCursor(next)
+              }}
+            >
+              {label}
+            </button>
+          )
+        })()
       )}
 
       {showTop && (

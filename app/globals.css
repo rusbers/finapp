@@ -629,6 +629,34 @@ td.date {
   outline-offset: 2px;
 }
 
+/* Floating "Next error" navigator — bottom-center pill, so it doesn't collide
+   with the bottom-right round back-to-top button. */
+.next-error {
+  position: fixed;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: 24px;
+  border: 0;
+  border-radius: 999px;
+  padding: 10px 18px;
+  background: var(--action);
+  color: #fff;
+  font-family: var(--font-ui);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18);
+  transition: background 0.15s;
+  z-index: 50;
+}
+.next-error:hover {
+  background: var(--action-hover);
+}
+.next-error:focus-visible {
+  outline: 2px solid var(--action);
+  outline-offset: 2px;
+}
+
 /* Row-by-row balance diagnosis */
 .breaks {
   margin-top: 18px;
@@ -653,6 +681,21 @@ td.date {
 .breaks-list b {
   color: var(--discrepancy);
 }
+/* "Row N" in the breaks list — a link that jumps to that row in the table. */
+.row-jump {
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  color: var(--discrepancy);
+  font-size: 13px;
+  font-weight: 700;
+  text-decoration: underline;
+  font-family: var(--font-ui);
+}
+.row-jump:hover {
+  text-decoration: none;
+}
 
 /* CSV link-style button in the meta row */
 .link-button {
@@ -676,6 +719,30 @@ tbody tr.break-row {
 }
 tbody tr.break-row td {
   color: var(--discrepancy);
+}
+
+/* A small offset so a jumped-to row isn't flush against the viewport edge. */
+tbody tr {
+  scroll-margin-top: 24px;
+  scroll-margin-bottom: 24px;
+}
+/* Briefly flash the row jumped to from the breaks list, so it's easy to spot. */
+@keyframes rowflash {
+  0% {
+    background: var(--action);
+  }
+  100% {
+    background: transparent;
+  }
+}
+tbody tr.flash td {
+  animation: rowflash 1.2s ease-out;
+}
+@media (prefers-reduced-motion: reduce) {
+  tbody tr.flash td {
+    animation: none;
+    background: var(--discrepancy-bg);
+  }
 }
 
 /* Extraction trace (model stats) */

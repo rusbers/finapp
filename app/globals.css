@@ -529,6 +529,12 @@ th.source {
   font-size: 12px;
   white-space: nowrap;
 }
+th.category,
+td.category {
+  font-size: 12px;
+  white-space: nowrap;
+  color: var(--ink-soft);
+}
 /* Source cell: the file name + page live together in one horizontally-scrollable
    box, scrolled to the END by default (scrollToEnd ref) so the meaningful tail
    ("…_154765.pdf, page 1") shows first; scroll left for the start. Full text is on the

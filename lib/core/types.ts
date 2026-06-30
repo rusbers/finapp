@@ -12,6 +12,7 @@ export interface Transaction {
   balance: number | null // running balance after this transaction (null if the statement doesn't show one)
   page?: number // 1-based page of the source PDF this row came from (deterministic parsers only)
   sourceFile?: string // file this row came from (set only when several PDFs are combined)
+  category?: string // assigned by the categorization step (rules + AI); never affects reconciliation
 }
 
 export interface StatementData {

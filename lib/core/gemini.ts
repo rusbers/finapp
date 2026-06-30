@@ -158,12 +158,12 @@ function normalizeChunk(raw: unknown): ExtractedChunk {
 /** A non-retryable error: failing again won't help (bad request, auth, etc.). */
 class FatalGeminiError extends Error {}
 
-/** One attempt: send the request, return parsed data, or throw. */
-async function attemptExtraction(
+/** One attempt: send the request, return the raw response text, or throw. */
+async function attemptGeminiCall(
   url: string,
   apiKey: string,
   payload: unknown,
-): Promise<ExtractedChunk> {
+): Promise<string> {
   // Abort the request if Gemini takes too long, so it fails cleanly
   // instead of hanging the user's request indefinitely.
   const controller = new AbortController()
@@ -204,60 +204,45 @@ async function attemptExtraction(
   const finishReason = candidate?.finishReason
   const text = candidate?.content?.parts?.[0]?.text ?? ""
 
-  // If the model hit the output limit, the JSON is cut off mid-way. Surface a
+  // If the model hit the output limit, the response is cut off mid-way. Surface a
   // clear, retryable error instead of a cryptic JSON parse failure.
   if (finishReason === "MAX_TOKENS") {
-    throw new Error(
-      "Gemini response was truncated (too many transactions for one chunk). " +
-        "This chunk has too much data; consider fewer pages per chunk.",
-    )
+    throw new Error("Gemini response was truncated (too much data for one call).")
   }
 
-  return safeParseJson(text)
+  return text
 }
 
-/** Send the PDF (as base64) to Gemini and return structured data, with retries. */
-export async function extractWithGemini(
-  pdfBase64: string,
-  model: string,
-  prompt: string,
-): Promise<ExtractedChunk> {
-  const apiKey = process.env.GEMINI_API_KEY
-  if (!apiKey) throw new Error("Missing GEMINI_API_KEY environment variable")
+/** Build the generateContent URL for a model. */
+function geminiUrl(model: string): string {
+  return `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`
+}
 
-  const url =
-    `https://generativelanguage.googleapis.com/v1beta/models/` + `${model}:generateContent`
-
-  // "Thinking" mode: we disable it for speed on the lighter models (Flash,
-  // Flash-Lite). The Pro model REQUIRES thinking mode (it rejects budget 0),
-  // so we leave it on for Pro.
-  const supportsDisablingThinking = !model.includes("pro")
-
-  const generationConfig: Record<string, unknown> = {
+/**
+ * Shared generationConfig. "Thinking" mode is disabled for speed on the lighter
+ * models (Flash, Flash-Lite); the Pro model REQUIRES it (rejects budget 0), so we
+ * leave it on for Pro.
+ */
+function jsonGenerationConfig(model: string): Record<string, unknown> {
+  const cfg: Record<string, unknown> = {
     temperature: 0, // deterministic
     responseMimeType: "application/json", // ask for clean JSON directly
-    maxOutputTokens: 65536, // allow long responses (many transactions)
+    maxOutputTokens: 65536, // allow long responses
   }
-  if (supportsDisablingThinking) {
-    generationConfig.thinkingConfig = { thinkingBudget: 0 }
-  }
+  if (!model.includes("pro")) cfg.thinkingConfig = { thinkingBudget: 0 }
+  return cfg
+}
 
-  const payload = {
-    contents: [
-      {
-        parts: [
-          { text: prompt },
-          { inline_data: { mime_type: "application/pdf", data: pdfBase64 } },
-        ],
-      },
-    ],
-    generationConfig,
-  }
+/** POST a payload to Gemini with retries/backoff; returns the raw response text. */
+async function callGeminiWithRetries(model: string, payload: unknown): Promise<string> {
+  const apiKey = process.env.GEMINI_API_KEY
+  if (!apiKey) throw new Error("Missing GEMINI_API_KEY environment variable")
+  const url = geminiUrl(model)
 
   let lastError: unknown
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     try {
-      return await attemptExtraction(url, apiKey, payload)
+      return await attemptGeminiCall(url, apiKey, payload)
     } catch (e) {
       // Don't retry errors that won't fix themselves (auth, bad request).
       if (e instanceof FatalGeminiError) throw e
@@ -270,4 +255,76 @@ export async function extractWithGemini(
   }
   // All attempts exhausted.
   throw lastError instanceof Error ? lastError : new Error("Gemini request failed after retries")
+}
+
+/** Send the PDF (as base64) to Gemini and return structured data, with retries. */
+export async function extractWithGemini(
+  pdfBase64: string,
+  model: string,
+  prompt: string,
+): Promise<ExtractedChunk> {
+  const payload = {
+    contents: [
+      {
+        parts: [
+          { text: prompt },
+          { inline_data: { mime_type: "application/pdf", data: pdfBase64 } },
+        ],
+      },
+    ],
+    generationConfig: jsonGenerationConfig(model),
+  }
+  const text = await callGeminiWithRetries(model, payload)
+  return safeParseJson(text)
+}
+
+/**
+ * Categorize transaction descriptions with Gemini. Sends a TEXT-only prompt (the
+ * allowed categories + the descriptions) and asks for a strict JSON object mapping
+ * each description to exactly one category. Reuses the same HTTP/retry plumbing as
+ * extraction. Any value the model returns that isn't in `categories` becomes "Other".
+ */
+export async function categorizeWithGemini(
+  descriptions: string[],
+  categories: readonly string[],
+  model: string,
+): Promise<Record<string, string>> {
+  if (descriptions.length === 0) return {}
+
+  const prompt =
+    `You are categorizing bank-statement transaction descriptions for an accountant.\n` +
+    `Assign EACH description to exactly ONE category from this fixed list (use EXACTLY these labels):\n` +
+    categories.join(", ") +
+    `\nIf you are not confident, use "Other". Do NOT invent categories.\n` +
+    `Return ONLY a JSON object mapping each input description (verbatim) to its category, e.g. ` +
+    `{"tesco stores": "Groceries"}.\n\nDescriptions:\n` +
+    descriptions.map((d) => `- ${d}`).join("\n")
+
+  const payload = {
+    contents: [{ parts: [{ text: prompt }] }],
+    generationConfig: jsonGenerationConfig(model),
+  }
+  const text = await callGeminiWithRetries(model, payload)
+
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(text)
+  } catch {
+    // One repair pass (strip code fences / trailing junk), then give up gracefully.
+    const cleaned = text.replace(/```json|```/g, "").trim()
+    try {
+      parsed = JSON.parse(cleaned)
+    } catch {
+      return {}
+    }
+  }
+
+  const allowed = new Set(categories)
+  const out: Record<string, string> = {}
+  if (parsed && typeof parsed === "object") {
+    for (const [desc, cat] of Object.entries(parsed as Record<string, unknown>)) {
+      out[desc] = typeof cat === "string" && allowed.has(cat) ? cat : "Other"
+    }
+  }
+  return out
 }

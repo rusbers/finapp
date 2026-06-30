@@ -24,6 +24,9 @@ export const strings = {
   // View mode (clean production view vs full developer detail)
   devView: (on: boolean) => `Developer view: ${on ? "On" : "Off"}`,
 
+  // Categorization toggle (uses AI for descriptions the rules don't catch)
+  categorizeLabel: "Categorize transactions",
+
   // Test controls (developer view only)
   bankLabel: "Bank",
   primaryModelLabel: "Primary model",
@@ -126,6 +129,7 @@ export const strings = {
   thCredit: "Credit",
   thBalance: "Balance",
   thSource: "Source",
+  thCategory: "Category",
 
   // Row-by-row balance check messages
   breaksHeading: (n: number) =>

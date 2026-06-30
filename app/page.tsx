@@ -90,6 +90,7 @@ const DEFAULTS = {
   enableFallback: false,
   bank: "generic" as BankId,
   devMode: false, // production view by default; toggled on for the full developer detail
+  categorize: false, // assign a category to each transaction (rules + AI); off = no AI cost
 }
 const SETTINGS_KEY = "extractionSettings"
 type Settings = typeof DEFAULTS
@@ -275,7 +276,7 @@ export default function Page() {
     getSettingsSnapshot,
     getSettingsServerSnapshot,
   )
-  const { primaryModel, fallbackModel, enableFallback, bank, devMode } = settings
+  const { primaryModel, fallbackModel, enableFallback, bank, devMode, categorize } = settings
   const dev = devMode // show full developer detail when on; clean production view when off
 
   // PTSB is hidden for now: its parser extracts only the numbers, not the
@@ -324,6 +325,7 @@ export default function Page() {
       fd.append("fallbackModel", fallbackModel)
       fd.append("enableFallback", String(enableFallback))
       fd.append("bank", selectedBank)
+      fd.append("categorize", String(categorize))
       const { ok, data } = await postExtract(fd, {
         onUploadProgress: (pct) => setUploadPct(pct),
         onUploaded: () => setPhase("processing"),
@@ -352,6 +354,7 @@ export default function Page() {
   const r = viewData ? checkReconciliation(viewData) : null
   const transactions = viewData?.transactions ?? []
   const hasBalances = transactions.some((t) => t.balance != null)
+  const showCategory = transactions.some((t) => !!t.category) // category column only when categorized
   // Row-by-row balance check — only meaningful when reconciliation failed.
   const breaks = viewData && r && !r.passed ? findBalanceBreaks(viewData) : []
   const breakIndexes = new Set(breaks.map((b) => b.index))
@@ -526,6 +529,15 @@ export default function Page() {
               ))}
             </select>
           </div>
+          <label className="toggle">
+            <input
+              type="checkbox"
+              checked={categorize}
+              onChange={(e) => updateSettings({ categorize: e.target.checked })}
+              disabled={isLoading}
+            />
+            {s.categorizeLabel}
+          </label>
         </div>
 
         <button className="button" onClick={handleCheck} disabled={files.length === 0 || isLoading}>
@@ -701,6 +713,7 @@ export default function Page() {
                       <th className="num">{s.thCredit}</th>
                       <th className="num">{s.thBalance}</th>
                       <th className="source">{s.thSource}</th>
+                      {a.transactions.some((t) => t.category) && <th className="category">{s.thCategory}</th>}
                     </tr>
                   </thead>
                   <tbody>
@@ -721,6 +734,9 @@ export default function Page() {
                                 : ""}
                           </span>
                         </td>
+                        {a.transactions.some((x) => x.category) && (
+                          <td className="category">{t.category ?? ""}</td>
+                        )}
                       </tr>
                     ))}
                   </tbody>
@@ -1017,6 +1033,7 @@ export default function Page() {
                 <th className="num">{s.thCredit}</th>
                 <th className="num">{s.thBalance}</th>
                 <th className="source">{s.thSource}</th>
+                {showCategory && <th className="category">{s.thCategory}</th>}
               </tr>
             </thead>
             <tbody>
@@ -1041,6 +1058,7 @@ export default function Page() {
                           : ""}
                     </span>
                   </td>
+                  {showCategory && <td className="category">{t.category ?? ""}</td>}
                 </tr>
               ))}
             </tbody>

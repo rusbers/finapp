@@ -11,6 +11,8 @@ import { NextRequest, NextResponse } from "next/server"
 import { extractAndReconcile, extractAndReconcileMany, extractConsolidated, extractRevolut } from "@/lib/core/pipeline"
 import { isAllowedModel } from "@/lib/core/config"
 import { BANK_LABELS, type BankId } from "@/lib/core/prompts"
+import { categorizeTransactions } from "@/lib/core/categorization"
+import type { Transaction } from "@/lib/core/types"
 import { strings } from "@/lib/strings"
 
 // This route uses Buffer and makes a slow AI call, so it runs on the Node.js
@@ -62,11 +64,21 @@ export async function POST(req: NextRequest) {
 
     const options = { primaryModel, fallbackModel, enableFallback, bank }
 
+    // Optional categorization step — runs AFTER reconciliation, only when the UI
+    // toggle is on (it costs AI). Rules catch most rows for free; AI handles the
+    // rest (unique descriptions, in parallel). It mutates `category` in place and
+    // NEVER affects reconciliation.
+    const categorize = formData.get("categorize") === "true"
+    const maybeCategorize = async (txArrays: Transaction[][]) => {
+      if (categorize) await categorizeTransactions(txArrays.flat(), { useAi: true, model: primaryModel })
+    }
+
     // Revolut consolidated ("Custom") statement → one PDF with several current
     // accounts, each reconciled separately. Its own parser/shape.
     if (bank === "revolut-consolidated") {
       const pdfBytes = new Uint8Array(await uploaded[0].arrayBuffer())
       const consolidated = await extractConsolidated(pdfBytes)
+      await maybeCategorize(consolidated.accounts.map((a) => a.transactions))
       return NextResponse.json({ consolidated, fileName: uploaded[0].name })
     }
 
@@ -78,11 +90,14 @@ export async function POST(req: NextRequest) {
       if (bank === "revolut") {
         const r = await extractRevolut(pdfBytes, options)
         if (r.kind === "multi") {
+          await maybeCategorize(r.consolidated.accounts.map((a) => a.transactions))
           return NextResponse.json({ consolidated: r.consolidated, fileName: uploaded[0].name })
         }
+        await maybeCategorize([r.result.data.transactions])
         return NextResponse.json({ ...r.result, fileName: uploaded[0].name })
       }
       const result = await extractAndReconcile(pdfBytes, options)
+      await maybeCategorize([result.data.transactions])
       return NextResponse.json({ ...result, fileName: uploaded[0].name })
     }
 
@@ -94,6 +109,7 @@ export async function POST(req: NextRequest) {
       })),
     )
     const multiResult = await extractAndReconcileMany(filesWithBytes, options)
+    await maybeCategorize([multiResult.result.data.transactions])
 
     // Flatten so the UI gets the same top-level result fields, plus multi extras.
     // The file label reflects the files actually used (unique = perFile), so ignored

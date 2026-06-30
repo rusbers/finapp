@@ -258,6 +258,7 @@ lib/
 │   ├── extraction.ts      → split + parallel extract + merge (provider seam)
 │   ├── pipeline.ts        → extract-and-reconcile cascade + per-model stats
 │   ├── sign-correction.ts → balance-based debit/credit auto-correction
+│   ├── categorization.ts  → category per transaction: keyword RULES first, AI only for the rest
 │   └── verification.ts    → CSV export + row-by-row running-balance check
 └── strings.ts             → all UI copy in one place (ready for future i18n)
 ```
@@ -523,6 +524,23 @@ pdfjs-dist`): for the target banks, reading the PDF's text positions (x/y) and
   `isExplainedByCryptoFees` in `verification.ts`), so it's visually distinct from a
   genuine reconciliation failure. Extraction stays faithful; only the verdict's
   presentation softens.
+- **Transaction categorization** (`categorization.ts`, BACKLOG 1.1): assigns each
+  transaction a single `category` from a FIXED list (`CATEGORIES`, "Other" fallback),
+  using AI as little as possible. **Layer 1 — keyword RULES** (zero AI, deterministic,
+  ordered, first match wins) catches the majority for free (~55% of rows on the test
+  set); rules are calibrated on the real test descriptions (Irish merchants + Revolut
+  transfers/savings/crypto/gambling), with ordering to avoid collisions ("tesco mobile"→
+  Telecom before "tesco"→Groceries) and word-boundary regex where needed (`\bfee\b` not
+  "coffee", `\brent\b` not "current"). **Layer 2 — Gemini** only for the rest: the
+  unmatched rows are DEDUPED by a normalized merchant key (`normalizeDescription`) and
+  the UNIQUE descriptions are sent in PARALLEL batches (`mapWithLimit`,
+  `MAX_CONCURRENT_CHUNKS`) via `categorizeWithGemini` (reuses gemini.ts plumbing; strict
+  JSON description→category, "Other" on uncertainty); the answer is applied back to every
+  row sharing the key ("Tesco" asked once). Runs AFTER reconciliation as a SEPARATE step
+  (in `app/api/extract/route.ts`, gated by the `categorize` form flag) — it mutates
+  `category` in place and NEVER affects reconciliation, so the pipeline/harness are
+  untouched. UI: a production toggle "Categorize transactions" (cost control), a
+  **Category** column in the tables (shown only when categorized) and in the CSV export.
 - **Transaction provenance (Source column)**: each `Transaction` carries an optional
   `page` (1-based PDF page, set by the deterministic parsers — Revolut/AIB/BOI/
   consolidated) and an optional `sourceFile` (set only when several PDFs are combined,

@@ -197,6 +197,15 @@ under a different name is caught; the copy is excluded from the series and repor
 `duplicates[]` (otherwise identical statements wouldn't chain → false gap + doubled
 rows). Empty statements (0 tx) are never flagged as duplicates.
 
+**Categorization** (`categorization.ts`). A separate post-reconciliation step that sets
+each transaction's `category` from a fixed list. Layer 1 = ordered keyword RULES (zero
+AI, ~55% of rows on the test set), calibrated on real descriptions; Layer 2 = Gemini on
+the UNIQUE remaining descriptions in parallel batches, applied back to all matching rows.
+It runs only when the UI `categorize` toggle is on (in `app/api/extract/route.ts`), never
+touches reconciliation, and is NOT in the pipeline/harness path. Adding a keyword rule:
+edit `RULES` (order matters — first match wins; use `\b…\b` where a substring would
+over-match). Toggling categorization off makes zero AI calls.
+
 When adding a bank, follow the rules above and record its anchors/quirks in
 `CLAUDE.md`.
 

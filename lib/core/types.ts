@@ -13,6 +13,7 @@ export interface Transaction {
   page?: number // 1-based page of the source PDF this row came from (deterministic parsers only)
   sourceFile?: string // file this row came from (set only when several PDFs are combined)
   category?: string // assigned by the categorization step (rules + AI); never affects reconciliation
+  categoryByAi?: boolean // true when the AI layer (not a keyword rule) assigned the category
 }
 
 export interface StatementData {

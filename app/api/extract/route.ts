@@ -69,17 +69,18 @@ export async function POST(req: NextRequest) {
     // rest (unique descriptions, in parallel). It mutates `category` in place and
     // NEVER affects reconciliation.
     const categorize = formData.get("categorize") === "true"
-    const maybeCategorize = async (txArrays: Transaction[][]) => {
-      if (categorize) await categorizeTransactions(txArrays.flat(), { useAi: true, model: primaryModel })
-    }
+    const maybeCategorize = async (txArrays: Transaction[][]) =>
+      categorize
+        ? await categorizeTransactions(txArrays.flat(), { useAi: true, model: primaryModel })
+        : null
 
     // Revolut consolidated ("Custom") statement → one PDF with several current
     // accounts, each reconciled separately. Its own parser/shape.
     if (bank === "revolut-consolidated") {
       const pdfBytes = new Uint8Array(await uploaded[0].arrayBuffer())
       const consolidated = await extractConsolidated(pdfBytes)
-      await maybeCategorize(consolidated.accounts.map((a) => a.transactions))
-      return NextResponse.json({ consolidated, fileName: uploaded[0].name })
+      const categorization = await maybeCategorize(consolidated.accounts.map((a) => a.transactions))
+      return NextResponse.json({ consolidated, fileName: uploaded[0].name, categorization })
     }
 
     // Single file → single-statement result (unchanged shape). Revolut goes through
@@ -90,15 +91,15 @@ export async function POST(req: NextRequest) {
       if (bank === "revolut") {
         const r = await extractRevolut(pdfBytes, options)
         if (r.kind === "multi") {
-          await maybeCategorize(r.consolidated.accounts.map((a) => a.transactions))
-          return NextResponse.json({ consolidated: r.consolidated, fileName: uploaded[0].name })
+          const categorization = await maybeCategorize(r.consolidated.accounts.map((a) => a.transactions))
+          return NextResponse.json({ consolidated: r.consolidated, fileName: uploaded[0].name, categorization })
         }
-        await maybeCategorize([r.result.data.transactions])
-        return NextResponse.json({ ...r.result, fileName: uploaded[0].name })
+        const categorization = await maybeCategorize([r.result.data.transactions])
+        return NextResponse.json({ ...r.result, fileName: uploaded[0].name, categorization })
       }
       const result = await extractAndReconcile(pdfBytes, options)
-      await maybeCategorize([result.data.transactions])
-      return NextResponse.json({ ...result, fileName: uploaded[0].name })
+      const categorization = await maybeCategorize([result.data.transactions])
+      return NextResponse.json({ ...result, fileName: uploaded[0].name, categorization })
     }
 
     // Multiple files → chain + combine + reconcile across the whole series.
@@ -109,7 +110,7 @@ export async function POST(req: NextRequest) {
       })),
     )
     const multiResult = await extractAndReconcileMany(filesWithBytes, options)
-    await maybeCategorize([multiResult.result.data.transactions])
+    const categorization = await maybeCategorize([multiResult.result.data.transactions])
 
     // Flatten so the UI gets the same top-level result fields, plus multi extras.
     // The file label reflects the files actually used (unique = perFile), so ignored
@@ -122,6 +123,7 @@ export async function POST(req: NextRequest) {
       gaps: multiResult.gaps,
       fullyChained: multiResult.fullyChained,
       duplicates: multiResult.duplicates,
+      categorization,
     })
   } catch (e: unknown) {
     const message = e instanceof Error ? e.message : strings.errorUnknown

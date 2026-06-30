@@ -424,7 +424,10 @@ export async function categorizeTransactions(
   let aiCount = 0
   for (const [key, group] of restByKey) {
     const cat = aiMap[key] ?? "Other"
-    for (const t of group) t.category = cat
+    for (const t of group) {
+      t.category = cat
+      if (opts.useAi) t.categoryByAi = true // resolved by the AI layer, not a rule
+    }
     if (opts.useAi) aiCount += group.length
   }
 

@@ -79,6 +79,8 @@ interface ApiResponse {
   gaps?: StatementGap[]
   fullyChained?: boolean
   duplicates?: DuplicateStatement[]
+  // Present only when categorization ran (toggle on):
+  categorization?: { ruleCount: number; aiCount: number; uniqueAiDescriptions: number } | null
   // Present only for a Revolut consolidated statement (per-account results):
   consolidated?: ConsolidatedResponse
 }
@@ -735,7 +737,10 @@ export default function Page() {
                           </span>
                         </td>
                         {a.transactions.some((x) => x.category) && (
-                          <td className="category">{t.category ?? ""}</td>
+                          <td className="category">
+                            {t.category ?? ""}
+                            {dev && t.categoryByAi && <span className="cat-ai">{s.aiTag}</span>}
+                          </td>
                         )}
                       </tr>
                     ))}
@@ -930,6 +935,20 @@ export default function Page() {
               <span className="trace-summary">
                 {result.fallbackUsed ? s.fallbackTriggered : s.firstTry}
               </span>
+              {result.categorization && (
+                <div className="trace-row">
+                  <span className="trace-model">{s.categorizationHeading}</span>
+                  <span className="trace-time">
+                    {result.categorization.aiCount > 0
+                      ? s.categorizationTrace(
+                          result.categorization.ruleCount,
+                          result.categorization.aiCount,
+                          result.categorization.uniqueAiDescriptions,
+                        )
+                      : s.categorizationNoAi(result.categorization.ruleCount)}
+                  </span>
+                </div>
+              )}
             </div>
           )}
 
@@ -1058,7 +1077,12 @@ export default function Page() {
                           : ""}
                     </span>
                   </td>
-                  {showCategory && <td className="category">{t.category ?? ""}</td>}
+                  {showCategory && (
+                    <td className="category">
+                      {t.category ?? ""}
+                      {dev && t.categoryByAi && <span className="cat-ai">{s.aiTag}</span>}
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>

@@ -26,6 +26,12 @@ export const strings = {
 
   // Categorization toggle (uses AI for descriptions the rules don't catch)
   categorizeLabel: "Categorize transactions",
+  // Categorization trace (developer view)
+  categorizationHeading: "Categorization",
+  categorizationTrace: (rules: number, ai: number, unique: number) =>
+    `rules: ${rules} · AI: ${ai} row${ai === 1 ? "" : "s"} (${unique} unique description${unique === 1 ? "" : "s"})`,
+  categorizationNoAi: (rules: number) => `rules: ${rules} · AI not used`,
+  aiTag: "AI",
 
   // Test controls (developer view only)
   bankLabel: "Bank",

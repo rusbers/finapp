@@ -535,6 +535,16 @@ td.category {
   white-space: nowrap;
   color: var(--ink-soft);
 }
+/* Dev-only marker: this category was assigned by the AI layer, not a keyword rule. */
+.cat-ai {
+  margin-left: 6px;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--action);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 0 4px;
+}
 /* Source cell: the file name + page live together in one horizontally-scrollable
    box, scrolled to the END by default (scrollToEnd ref) so the meaningful tail
    ("…_154765.pdf, page 1") shows first; scroll left for the start. Full text is on the

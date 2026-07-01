@@ -581,6 +581,15 @@ pdfjs-dist`): for the target banks, reading the PDF's text positions (x/y) and
   "Clear all filters" button; a discrepancy jump (`jumpToRow`) first clears the view so the
   target row is visible. Distinct from the "Financial period" bar, which re-reconciles a
   date slice. Scope: the main table only (consolidated per-account tables stay unfiltered).
+- **Manual verification tick (BACKLOG 2.1, simplified)**: a **"Check mode"** toggle in the meta
+  line (off by default — `checkMode` in `app/page.tsx`) reveals a narrow leading checkbox column on
+  the main table so the user can mark each row "verified" while checking it against the PDF;
+  verified rows get a subtle green wash and a discreet "X of Y verified" counter shows next to the
+  toggle. State is a client-side `Set` of ORIGINAL row indices (`verified`), so ticks survive
+  filtering/sorting and stay on their rows; session-only (cleared on a new result/period; check
+  mode also resets on a new result), purely visual — never touches the data, categories or
+  reconciliation. The `.verified-row` style is declared before `.break-row` so a balance-break row
+  keeps its warning colour even when ticked.
 
 ### Known testing notes
 

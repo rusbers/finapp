@@ -270,6 +270,20 @@ export default function Page() {
     setSort(null)
     setOpenFilter(null)
   }
+  // Manual verification (BACKLOG 2.1, simplified): a per-row "verified" tick the user
+  // sets while checking rows against the PDF. Keyed by the ORIGINAL row index (like the
+  // balance-break set), so it survives filtering/sorting. Purely visual — session-only,
+  // never touches the data or reconciliation. The tick column is hidden until the user
+  // turns on "Check mode" (off by default).
+  const [checkMode, setCheckMode] = useState(false)
+  const [verified, setVerified] = useState<Set<number>>(new Set())
+  const toggleVerified = (idx: number) =>
+    setVerified((prev) => {
+      const next = new Set(prev)
+      if (next.has(idx)) next.delete(idx)
+      else next.add(idx)
+      return next
+    })
 
   // While processing on the server, cycle the step label (cosmetic — conveys
   // activity; the server phase isn't separately observable from one request).
@@ -288,16 +302,19 @@ export default function Page() {
     return () => window.removeEventListener("scroll", onScroll)
   }, [])
 
-  // Reset the "Next error" navigator + display sort/filters on a new result/period.
+  // Reset the "Next error" navigator + display sort/filters + verification ticks on a
+  // new result/period (verified is keyed by row index, which shifts when the period does).
   useEffect(() => {
     setBreakCursor(-1)
     clearView()
+    setVerified(new Set())
   }, [result, period])
 
-  // Clear category edits when a new result arrives.
+  // Clear category edits + exit check mode when a new result arrives.
   useEffect(() => {
     setCatOverrides({})
     setEditingCell(null)
+    setCheckMode(false)
   }, [result])
 
   // Test controls — read from the localStorage-backed store (SSR-safe, no warnings).
@@ -1156,6 +1173,21 @@ export default function Page() {
                 {s.metaDuration}: <b>{(durationMs / 1000).toFixed(1)}s</b>
               </span>
             )}
+            {transactions.length > 0 && (
+              <button
+                type="button"
+                className="link-button"
+                aria-pressed={checkMode}
+                onClick={() => setCheckMode((m) => !m)}
+              >
+                {s.checkMode}
+              </button>
+            )}
+            {checkMode && transactions.length > 0 && (
+              <span>
+                <b>{s.verifiedCount(verified.size, transactions.length)}</b>
+              </span>
+            )}
             <span>
               {s.metaFile}: <b>{result.fileName}</b>
             </span>
@@ -1192,6 +1224,7 @@ export default function Page() {
           <table>
             <thead>
               <tr>
+                {checkMode && <th className="check-col" aria-label={s.verifiedColumn}></th>}
                 <th className="rownum">#</th>
                 <th className="date sortable">
                   <ColumnFilter type="dateTree" {...columnFilterProps("date", s.thDate)}
@@ -1231,8 +1264,18 @@ export default function Page() {
                 <tr
                   key={idx}
                   id={`row-${idx}`}
-                  className={`${breakIndexes.has(idx) ? "break-row" : ""}${flashRow === idx ? " flash" : ""}`}
+                  className={`${checkMode && verified.has(idx) ? "verified-row " : ""}${breakIndexes.has(idx) ? "break-row" : ""}${flashRow === idx ? " flash" : ""}`}
                 >
+                  {checkMode && (
+                    <td className="check-col">
+                      <input
+                        type="checkbox"
+                        checked={verified.has(idx)}
+                        onChange={() => toggleVerified(idx)}
+                        aria-label={s.verifiedColumn}
+                      />
+                    </td>
+                  )}
                   <td className="rownum">{idx + 1}</td>
                   <td className="date">{t.date}</td>
                   <td>{t.description}</td>
@@ -1253,7 +1296,7 @@ export default function Page() {
               ))}
               {displayRows.length === 0 && (
                 <tr>
-                  <td className="filter-empty" colSpan={showCategory ? 8 : 7}>
+                  <td className="filter-empty" colSpan={(showCategory ? 8 : 7) + (checkMode ? 1 : 0)}>
                     {s.filterNoMatch}
                   </td>
                 </tr>

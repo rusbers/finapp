@@ -1074,6 +1074,30 @@ td.source {
 .link-button:hover {
   color: var(--action-hover);
 }
+/* Toggle-style link button (e.g. "Check mode") — green while active. */
+.link-button[aria-pressed="true"] {
+  color: var(--ledger-green);
+}
+
+/* Manual verification (BACKLOG 2.1): a narrow tick column + a subtle green wash on
+   verified rows. Declared BEFORE .break-row so a balance-break row keeps its warning
+   colour even when it's also ticked. */
+th.check-col,
+td.check-col {
+  width: 1%;
+  white-space: nowrap;
+  text-align: center;
+  padding: 0 6px 0 14px;
+}
+td.check-col input {
+  cursor: pointer;
+  accent-color: var(--ledger-green);
+  margin: 0;
+  vertical-align: middle;
+}
+tbody tr.verified-row {
+  background: var(--ledger-green-bg);
+}
 
 /* Highlight a transaction row where the running balance breaks */
 tbody tr.break-row {

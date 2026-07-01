@@ -215,6 +215,12 @@ touches reconciliation.
 Excel-style dropdown (`app/column-filter.tsx`, portalled to `<body>`): sort asc/desc + a
 type-specific filter (text contains, category checkboxes, a Year→Month→Day date tree, numeric
 min/max).
+**Manual verification tick (BACKLOG 2.1).** A "Check mode" toggle (off by default) reveals a
+leading checkbox column on the main table to mark rows "verified" while checking against the PDF
+(subtle green wash + a "X of Y verified" counter). State is a client-side `Set` of original row
+indices (`verified`), session-only, purely visual — never touches data/categories/reconciliation;
+ticks survive filtering/sorting.
+
 Column filters combine with AND; one sort key at a time. Pure logic in `app/table-view.ts`
 (`applyView`); `app/page.tsx` derives `displayRows` from `viewData.transactions` (filter +
 sort a COPY, keeping each row's original index). PURELY presentational — reconciliation, the

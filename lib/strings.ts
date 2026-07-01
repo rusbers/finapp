@@ -106,6 +106,10 @@ export const strings = {
   filterNoMatch: "No transactions match the current filters.",
   txCountFiltered: (shown: number, total: number) => `${shown} of ${total} transactions`,
   columnMenuAria: (col: string) => `Filter and sort ${col}`,
+  // Manual verification (BACKLOG 2.1) — a per-row "verified" tick while checking vs the PDF.
+  checkMode: "Check mode",
+  verifiedColumn: "Verified",
+  verifiedCount: (done: number, total: number) => `${done} of ${total} verified`,
   // Month labels for the Excel-style date filter tree (index 0 = January).
   monthNames: [
     "January",

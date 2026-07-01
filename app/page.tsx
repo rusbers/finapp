@@ -577,6 +577,7 @@ export default function Page() {
   return (
     <main className="page">
       <header className="header">
+        <span className="beta-badge">{s.betaBadge}</span>
         <button
           type="button"
           className={`dev-toggle ${dev ? "on" : ""}`}
@@ -908,6 +909,9 @@ export default function Page() {
           {result.data && result.data.transactions.length > 0 && (
             <div className="period-bar">
               <span className="period-label">{s.periodLabel}</span>
+              <span className="info-tip" tabIndex={0} aria-label={s.periodHint}>
+                i<span className="info-tip-bubble">{s.periodHint}</span>
+              </span>
               <div className="period-chips">
                 <button
                   type="button"

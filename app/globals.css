@@ -52,6 +52,20 @@ body {
   align-items: flex-start;
   gap: 16px;
 }
+/* Beta badge — kept on the left (margin-right:auto) while the dev toggle stays right. */
+.beta-badge {
+  margin-right: auto;
+  margin-top: 4px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: var(--action);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  user-select: none;
+}
 /* Developer-view toggle (top-right) — subtle in production, accented when on */
 .dev-toggle {
   flex-shrink: 0;
@@ -156,6 +170,47 @@ input[type="file"]::file-selector-button {
   letter-spacing: 0.04em;
   color: var(--ink-soft);
   font-weight: 600;
+}
+/* A small circled "i" with a hover tooltip (e.g. clarifying "Financial period"). */
+.info-tip {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  border: 1px solid var(--ink-soft);
+  color: var(--ink-soft);
+  font-size: 10px;
+  font-weight: 700;
+  font-style: italic;
+  font-family: var(--font-ui);
+  cursor: help;
+  user-select: none;
+}
+.info-tip-bubble {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  white-space: nowrap;
+  background: var(--ink);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 400;
+  font-style: normal;
+  padding: 6px 10px;
+  border-radius: 6px;
+  box-shadow: 0 6px 18px rgba(24, 27, 34, 0.18);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s;
+  z-index: 40;
+}
+.info-tip:hover .info-tip-bubble,
+.info-tip:focus-visible .info-tip-bubble {
+  opacity: 1;
 }
 .period-chips {
   display: flex;

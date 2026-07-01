@@ -8,6 +8,7 @@
 
 export const strings = {
   appName: "App", // TODO: set your app name here once chosen
+  betaBadge: "Beta", // signals the app is still in beta
   pageTitle: "statement check",
   pageSubtitle: "Upload a statement, then verify the extraction and reconciliation one at a time.",
 
@@ -85,6 +86,8 @@ export const strings = {
 
   // Financial-period filter (slice the result to a year / custom range)
   periodLabel: "Financial period",
+  // Clarifies what this control does vs the Date column filter (which is view-only).
+  periodHint: "cut & reconcile a period to export it",
   periodAll: "All",
   periodCustom: "Custom…",
   periodCovers: (from: string, to: string) => `Covers ${from} → ${to}`,

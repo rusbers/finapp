@@ -93,6 +93,35 @@ export const strings = {
   /** Floating navigator that jumps to each row where the running balance doesn't add up. */
   nextDiscrepancy: (k: number, n: number) => `Next discrepancy (${k}/${n})`,
 
+  // Per-column sort + filter dropdowns (BACKLOG 1.3) — presentation only.
+  sortAsc: "Ascending",
+  sortDesc: "Descending",
+  filterContains: "Contains…",
+  filterSelectAll: "Select all",
+  filterDeselectAll: "Deselect all",
+  filterMin: "Min",
+  filterMax: "Max",
+  clearColumn: "Clear",
+  clearAllFilters: "Clear all filters",
+  filterNoMatch: "No transactions match the current filters.",
+  txCountFiltered: (shown: number, total: number) => `${shown} of ${total} transactions`,
+  columnMenuAria: (col: string) => `Filter and sort ${col}`,
+  // Month labels for the Excel-style date filter tree (index 0 = January).
+  monthNames: [
+    "January",
+    "February",
+    "March",
+    "April",
+    "May",
+    "June",
+    "July",
+    "August",
+    "September",
+    "October",
+    "November",
+    "December",
+  ],
+
   // Revolut consolidated ("Custom") statement — several current accounts in one PDF
   consolidatedPass: "Reconciled — all accounts match",
   consolidatedFail: "Out of balance — check the accounts below",

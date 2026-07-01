@@ -12,7 +12,7 @@
  *   - row-by-row balance check that highlights where the balance stops adding up
  */
 
-import { useState, useEffect, useSyncExternalStore } from "react"
+import { useState, useEffect, useMemo, useSyncExternalStore } from "react"
 import { fromCents, checkReconciliation } from "@/lib/core/reconciliation"
 import { downloadCsv, findBalanceBreaks, isExplainedByCryptoFees, transactionSource } from "@/lib/core/verification"
 import type {
@@ -25,6 +25,9 @@ import type {
 import { BANK_LABELS, type BankId } from "@/lib/core/prompts"
 import { CATEGORIES, normalizeDescription } from "@/lib/core/categorization"
 import CategoryCombobox from "./category-combobox"
+import ColumnFilter from "./column-filter"
+import { applyView, anyFilterActive, isColumnActive } from "./table-view"
+import type { ColumnKey, Filters, SortState } from "./table-view"
 import { strings as s } from "@/lib/strings"
 
 interface PerFileResult {
@@ -257,6 +260,16 @@ export default function Page() {
   // with the same description). `editingCell` = the one cell currently in edit mode.
   const [catOverrides, setCatOverrides] = useState<Record<string, string>>({})
   const [editingCell, setEditingCell] = useState<string | null>(null)
+  // Display-only per-column sort + filters (BACKLOG 1.3). Never touch the underlying
+  // data or reconciliation — only which rows are shown and in what order.
+  const [filters, setFilters] = useState<Filters>({})
+  const [sort, setSort] = useState<SortState>(null)
+  const [openFilter, setOpenFilter] = useState<ColumnKey | null>(null)
+  const clearView = () => {
+    setFilters({})
+    setSort(null)
+    setOpenFilter(null)
+  }
 
   // While processing on the server, cycle the step label (cosmetic — conveys
   // activity; the server phase isn't separately observable from one request).
@@ -275,8 +288,11 @@ export default function Page() {
     return () => window.removeEventListener("scroll", onScroll)
   }, [])
 
-  // Reset the "Next error" navigator on a new result/period (first click → error 1).
-  useEffect(() => setBreakCursor(-1), [result, period])
+  // Reset the "Next error" navigator + display sort/filters on a new result/period.
+  useEffect(() => {
+    setBreakCursor(-1)
+    clearView()
+  }, [result, period])
 
   // Clear category edits when a new result arrives.
   useEffect(() => {
@@ -307,13 +323,24 @@ export default function Page() {
   // Scroll the transaction table to a specific row and briefly highlight it, so a
   // listed balance error links straight to its row (no manual scrolling through a
   // long table). Respects prefers-reduced-motion, like the back-to-top button.
+  // `index` is the ORIGINAL row index (row ids are keyed by it). A display filter or sort
+  // could hide/reorder the target, so we clear the view first, then scroll on the next
+  // frame once the full table has re-rendered — discrepancy jumps stay reliable.
   function jumpToRow(index: number) {
-    const el = document.getElementById(`row-${index}`)
-    if (!el) return
-    const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches
-    el.scrollIntoView({ behavior: reduce ? "auto" : "smooth", block: "center" })
-    setFlashRow(index)
-    window.setTimeout(() => setFlashRow((cur) => (cur === index ? null : cur)), 1500)
+    const scroll = () => {
+      const el = document.getElementById(`row-${index}`)
+      if (!el) return
+      const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches
+      el.scrollIntoView({ behavior: reduce ? "auto" : "smooth", block: "center" })
+      setFlashRow(index)
+      window.setTimeout(() => setFlashRow((cur) => (cur === index ? null : cur)), 1500)
+    }
+    if (sort || Object.keys(filters).length > 0) {
+      clearView()
+      requestAnimationFrame(() => requestAnimationFrame(scroll))
+    } else {
+      scroll()
+    }
   }
 
   async function handleCheck() {
@@ -364,7 +391,11 @@ export default function Page() {
   // The result, SLICED to the selected financial period (single/combined path).
   // For "all" this is the whole extraction; for a year/range it's that period
   // reconciled on its own (opening/closing derived from the running balance).
-  const viewData = result?.data ? slicePeriod(result.data, period) : null
+  // Memoized so its identity is stable (keeps the display-view memo below cheap).
+  const viewData = useMemo(
+    () => (result?.data ? slicePeriod(result.data, period) : null),
+    [result, period],
+  )
   const r = viewData ? checkReconciliation(viewData) : null
   const transactions = viewData?.transactions ?? []
   const hasBalances = transactions.some((t) => t.balance != null)
@@ -425,6 +456,45 @@ export default function Page() {
       </td>
     )
   }
+  // --- Display sort + filters (BACKLOG 1.3) ---
+  // `displayRows` is the table's view: filter + stable-sort a COPY of the period rows,
+  // keeping each row's ORIGINAL index. Reconciliation/verdict/breaks/CSV keep using the
+  // full `viewData` (original order) — never `displayRows`.
+  const availableCategories = showCategory
+    ? [...new Set(transactions.map((t) => effectiveCategory(t)))].sort((a, b) => a.localeCompare(b))
+    : []
+  const availableDates = [...new Set(transactions.map((t) => t.date).filter((d): d is string => !!d))].sort()
+  const totals = { categories: availableCategories.length, dates: availableDates.length }
+  const displayRows = useMemo(
+    () => applyView(transactions, filters, sort, (t) => catOverrides[catKey(t)] ?? t.category ?? "Other"),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [transactions, filters, sort, catOverrides],
+  )
+  const filterActive = anyFilterActive(filters, totals)
+  // Column dropdown wiring: one open at a time; sorting replaces the single sort key;
+  // each column reads/writes its own slice of `filters`.
+  const setFilterSlice = (key: ColumnKey, value: unknown) =>
+    setFilters((prev) => {
+      const next = { ...prev }
+      if (value == null) delete next[key as keyof Filters]
+      else (next as Record<string, unknown>)[key] = value
+      return next
+    })
+  const columnFilterProps = (key: ColumnKey, label: string, align: "left" | "right" = "left") => ({
+    label,
+    align,
+    sortDir: sort?.key === key ? sort.dir : null,
+    onSort: (dir: "asc" | "desc") => {
+      setSort({ key, dir })
+      setOpenFilter(null)
+    },
+    active: isColumnActive(key, filters, totals),
+    onClear: () => setFilterSlice(key, undefined),
+    open: openFilter === key,
+    onToggle: () => setOpenFilter((cur) => (cur === key ? null : key)),
+    onClose: () => setOpenFilter((cur) => (cur === key ? null : cur)),
+  })
+
   // Row-by-row balance check — only meaningful when reconciliation failed.
   const breaks = viewData && r && !r.passed ? findBalanceBreaks(viewData) : []
   const breakIndexes = new Set(breaks.map((b) => b.index))
@@ -1074,7 +1144,12 @@ export default function Page() {
               {s.metaBank}: <b>{result.data.bank || "—"}</b>
             </span>
             <span>
-              {s.metaTransactions}: <b>{transactions.length}</b>
+              {s.metaTransactions}:{" "}
+              <b>
+                {filterActive
+                  ? s.txCountFiltered(displayRows.length, transactions.length)
+                  : transactions.length}
+              </b>
             </span>
             {dev && durationMs != null && (
               <span>
@@ -1084,6 +1159,11 @@ export default function Page() {
             <span>
               {s.metaFile}: <b>{result.fileName}</b>
             </span>
+            {(filterActive || sort) && (
+              <button className="link-button" onClick={clearView}>
+                {s.clearAllFilters}
+              </button>
+            )}
             <button
               className="link-button"
               onClick={() =>
@@ -1107,34 +1187,59 @@ export default function Page() {
             </button>
           </div>
 
-          {/* Transaction table — for manual verification against the PDF */}
+          {/* Transaction table — for manual verification against the PDF. Each column
+              header has an Excel-style sort+filter dropdown (ColumnFilter). */}
           <table>
             <thead>
               <tr>
                 <th className="rownum">#</th>
-                <th className="date">{s.thDate}</th>
-                <th className="desc">{s.thDescription}</th>
-                <th className="num">{s.thDebit}</th>
-                <th className="num">{s.thCredit}</th>
-                <th className="num">{s.thBalance}</th>
-                {showCategory && <th className="category">{s.thCategory}</th>}
+                <th className="date sortable">
+                  <ColumnFilter type="dateTree" {...columnFilterProps("date", s.thDate)}
+                    options={availableDates}
+                    value={filters.date ?? null}
+                    onChange={(v) => setFilterSlice("date", v == null || v.length === availableDates.length ? undefined : v)} />
+                </th>
+                <th className="desc sortable">
+                  <ColumnFilter type="text" {...columnFilterProps("description", s.thDescription)}
+                    value={filters.description ?? ""} onChange={(v) => setFilterSlice("description", v.trim() ? v : undefined)} />
+                </th>
+                <th className="num sortable">
+                  <ColumnFilter type="numberRange" {...columnFilterProps("debit", s.thDebit, "right")}
+                    value={filters.debit ?? {}} onChange={(v) => setFilterSlice("debit", v.min == null && v.max == null ? undefined : v)} />
+                </th>
+                <th className="num sortable">
+                  <ColumnFilter type="numberRange" {...columnFilterProps("credit", s.thCredit, "right")}
+                    value={filters.credit ?? {}} onChange={(v) => setFilterSlice("credit", v.min == null && v.max == null ? undefined : v)} />
+                </th>
+                <th className="num sortable">
+                  <ColumnFilter type="numberRange" {...columnFilterProps("balance", s.thBalance, "right")}
+                    value={filters.balance ?? {}} onChange={(v) => setFilterSlice("balance", v.min == null && v.max == null ? undefined : v)} />
+                </th>
+                {showCategory && (
+                  <th className="category sortable">
+                    <ColumnFilter type="checkbox" {...columnFilterProps("category", s.thCategory)}
+                      options={availableCategories}
+                      value={filters.category ?? null}
+                      onChange={(v) => setFilterSlice("category", v == null || v.length === availableCategories.length ? undefined : v)} />
+                  </th>
+                )}
                 <th className="source">{s.thSource}</th>
               </tr>
             </thead>
             <tbody>
-              {transactions.map((t, i) => (
+              {displayRows.map(({ t, idx }) => (
                 <tr
-                  key={i}
-                  id={`row-${i}`}
-                  className={`${breakIndexes.has(i) ? "break-row" : ""}${flashRow === i ? " flash" : ""}`}
+                  key={idx}
+                  id={`row-${idx}`}
+                  className={`${breakIndexes.has(idx) ? "break-row" : ""}${flashRow === idx ? " flash" : ""}`}
                 >
-                  <td className="rownum">{i + 1}</td>
+                  <td className="rownum">{idx + 1}</td>
                   <td className="date">{t.date}</td>
                   <td>{t.description}</td>
                   <td className="num debit">{t.debit ? t.debit.toFixed(2) : ""}</td>
                   <td className="num credit">{t.credit ? t.credit.toFixed(2) : ""}</td>
                   <td className="num">{t.balance != null ? t.balance.toFixed(2) : ""}</td>
-                  {showCategory && categoryCell(t, `s${i}`)}
+                  {showCategory && categoryCell(t, `s${idx}`)}
                   <td className="source" title={transactionSource(t, result.fileName)}>
                     <span className="src-scroll" ref={scrollToEnd}>
                       {t.sourceFile
@@ -1146,6 +1251,13 @@ export default function Page() {
                   </td>
                 </tr>
               ))}
+              {displayRows.length === 0 && (
+                <tr>
+                  <td className="filter-empty" colSpan={showCategory ? 8 : 7}>
+                    {s.filterNoMatch}
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
         </>

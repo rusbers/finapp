@@ -562,6 +562,25 @@ pdfjs-dist`): for the target banks, reading the PDF's text positions (x/y) and
   The AI/vision path does NOT set `page` (it works on multi-page chunks), so those rows
   show the file only. These fields are NOT part of the reconciliation or the regression
   fingerprint (which hashes only date/description/debit/credit/balance).
+- **Per-column sort + filter (BACKLOG 1.3)**: the main single/combined transaction table
+  has an Excel/Sheets-style dropdown on each header (Date, Description, Debit, Credit,
+  Balance, Category) — a `<ColumnFilter>` (`app/column-filter.tsx`) whose panel is portalled
+  to `<body>` (escaping the table's `overflow: hidden`). Each dropdown offers sort
+  (asc/desc) + a type-specific filter: text "contains" (description), value checkboxes with
+  select/deselect-all (category), an Excel-style Year→Month→Day checkbox tree (date, built by
+  `buildDateTree`), numeric min/max (debit/credit/balance).
+  Filters on different columns combine with **AND**; a single sort key is active at a time.
+  The pure logic lives in `app/table-view.ts` (`applyView`, `isColumnActive`,
+  `anyFilterActive` + the `ColumnKey`/`Filters`/`SortState` types); `app/page.tsx` holds the
+  `filters`/`sort`/`openFilter` state and derives `displayRows` ({ t, idx }) with `useMemo`,
+  keeping each row's ORIGINAL index so ids/break-highlight/category-cell/flash stay tied to
+  the real row (`#` shows `idx+1`, Balance shows the original value). This is PURELY
+  presentational: reconciliation, the verdict, the equation, the balance-break diagnostics
+  and the CSV export always use `viewData` (all period rows, original statement order) —
+  never `displayRows`. The meta count shows "X of Y transactions" when filtering, with a
+  "Clear all filters" button; a discrepancy jump (`jumpToRow`) first clears the view so the
+  target row is visible. Distinct from the "Financial period" bar, which re-reconciles a
+  date slice. Scope: the main table only (consolidated per-account tables stay unfiltered).
 
 ### Known testing notes
 

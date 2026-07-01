@@ -211,6 +211,16 @@ category; the change propagates to every row with the same normalized descriptio
 (`catOverrides`, client-side only) and flows into the CSV — purely informative, never
 touches reconciliation.
 
+**Per-column sort + filter (BACKLOG 1.3).** The main table's headers each open an
+Excel-style dropdown (`app/column-filter.tsx`, portalled to `<body>`): sort asc/desc + a
+type-specific filter (text contains, category checkboxes, a Year→Month→Day date tree, numeric
+min/max).
+Column filters combine with AND; one sort key at a time. Pure logic in `app/table-view.ts`
+(`applyView`); `app/page.tsx` derives `displayRows` from `viewData.transactions` (filter +
+sort a COPY, keeping each row's original index). PURELY presentational — reconciliation, the
+verdict, the balance-break check and the CSV always use `viewData` in original order. "Clear
+all filters" resets it; a discrepancy jump clears it first so the target row is visible.
+
 When adding a bank, follow the rules above and record its anchors/quirks in
 `CLAUDE.md`.
 

@@ -30,18 +30,18 @@ export function transactionSource(t: Transaction, fallbackFile?: string): string
 
 /**
  * Build a CSV string from the extracted statement.
- * Columns: Date, Description, Debit, Credit, Balance, Source — in statement order.
+ * Columns: Date, Description, Debit, Credit, Balance, Category, Source — in statement order.
  */
 export function toCsv(data: StatementData, opts: { defaultSource?: string } = {}): string {
-  const header = ["Date", "Description", "Debit", "Credit", "Balance", "Source", "Category"]
+  const header = ["Date", "Description", "Debit", "Credit", "Balance", "Category", "Source"]
   const rows = (data.transactions ?? []).map((t) => [
     csvCell(t.date),
     csvCell(t.description),
     csvCell(t.debit ? t.debit.toFixed(2) : ""),
     csvCell(t.credit ? t.credit.toFixed(2) : ""),
     csvCell(t.balance != null ? t.balance.toFixed(2) : ""),
-    csvCell(transactionSource(t, opts.defaultSource)),
     csvCell(t.category ?? ""),
+    csvCell(transactionSource(t, opts.defaultSource)),
   ])
   return [header, ...rows].map((r) => r.join(",")).join("\n")
 }

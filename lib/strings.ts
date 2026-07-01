@@ -32,6 +32,8 @@ export const strings = {
     `rules: ${rules} · AI: ${ai} row${ai === 1 ? "" : "s"} (${unique} unique description${unique === 1 ? "" : "s"})`,
   categorizationNoAi: (rules: number) => `rules: ${rules} · AI not used`,
   aiTag: "AI",
+  editCategory: "Pick or type a category (applies to all rows with the same description)",
+  addCategoryOption: (q: string) => `Add "${q}"`,
 
   // Test controls (developer view only)
   bankLabel: "Bank",

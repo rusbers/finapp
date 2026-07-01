@@ -39,7 +39,7 @@ body {
 }
 
 .page {
-  max-width: 1040px;
+  max-width: 1140px;
   margin: 0 auto;
   padding: 48px 24px 96px;
 }
@@ -534,6 +534,85 @@ td.category {
   font-size: 12px;
   white-space: nowrap;
   color: var(--ink-soft);
+  /* Reserve enough width for the longest preset ("Professional Services") so
+     picking a longer category never widens the column (no layout shift). */
+  min-width: 180px;
+}
+/* Inline category editing: the category shows as a subtle text button; clicking
+   swaps it for a datalist-backed <input> (pick from the list OR type a custom
+   category). Both states share the SAME box (height, padding, border, font) so
+   switching doesn't shift the row or widen the column — the button keeps a
+   transparent 1px border to reserve the input's border space, and the input
+   drops its native affordances (appearance:none) to match the width. */
+.cat-edit,
+.cat-select {
+  height: 22px;
+  font-family: var(--font-ui);
+  font-size: 12px;
+  line-height: 1;
+  padding: 2px 6px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: none;
+  color: var(--ink);
+}
+.cat-edit {
+  cursor: pointer;
+  text-align: left;
+}
+.cat-edit:hover {
+  background: var(--paper);
+  border-color: var(--line);
+}
+.cat-select {
+  appearance: none;
+  -webkit-appearance: none;
+  cursor: text;
+  border-color: var(--action);
+  background: var(--card);
+  /* Don't let the control's content set its width — that would expand the CATEGORY
+     column and reflow the whole table. width:100% + min-width:0 makes it fill the
+     column the text buttons already define, so switching a cell to edit mode causes
+     no horizontal shift. */
+  width: 100%;
+  min-width: 0;
+}
+/* Category combobox menu — rendered through a portal to <body> (see
+   category-combobox.tsx) so the table's overflow:hidden can't clip it. Styled
+   light/on-brand instead of the OS's native <datalist> popup. */
+.cat-menu {
+  list-style: none;
+  margin: 0;
+  padding: 4px;
+  z-index: 60;
+  max-height: 240px;
+  overflow-y: auto;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(24, 27, 34, 0.12);
+  font-size: 13px;
+  color: var(--ink);
+}
+.cat-opt {
+  padding: 6px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.cat-opt:hover,
+.cat-opt.active {
+  background: var(--paper);
+}
+.cat-opt.selected {
+  color: var(--action);
+  font-weight: 600;
+}
+.cat-opt-add {
+  color: var(--action);
+  border-top: 1px solid var(--line);
+  margin-top: 4px;
+  padding-top: 8px;
 }
 /* Dev-only marker: this category was assigned by the AI layer, not a keyword rule. */
 .cat-ai {

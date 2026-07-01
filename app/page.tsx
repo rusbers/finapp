@@ -23,6 +23,8 @@ import type {
   Transaction,
 } from "@/lib/core/types"
 import { BANK_LABELS, type BankId } from "@/lib/core/prompts"
+import { CATEGORIES, normalizeDescription } from "@/lib/core/categorization"
+import CategoryCombobox from "./category-combobox"
 import { strings as s } from "@/lib/strings"
 
 interface PerFileResult {
@@ -251,6 +253,10 @@ export default function Page() {
   const [step, setStep] = useState(0) // cycling Reading→Extracting→Reconciling indicator
   const [flashRow, setFlashRow] = useState<number | null>(null) // row briefly highlighted after a jump
   const [breakCursor, setBreakCursor] = useState(-1) // index of the balance error currently jumped to (-1 = none yet)
+  // Category edits: normalized-description → chosen category (propagates to all rows
+  // with the same description). `editingCell` = the one cell currently in edit mode.
+  const [catOverrides, setCatOverrides] = useState<Record<string, string>>({})
+  const [editingCell, setEditingCell] = useState<string | null>(null)
 
   // While processing on the server, cycle the step label (cosmetic — conveys
   // activity; the server phase isn't separately observable from one request).
@@ -271,6 +277,12 @@ export default function Page() {
 
   // Reset the "Next error" navigator on a new result/period (first click → error 1).
   useEffect(() => setBreakCursor(-1), [result, period])
+
+  // Clear category edits when a new result arrives.
+  useEffect(() => {
+    setCatOverrides({})
+    setEditingCell(null)
+  }, [result])
 
   // Test controls — read from the localStorage-backed store (SSR-safe, no warnings).
   const settings = useSyncExternalStore(
@@ -357,6 +369,62 @@ export default function Page() {
   const transactions = viewData?.transactions ?? []
   const hasBalances = transactions.some((t) => t.balance != null)
   const showCategory = transactions.some((t) => !!t.category) // category column only when categorized
+
+  // --- Inline category editing (BACKLOG 1.2) ---
+  // Edits are keyed by the NORMALIZED description, so changing one row propagates to
+  // every row with the same merchant (not "contains"). Purely informative — never
+  // touches reconciliation.
+  const catKey = (t: Transaction) => normalizeDescription(t.description) || (t.description || "").toLowerCase()
+  const effectiveCategory = (t: Transaction) => catOverrides[catKey(t)] ?? t.category ?? "Other"
+  const setCategory = (t: Transaction, value: string) =>
+    setCatOverrides((prev) => ({ ...prev, [catKey(t)]: value }))
+  const withEditedCategories = (txs: Transaction[]) =>
+    txs.map((t) => ({ ...t, category: effectiveCategory(t) }))
+  // Suggestions for the edit combobox: the fixed list plus any custom categories
+  // the user already typed this session (so a new one is reusable on other rows).
+  const catSuggestions = [
+    ...CATEGORIES,
+    ...[...new Set(Object.values(catOverrides))].filter(
+      (c) => !(CATEGORIES as readonly string[]).includes(c),
+    ),
+  ]
+  /** The editable Category cell, shared by the single/combined and consolidated tables.
+   * Click-to-edit (one combobox at a time) keeps large tables fast. A datalist-backed
+   * <input> lets the user PICK from the list or TYPE a custom category. */
+  const categoryCell = (t: Transaction, cellId: string) => {
+    const cat = effectiveCategory(t)
+    const edited = catOverrides[catKey(t)] !== undefined
+    // Commit the typed/picked value (ignore empty or unchanged), then close.
+    const commit = (value: string) => {
+      const v = value.trim()
+      if (v && v !== cat) setCategory(t, v)
+      setEditingCell(null)
+    }
+    return (
+      <td className="category">
+        {editingCell === cellId ? (
+          <CategoryCombobox
+            value={cat}
+            suggestions={catSuggestions}
+            onCommit={commit}
+            onCancel={() => setEditingCell(null)}
+          />
+        ) : (
+          <button
+            type="button"
+            className="cat-edit"
+            title={s.editCategory}
+            onClick={() => setEditingCell(cellId)}
+          >
+            {cat}
+          </button>
+        )}
+        {dev && t.categoryByAi && !edited && editingCell !== cellId && (
+          <span className="cat-ai">{s.aiTag}</span>
+        )}
+      </td>
+    )
+  }
   // Row-by-row balance check — only meaningful when reconciliation failed.
   const breaks = viewData && r && !r.passed ? findBalanceBreaks(viewData) : []
   const breakIndexes = new Set(breaks.map((b) => b.index))
@@ -695,7 +763,7 @@ export default function Page() {
                           bank: a.label,
                           openingBalance: a.openingBalance,
                           closingBalance: a.closingBalance,
-                          transactions: a.transactions,
+                          transactions: withEditedCategories(a.transactions),
                         },
                         `${result.fileName.replace(/\.pdf$/i, "")}-${a.currency}.csv`,
                         result.fileName,
@@ -714,8 +782,8 @@ export default function Page() {
                       <th className="num">{s.thDebit}</th>
                       <th className="num">{s.thCredit}</th>
                       <th className="num">{s.thBalance}</th>
-                      <th className="source">{s.thSource}</th>
                       {a.transactions.some((t) => t.category) && <th className="category">{s.thCategory}</th>}
+                      <th className="source">{s.thSource}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -727,6 +795,7 @@ export default function Page() {
                         <td className="num debit">{t.debit ? t.debit.toFixed(2) : ""}</td>
                         <td className="num credit">{t.credit ? t.credit.toFixed(2) : ""}</td>
                         <td className="num">{t.balance != null ? t.balance.toFixed(2) : ""}</td>
+                        {a.transactions.some((x) => x.category) && categoryCell(t, `a${ai}-${i}`)}
                         <td className="source" title={transactionSource(t, result.fileName)}>
                           <span className="src-scroll" ref={scrollToEnd}>
                             {t.sourceFile
@@ -736,12 +805,6 @@ export default function Page() {
                                 : ""}
                           </span>
                         </td>
-                        {a.transactions.some((x) => x.category) && (
-                          <td className="category">
-                            {t.category ?? ""}
-                            {dev && t.categoryByAi && <span className="cat-ai">{s.aiTag}</span>}
-                          </td>
-                        )}
                       </tr>
                     ))}
                   </tbody>
@@ -1025,7 +1088,10 @@ export default function Page() {
               className="link-button"
               onClick={() =>
                 downloadCsv(
-                  viewData ?? result.data,
+                  {
+                    ...(viewData ?? result.data),
+                    transactions: withEditedCategories((viewData ?? result.data).transactions),
+                  },
                   result.fileName.replace(/\.pdf$/i, "") +
                     (period.kind === "year"
                       ? `-${period.year}`
@@ -1051,8 +1117,8 @@ export default function Page() {
                 <th className="num">{s.thDebit}</th>
                 <th className="num">{s.thCredit}</th>
                 <th className="num">{s.thBalance}</th>
-                <th className="source">{s.thSource}</th>
                 {showCategory && <th className="category">{s.thCategory}</th>}
+                <th className="source">{s.thSource}</th>
               </tr>
             </thead>
             <tbody>
@@ -1068,6 +1134,7 @@ export default function Page() {
                   <td className="num debit">{t.debit ? t.debit.toFixed(2) : ""}</td>
                   <td className="num credit">{t.credit ? t.credit.toFixed(2) : ""}</td>
                   <td className="num">{t.balance != null ? t.balance.toFixed(2) : ""}</td>
+                  {showCategory && categoryCell(t, `s${i}`)}
                   <td className="source" title={transactionSource(t, result.fileName)}>
                     <span className="src-scroll" ref={scrollToEnd}>
                       {t.sourceFile
@@ -1077,12 +1144,6 @@ export default function Page() {
                           : ""}
                     </span>
                   </td>
-                  {showCategory && (
-                    <td className="category">
-                      {t.category ?? ""}
-                      {dev && t.categoryByAi && <span className="cat-ai">{s.aiTag}</span>}
-                    </td>
-                  )}
                 </tr>
               ))}
             </tbody>

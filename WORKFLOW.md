@@ -204,7 +204,12 @@ the UNIQUE remaining descriptions in parallel batches, applied back to all match
 It runs only when the UI `categorize` toggle is on (in `app/api/extract/route.ts`), never
 touches reconciliation, and is NOT in the pipeline/harness path. Adding a keyword rule:
 edit `RULES` (order matters — first match wins; use `\b…\b` where a substring would
-over-match). Toggling categorization off makes zero AI calls.
+over-match). Toggling categorization off makes zero AI calls. Categories are editable
+inline in the UI via a styled combobox (`app/category-combobox.tsx`, menu portalled to
+`<body>` to escape the table's `overflow: hidden`): pick from the list OR type a custom
+category; the change propagates to every row with the same normalized description
+(`catOverrides`, client-side only) and flows into the CSV — purely informative, never
+touches reconciliation.
 
 When adding a bank, follow the rules above and record its anchors/quirks in
 `CLAUDE.md`.

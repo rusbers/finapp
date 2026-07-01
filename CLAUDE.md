@@ -541,6 +541,18 @@ pdfjs-dist`): for the target banks, reading the PDF's text positions (x/y) and
   `category` in place and NEVER affects reconciliation, so the pipeline/harness are
   untouched. UI: a production toggle "Categorize transactions" (cost control), a
   **Category** column in the tables (shown only when categorized) and in the CSV export.
+  **Inline editing (BACKLOG 1.2):** the Category cell is click-to-edit via a small styled
+  combobox (`app/category-combobox.tsx`) that lets the user PICK from `CATEGORIES` (plus any
+  custom categories already used this session) OR TYPE a custom one. Its menu is rendered
+  through a PORTAL to `<body>` (positioned `fixed` under the cell) because the table has
+  `overflow: hidden` — a native `<select>`/`<datalist>` popup would be clipped or, for
+  datalist, unstyleable (the OS renders it). A change PROPAGATES to every row with the same
+  NORMALIZED description (`normalizeDescription`, not "contains"), via a client-side
+  `catOverrides` map (normalizedKey→category) applied at render + in the CSV export. Purely
+  informative — never affects reconciliation; cleared on a new result. In dev, a row's "AI"
+  tag drops once its category is manually edited. The Category column has a fixed
+  `min-width` so picking a longer preset doesn't shift the layout; the **Source** column is
+  last in both the tables and the CSV.
 - **Transaction provenance (Source column)**: each `Transaction` carries an optional
   `page` (1-based PDF page, set by the deterministic parsers — Revolut/AIB/BOI/
   consolidated) and an optional `sourceFile` (set only when several PDFs are combined,

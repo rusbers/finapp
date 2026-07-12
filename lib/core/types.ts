@@ -14,6 +14,7 @@ export interface Transaction {
   sourceFile?: string // file this row came from (set only when several PDFs are combined)
   category?: string // assigned by the categorization step (rules + AI); never affects reconciliation
   categoryByAi?: boolean // true when the AI layer (not a keyword rule) assigned the category
+  accountLabel?: string // which account this row belongs to (set only in the multi-account combined view); display-only, never fingerprinted
 }
 
 export interface StatementData {
@@ -21,6 +22,12 @@ export interface StatementData {
   openingBalance: number
   closingBalance: number
   transactions: Transaction[]
+  // The statement's DECLARED opening date (the first BALANCE FORWARD / OPENING BALANCE
+  // row) — the true start of the covered period, which can PRECEDE the first
+  // transaction (a statement may open then stay dormant for weeks). Set by the AIB/BOI
+  // parsers; used only for gap detection when combining several PDFs. Display-only,
+  // never part of reconciliation or the regression fingerprint.
+  openingDate?: string
 }
 
 /**

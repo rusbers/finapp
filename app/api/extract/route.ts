@@ -9,8 +9,9 @@
 
 import { NextRequest, NextResponse } from "next/server"
 import { extractAndReconcile, extractAndReconcileMany, extractConsolidated, extractRevolut } from "@/lib/core/pipeline"
+import { extractAccounts, type AccountInput } from "@/lib/core/multi-account-extract"
 import { isAllowedModel } from "@/lib/core/config"
-import { BANK_LABELS, type BankId } from "@/lib/core/prompts"
+import { BANK_LABELS, SHORT_BANK_LABELS, type BankId } from "@/lib/core/prompts"
 import { categorizeTransactions } from "@/lib/core/categorization"
 import type { Transaction } from "@/lib/core/types"
 import { strings } from "@/lib/strings"
@@ -22,15 +23,108 @@ export const maxDuration = 60 // seconds (relevant on serverless deploys)
 
 const MAX_FILE_BYTES = 15 * 1024 * 1024 // 15 MB per-file upload guard
 const MAX_FILES = 24 // sanity cap on how many statements to combine at once
+const MAX_ACCOUNTS = 8 // sanity cap on how many accounts one client can reconcile at once
+const MAX_FILES_TOTAL = 60 // total PDFs across all accounts (one account can still hold up to MAX_FILES)
+const MAX_LABEL_LENGTH = 40 // max characters for a user-typed account label
 
 export async function POST(req: NextRequest) {
   try {
     const formData = await req.formData()
 
+    // Read options from the request (sent by the UI). These are independent of the
+    // upload shape, so parse them once, before choosing a branch. Validate model
+    // names against the allow-list; ignore anything invalid (fall back to defaults).
+    const rawPrimary = formData.get("primaryModel")
+    const rawFallback = formData.get("fallbackModel")
+    const rawEnableFallback = formData.get("enableFallback")
+
+    const primaryModel = isAllowedModel(rawPrimary) ? rawPrimary : undefined
+    const fallbackModel = isAllowedModel(rawFallback) ? rawFallback : undefined
+    const enableFallback = rawEnableFallback != null ? rawEnableFallback === "true" : undefined
+
+    // Optional categorization step — runs AFTER reconciliation, only when the UI
+    // toggle is on (it costs AI). Rules catch most rows for free; AI handles the
+    // rest (unique descriptions, in parallel). It mutates `category` in place and
+    // NEVER affects reconciliation.
+    const categorize = formData.get("categorize") === "true"
+    const maybeCategorize = async (txArrays: Transaction[][]) =>
+      categorize
+        ? await categorizeTransactions(txArrays.flat(), { useAi: true, model: primaryModel })
+        : null
+
+    // --- Multiple ACCOUNTS (a client with several bank accounts) ---
+    // Sent as an "accounts" JSON field [{bank, label}] plus the files of account i
+    // under the repeated key "account-<i>". Each account reconciles independently;
+    // the response carries the per-account results for a combined table. This shape
+    // is entirely separate from the legacy file/files path below.
+    const accountsField = formData.get("accounts")
+    if (typeof accountsField === "string") {
+      let spec: unknown
+      try {
+        spec = JSON.parse(accountsField)
+      } catch {
+        return NextResponse.json({ error: strings.errorBadAccounts }, { status: 400 })
+      }
+      if (!Array.isArray(spec) || spec.length === 0) {
+        return NextResponse.json({ error: strings.errorBadAccounts }, { status: 400 })
+      }
+      if (spec.length > MAX_ACCOUNTS) {
+        return NextResponse.json({ error: strings.errorTooManyAccounts(MAX_ACCOUNTS) }, { status: 413 })
+      }
+
+      const inputs: AccountInput[] = []
+      let totalFiles = 0
+      for (let i = 0; i < spec.length; i++) {
+        const entry = spec[i] as { bank?: unknown; label?: unknown }
+        const bankId: BankId =
+          typeof entry?.bank === "string" && entry.bank in BANK_LABELS ? (entry.bank as BankId) : "generic"
+        const label = typeof entry?.label === "string" ? entry.label.trim().slice(0, MAX_LABEL_LENGTH) : ""
+
+        const files = formData.getAll(`account-${i}`).filter((f): f is File => f instanceof File)
+        if (files.length === 0) {
+          return NextResponse.json(
+            { error: strings.errorAccountNoFile(label || SHORT_BANK_LABELS[bankId]) },
+            { status: 400 },
+          )
+        }
+        if (files.length > MAX_FILES) {
+          return NextResponse.json({ error: strings.errorTooManyFiles }, { status: 413 })
+        }
+        for (const f of files) {
+          if (f.type !== "application/pdf") {
+            return NextResponse.json({ error: strings.errorNotPdf }, { status: 400 })
+          }
+          if (f.size > MAX_FILE_BYTES) {
+            return NextResponse.json({ error: strings.errorTooLarge }, { status: 413 })
+          }
+        }
+        totalFiles += files.length
+        const filesWithBytes = await Promise.all(
+          files.map(async (f) => ({ name: f.name, bytes: new Uint8Array(await f.arrayBuffer()) })),
+        )
+        inputs.push({ bank: bankId, label: label || undefined, files: filesWithBytes })
+      }
+      if (totalFiles > MAX_FILES_TOTAL) {
+        return NextResponse.json({ error: strings.errorTooManyFiles }, { status: 413 })
+      }
+
+      const multi = await extractAccounts(inputs, { primaryModel, fallbackModel, enableFallback })
+      const categorization = await maybeCategorize(multi.accounts.map((a) => a.transactions))
+      const accountCount = multi.accounts.length
+      return NextResponse.json({
+        multi,
+        fileName:
+          `${accountCount} account${accountCount === 1 ? "" : "s"} · ` +
+          `${totalFiles} file${totalFiles === 1 ? "" : "s"}`,
+        categorization,
+      })
+    }
+
+    // --- Single account: one or several PDFs of the SAME account (legacy shape) ---
     // Accept both a single "file" and multiple "files" (the UI sends "files").
-    const multi = formData.getAll("files").filter((f): f is File => f instanceof File)
+    const multiFiles = formData.getAll("files").filter((f): f is File => f instanceof File)
     const single = formData.get("file")
-    const uploaded: File[] = multi.length > 0 ? multi : single instanceof File ? [single] : []
+    const uploaded: File[] = multiFiles.length > 0 ? multiFiles : single instanceof File ? [single] : []
 
     if (uploaded.length === 0) {
       return NextResponse.json({ error: strings.errorNoFile }, { status: 400 })
@@ -47,32 +141,12 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Read options from the request (sent by the UI). Validate model names
-    // against the allow-list; ignore anything invalid (fall back to defaults).
-    const rawPrimary = formData.get("primaryModel")
-    const rawFallback = formData.get("fallbackModel")
-    const rawEnableFallback = formData.get("enableFallback")
-
-    const primaryModel = isAllowedModel(rawPrimary) ? rawPrimary : undefined
-    const fallbackModel = isAllowedModel(rawFallback) ? rawFallback : undefined
-    const enableFallback = rawEnableFallback != null ? rawEnableFallback === "true" : undefined
-
     // Validate the bank against the known set; fall back to "generic".
     const rawBank = formData.get("bank")
     const bank: BankId =
       typeof rawBank === "string" && rawBank in BANK_LABELS ? (rawBank as BankId) : "generic"
 
     const options = { primaryModel, fallbackModel, enableFallback, bank }
-
-    // Optional categorization step — runs AFTER reconciliation, only when the UI
-    // toggle is on (it costs AI). Rules catch most rows for free; AI handles the
-    // rest (unique descriptions, in parallel). It mutates `category` in place and
-    // NEVER affects reconciliation.
-    const categorize = formData.get("categorize") === "true"
-    const maybeCategorize = async (txArrays: Transaction[][]) =>
-      categorize
-        ? await categorizeTransactions(txArrays.flat(), { useAi: true, model: primaryModel })
-        : null
 
     // Revolut consolidated ("Custom") statement → one PDF with several current
     // accounts, each reconciled separately. Its own parser/shape.

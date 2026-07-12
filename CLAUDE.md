@@ -254,6 +254,8 @@ lib/
 │   ├── boi-parser.ts      → DETERMINISTIC BOI parser (pdfjs; Payments-out/in cols, OD overdraft)
 │   ├── parsers.ts         → registry mapping banks → deterministic parsers
 │   ├── combine.ts         → chains multiple statements by balance, detects gaps
+│   ├── multi-account.ts   → PURE, client-safe: dedupeLabels + mergeAccounts (combined table)
+│   ├── multi-account-extract.ts → SERVER: extractAccounts (one client, several bank accounts)
 │   ├── pdf.ts             → PDF splitting into page-chunks (pdf-lib, server-only)
 │   ├── extraction.ts      → split + parallel extract + merge (provider seam)
 │   ├── pipeline.ts        → extract-and-reconcile cascade + per-model stats
@@ -464,15 +466,45 @@ pdfjs-dist`): for the target banks, reading the PDF's text positions (x/y) and
 - **Multi-PDF upload** (`combine.ts` + `extractAndReconcileMany` in pipeline.ts):
   banks like AIB only generate periodic statements (you can't pick a date range),
   so a user wanting a custom period has several PDFs. The app accepts multiple
-  PDFs at once and combines them. `combineStatements` chains them BY BALANCE (one
-  statement's closing balance = the next's opening balance): it finds the head
-  (opening not any other's closing), follows the chain, and CONCATENATES
-  transactions in chain order with each statement's internal order untouched (so
-  the running balance stays valid — we do NOT sort transactions by date, which
-  would break within-day order and the balance). It detects GAPS (a closing with
-  no matching opening = a missing statement) and warns. One reconciliation runs
-  over the whole combined series (first opening + Σcredits − Σdebits = last
-  closing), which also confirms the statements chain correctly. **Duplicate
+  PDFs at once and combines them. `combineStatements` orders the statements
+  **CHRONOLOGICALLY by their transaction date range** (start, then end; undated
+  statements last, stable) and CONCATENATES them with each statement's internal order
+  untouched (so the running balance stays valid — we sort whole STATEMENTS, never
+  individual rows by date, which would break within-day order and the balance).
+  **Ordering is NOT balance-chain-based**: some banks print the balance only
+  sporadically (AIB shows it at block checkpoints, so many rows carry 0), which made
+  closing→opening linking mis-order the statements — the classic symptom being an
+  account whose PDFs came out in file/alpha order (April, January, …) instead of by
+  date, and which then failed reconciliation because the wrong statement was picked as
+  the opening/closing endpoint. Date-ordering fixed both (verified: AIB 589 + AIB 662,
+  previously off-by, now reconcile to the cent and read chronologically). **GAP
+  DETECTION runs on the chronological order** (NOT by re-deriving order from balances).
+  A statement is missing between two consecutive statements when EITHER (a) their
+  balances don't carry over — this closing ≠ next opening (a **balance break**), OR
+  (b) there's a large **date jump** between them (≈ a whole period missing). `fullyChained`
+  = no gaps. Two reasons for the date check: (1) the OLD balance-chain segment approach
+  produced FALSE gaps when a balance value repeated as both an opening and a closing —
+  AIB 589 both OPENS at 0 (genuine start) and later CLOSES at 0, so head-detection linked
+  October's closing 0 to January's opening 0 (a quarter out of place) and reported a
+  spurious gap; chronological-adjacency removed those (AIB 589 now `fullyChained`). (2)
+  A missing statement that nets to ZERO (opening == closing) is INVISIBLE to the balance
+  chain — its neighbours still chain (…0 → 0…) and reconcile — so only the date jump
+  reveals it. The date threshold is **adaptive** — half the median statement span,
+  floored at `GAP_MIN_DAYS` (25) — so the normal few-day seam between consecutive
+  statements never trips it, but a whole missing period does. **The date-jump seam uses
+  each statement's DECLARED opening date, NOT its first transaction.** A statement's true
+  period start is its BALANCE FORWARD / OPENING BALANCE row date (captured by the AIB/BOI
+  parsers as `StatementData.openingDate`), which can PRECEDE the first posting: AIB 662's
+  Feb statement OPENS on 22 Aug 2024 (balance 0) but its first transaction is 2 Dec — a
+  116-day DORMANT stretch INSIDE one statement, not a hole between statements. Using the
+  first transaction made this a FALSE gap; using `openingDate` (22 Aug, 14 days after the
+  previous statement's last posting) correctly reports NO gap (AIB 662 is `fullyChained`,
+  reconciles to the cent, nothing missing). Revolut/consolidated don't set `openingDate`
+  → fall back to the first transaction (they're transaction-dense, no dormant start).
+  (Residual: a statement dormant at its END could rarely give an advisory false positive
+  — period end is the last transaction — hence the "possible missing statement" wording;
+  a future precise upgrade is also capturing the declared closing date.) One reconciliation runs over the
+  whole combined series (first opening + Σcredits − Σdebits = last closing). **Duplicate
   detection**: before chaining, `extractAndReconcileMany` drops exact-content
   duplicates — the SAME statement uploaded twice, often under a DIFFERENT file name
   (matched by `contentKey` = opening/closing + every transaction, NOT the file name).
@@ -486,6 +518,36 @@ pdfjs-dist`): for the target banks, reading the PDF's text positions (x/y) and
   table, and a "statements link up" indicator. Tested: clean chain orders correctly
   from shuffled input and reconciles; a missing statement is flagged; a renamed copy
   is detected, excluded, and yields the same result as not uploading it.
+- **Multiple bank accounts** (`multi-account.ts` + `multi-account-extract.ts`, BACKLOG
+  3.1): one client often holds several accounts (e.g. AIB + BOI + Revolut). The UI's
+  "**+ Add another bank statement**" button (appears once the first bank's PDFs are
+  attached) adds removable account blocks — each with its own bank, an OPTIONAL label,
+  and its own PDF(s) (multiple allowed → chained via `extractAndReconcileMany`). Each
+  account is reconciled **INDEPENDENTLY** by its own parser; the result shows, PER
+  ACCOUNT, a header (label · bank · tx · ✓/✗ · CSV export) plus a **per-statement
+  breakdown** — one row per PDF with its **File · Transactions · Period · Balance range**
+  (reuses `perFile`; a single-file account is synthesised into one row via
+  `accountStatements` in `page.tsx`) — plus **ONE combined transaction table** with the
+  account **label as the first column** (filterable/sortable like any other column). **Labels** default to the bank's SHORT
+  name (`SHORT_BANK_LABELS` in `prompts.ts`; "Bank of Ireland" → **"BOI"**), the user's
+  label wins, and duplicates are numbered ("BOI", "BOI (2)"). **Scope is deliberately
+  reduced**: there is NO cross-account transfer detection and NO synthetic cross-account
+  reconciliation — the overall verdict is simply "all accounts reconcile". Architecture:
+  the pure half (`multi-account.ts` — `dedupeLabels` + `mergeAccounts`, type-only imports)
+  is client-safe so `app/page.tsx` merges the rows in the browser (rows are NOT sent
+  twice); the server half (`multi-account-extract.ts` — `extractAccounts`) dispatches
+  each account to the right pipeline entry point (Revolut multi-currency splits into
+  per-currency accounts), applies labels, and computes the verdict. API: a new `accounts`
+  JSON field `[{bank, label}]` + files under repeated `account-<i>` keys (caps: 8 accounts,
+  60 files total, 40-char labels), backward-compatible with the `file`/`files` paths;
+  returns `{ multi: { accounts, allReconciled }, fileName: "N accounts · M files" }`.
+  `Transaction.accountLabel` (display-only) carries the account into the merged table +
+  CSV (an "Account" column is prepended ONLY when rows carry it, so harness snapshots stay
+  byte-identical). In multi-account mode the single-statement verdict/equation/period-bar/
+  balance-breaks/dev-trace are hidden (they're per-extraction concepts). Headless test:
+  `npm run test:multi` (synthetic asserts + real clients under `statements/interbank/<n>/`,
+  **each numbered folder = one separate client**). Verified end-to-end: 4×AIB+Revolut and
+  BOI+Revolut clients reconcile per account, labels dedupe, combined table is chronological.
 - **Per-bank prompts** (`prompts.ts`): a base prompt (generic, any bank) plus
   optional bank-specific rules appended for known banks. `getPrompt(bank)`
   returns the right one. Revolut rules are implemented (e.g. the "Comision/Fee"

@@ -190,12 +190,41 @@ several PDFs. The UI table + CSV show a **Source** column ("file.pdf, page 23") 
 These fields don't affect reconciliation or the harness fingerprint, so a new parser
 must set `page` but it won't change the regression baseline.
 
-**Multi-PDF combine.** `extractAndReconcileMany` chains several PDFs by balance, flags
-missing statements (gaps) and **duplicates**. Duplicates are matched by CONTENT
-(`contentKey` = opening/closing + every transaction), so the same statement uploaded
-under a different name is caught; the copy is excluded from the series and reported in
-`duplicates[]` (otherwise identical statements wouldn't chain → false gap + doubled
-rows). Empty statements (0 tx) are never flagged as duplicates.
+**Multi-PDF combine.** `extractAndReconcileMany` merges several PDFs of one account.
+**Ordering is CHRONOLOGICAL by each statement's transaction date range** (in
+`combineStatements`), NOT by the balance chain — whole statements are sorted, rows
+within a statement stay put (running balance intact). This matters because banks with
+**sporadic balances** (AIB prints the balance only at block checkpoints, so many rows
+carry 0) mis-chain when ordered closing→opening: the statements came out in file/alpha
+order and the wrong endpoint got picked, so the account failed reconciliation. Sorting
+by date fixed both order AND reconciliation (AIB 589 / AIB 662 were off-by, now pass).
+**Gap detection runs on that chronological order**, with TWO triggers between consecutive
+statements: (a) **balance break** — this closing ≠ next opening; OR (b) **date jump** —
+the seam between one statement's period END (last tx) and the next's period START exceeds
+an adaptive threshold (`max(0.5 × median statement span, GAP_MIN_DAYS=25)` days), i.e. ≈ a
+whole period is missing. `fullyChained` = no gaps. Two reasons: (1) the OLD approach
+re-derived order from the balance chain (segments) and produced FALSE gaps when a value
+REPEATED as both an opening and a closing — AIB 589 both opens at 0 and later closes at 0,
+so head-detection linked October's closing 0 to January's opening 0 and flagged a spurious
+gap; chronological-adjacency removed those (AIB 589 now `fullyChained`). (2) A missing
+statement that nets to ZERO is INVISIBLE to the balance chain (neighbours still chain
+…0→0… and reconcile) — only the date jump reveals it. **CRITICAL: the seam uses each
+statement's DECLARED opening date (`StatementData.openingDate` = the BALANCE FORWARD /
+OPENING BALANCE row date, captured by the AIB/BOI parsers), NOT its first transaction** —
+a statement can open then stay dormant for weeks. Real trap: AIB 662's Feb statement OPENS
+22 Aug 2024 (balance 0) but its first posting is 2 Dec — a 116-day dormancy INSIDE one
+statement, NOT a hole between statements (the Aug and Feb statements are contiguous, seam
+14 days). Using the first transaction made this a FALSE gap; `openingDate` fixes it (AIB
+662 is `fullyChained`, reconciles, nothing missing). A missing statement WITH movements
+also breaks the balance chain AND fails reconciliation, so it's caught twice over.
+(Residual: a statement dormant at its END could rarely false-positive — period end = last
+tx — hence "possible"; future upgrade = also capture the declared closing date.)
+Revolut/consolidated don't set `openingDate` → fall back to first tx. Duplicates are matched by
+CONTENT (`contentKey` = opening/closing + every transaction), so the same statement
+uploaded under a different name is caught; the copy is excluded and reported in
+`duplicates[]`. Empty statements (0 tx) are never flagged as duplicates. The regression
+harness (643) is unchanged by both switches (gaps/`fullyChained` aren't fingerprinted;
+correctly-chained sequential statements already had date-order == chain-order).
 
 **Categorization** (`categorization.ts`). A separate post-reconciliation step that sets
 each transaction's `category` from a fixed list. Layer 1 = ordered keyword RULES (zero
@@ -296,10 +325,54 @@ spreads, where the gross crypto value is shown but only the net hits the balance
 
 ---
 
+## Multiple bank accounts (multi-account, BACKLOG 3.1)
+
+One client with several accounts → upload them together, reconcile EACH on its own,
+show ONE combined table with the account label as the first column. **Reduced scope
+(confirmed): NO transfer detection, NO cross-account reconciliation.** (An earlier,
+larger attempt with transfer matching + badges was reverted by the user.)
+
+- **Module split (client/server).** `app/page.tsx` is `"use client"`, so anything it
+  imports at runtime lands in the browser bundle. Keep the pure helpers
+  (`dedupeLabels`, `mergeAccounts`) in **`lib/core/multi-account.ts`** — it imports ONLY
+  `type`s (erased), never `pipeline.ts`/pdfjs/gemini. The orchestration
+  (`extractAccounts`) lives in **`lib/core/multi-account-extract.ts`** and is imported
+  ONLY by the API route. Breaking this pulls the pdfjs worker + Gemini into the client
+  bundle.
+- **Dispatch** (`extractAccounts`): per account — `revolut-consolidated` →
+  `extractConsolidated`; single-file `revolut` → `extractRevolut` (a multi-currency
+  bundle splits into one logical account per currency); N files → `extractAndReconcileMany`
+  (chaining + gaps + duplicates); else → `extractAndReconcile`. Each account runs in
+  `Promise.all`, wrapped so a failure re-throws with the label prefixed. Labels are
+  deduped AFTER the currency split. `sourceFile` is backfilled on single-file accounts.
+- **Merge** (`mergeAccounts`, client-side): interleave all rows by ISO date (stable;
+  ties by account order then row order), stamping each with `accountLabel`. The combined
+  table reuses the existing single-table stack by pointing `transactions` at these rows;
+  the merged index IS the row's "original index" (ids/highlights/category-cell/check-mode
+  stay tied to it). `viewData`/`r`/balance-breaks stay on the single path (null in multi).
+- **Hidden in multi mode**: the standard verdict/equation, financial-period bar,
+  balance-breaks + "Next discrepancy", and the dev trace/corrections (all per-extraction).
+  The verdict comes from the per-account summary; `allReconciled` = every account with
+  transactions reconciles.
+- **API**: `accounts` JSON `[{bank, label}]` + files under repeated `account-<i>` keys
+  (caps: 8 accounts / 60 files total / 40-char labels), backward-compatible with
+  `file`/`files`. Returns `{ multi: { accounts, allReconciled }, fileName, categorization }`.
+- **CSV**: `toCsv` prepends an "Account" column ONLY when a row carries `accountLabel`
+  (combined export). Per-account CSVs and every existing single/harness CSV are unchanged
+  (byte-identical) because their rows have no `accountLabel`. `Transaction.accountLabel`
+  is display-only and NOT part of the reconciliation fingerprint.
+- **Test**: `npm run test:multi` — synthetic asserts (dedupe, merge order + stamping) +
+  real clients under `statements/interbank/<n>/`. **Each numbered folder = ONE separate
+  client; never mix folders.** Runs with `allowAiFallback: false` (deterministic, no API).
+  Deferred (named, not built): transfer detection; per-account balance-breaks in the
+  combined table; period-bar in multi; cross-account duplicate warning.
+
 ## Status snapshot (update as it changes)
 
 - **Revolut**: production-ready across RO/EN, EUR/RON, both number/date formats;
   summary-row and savings-section handling; crypto "soft" verdict.
 - **AIB / BOI**: deterministic parsers exist (see `CLAUDE.md`). **PTSB**: no
   deterministic parser yet (uses AI + reconciliation).
+- **Multi-account** (one client, several banks): combined table + per-account
+  reconciliation shipped; NO transfer detection (out of scope). See section above.
 - Next candidates: PTSB parser; automatic bank identification; DB/auth (Phasing).

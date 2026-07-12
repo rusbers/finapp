@@ -224,6 +224,7 @@ export async function parseAib(pdfBytes: Uint8Array): Promise<StatementData> {
   const transactions: Transaction[] = [];
 
   let openingBalance: number | null = null; // first BALANCE FORWARD seen
+  let openingDate: string | null = null;    // date of that first BALANCE FORWARD (period start)
   let closingBalance: number | null = null; // last printed balance checkpoint
   let running: number | null = null;        // reconstructed running balance
   let currentDate = "";
@@ -285,6 +286,7 @@ export async function parseAib(pdfBytes: Uint8Array): Promise<StatementData> {
           running = cols.balance;
           if (!sawFirstBalanceForward) {
             openingBalance = cols.balance;
+            openingDate = currentDate || null; // the period's true start (may precede the first transaction)
             sawFirstBalanceForward = true;
           }
         }
@@ -322,5 +324,6 @@ export async function parseAib(pdfBytes: Uint8Array): Promise<StatementData> {
     openingBalance: openingBalance ?? 0,
     closingBalance: closingBalance ?? 0,
     transactions,
+    ...(openingDate ? { openingDate } : {}),
   };
 }

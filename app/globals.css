@@ -452,6 +452,88 @@ input[type="file"]::file-selector-button {
   cursor: default;
 }
 
+/* --- Multi-account upload (add another bank account) --- */
+.account-label-input {
+  flex: 1 1 100%;
+  font-size: 14px;
+  color: var(--ink);
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--paper);
+  font-family: var(--font-ui);
+}
+.account-block {
+  flex: 1 1 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--paper);
+}
+/* The bank/label row inside a block shouldn't carry the top divider .controls adds. */
+.account-block .controls {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
+}
+.account-block .account-label-input {
+  flex: 1 1 200px; /* sit beside the bank select, not on its own row */
+}
+.account-block-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.account-block-title {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ink-soft);
+  font-weight: 600;
+}
+.account-files {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.account-files li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  color: var(--ink);
+}
+.account-file-name {
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.account-file-size {
+  flex-shrink: 0;
+  color: var(--ink-soft);
+  font-variant-numeric: tabular-nums;
+}
+.add-account {
+  flex: 1 1 100%;
+  align-self: flex-start;
+}
+/* Per-account breakdown (multi-account result): a title above the account blocks,
+   then one .account-detail block per account. */
+.multi-head {
+  margin-top: 18px;
+}
+.account-name b {
+  font-size: 15px;
+  color: var(--ink);
+}
+
 /* Warning when statements don't chain by balance (a statement may be missing) */
 .gap-warning {
   margin-top: 18px;
@@ -573,6 +655,16 @@ td.date {
   font-family: var(--font-num);
   color: var(--ink-soft);
   white-space: nowrap;
+}
+/* Account column (multi-account combined table) — first column, kept compact. */
+th.account,
+td.account {
+  text-align: left;
+  white-space: nowrap;
+}
+td.account {
+  font-size: 13px;
+  color: var(--ink-soft);
 }
 /* The Description column absorbs the table's leftover width, so every other column
    (incl. Source) shrinks to its own content instead of being padded out. */

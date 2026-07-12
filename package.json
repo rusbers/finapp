@@ -8,6 +8,7 @@
     "start": "next start",
     "lint": "eslint",
     "test:statements": "tsx scripts/test-statements.mts",
+    "test:multi": "tsx scripts/test-multi-account.mts",
     "test:report": "start \"\" .reconcile\\report.html"
   },
   "dependencies": {

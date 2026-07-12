@@ -31,10 +31,26 @@ export function transactionSource(t: Transaction, fallbackFile?: string): string
 /**
  * Build a CSV string from the extracted statement.
  * Columns: Date, Description, Debit, Credit, Balance, Category, Source — in statement order.
+ *
+ * When any row carries an `accountLabel` (the multi-account combined export), an
+ * "Account" column is prepended. Statements without account labels are byte-for-byte
+ * unchanged, so the regression harness's snapshots stay identical.
  */
 export function toCsv(data: StatementData, opts: { defaultSource?: string } = {}): string {
-  const header = ["Date", "Description", "Debit", "Credit", "Balance", "Category", "Source"]
-  const rows = (data.transactions ?? []).map((t) => [
+  const txs = data.transactions ?? []
+  const hasAccount = txs.some((t) => t.accountLabel)
+  const header = [
+    ...(hasAccount ? ["Account"] : []),
+    "Date",
+    "Description",
+    "Debit",
+    "Credit",
+    "Balance",
+    "Category",
+    "Source",
+  ]
+  const rows = txs.map((t) => [
+    ...(hasAccount ? [csvCell(t.accountLabel ?? "")] : []),
     csvCell(t.date),
     csvCell(t.description),
     csvCell(t.debit ? t.debit.toFixed(2) : ""),

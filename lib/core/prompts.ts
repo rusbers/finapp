@@ -26,6 +26,21 @@ export const BANK_LABELS: Record<BankId, string> = {
   ptsb: "Permanent TSB",
 };
 
+/**
+ * Short, compact bank names — used as the DEFAULT account label (and the
+ * placeholder) in the multi-account upload flow, where "Bank of Ireland" is
+ * too long for a table column. `BANK_LABELS` stays the full name for the bank
+ * dropdown.
+ */
+export const SHORT_BANK_LABELS: Record<BankId, string> = {
+  generic: "Generic",
+  revolut: "Revolut",
+  "revolut-consolidated": "Revolut",
+  aib: "AIB",
+  boi: "BOI",
+  ptsb: "PTSB",
+};
+
 const BASE_PROMPT = `You are a bank statement data extraction system.
 This PDF may be an EXCERPT (a few pages) of a larger bank statement.
 Analyze it and return STRICTLY a single JSON object, with no text before or

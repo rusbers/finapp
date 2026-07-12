@@ -215,6 +215,7 @@ export async function parseBoi(pdfBytes: Uint8Array): Promise<StatementData> {
   const transactions: Transaction[] = [];
 
   let openingBalance: number | null = null; // first BALANCE FORWARD seen
+  let openingDate: string | null = null;    // date of that first BALANCE FORWARD (period start)
   let closingBalance: number | null = null; // last printed balance / SUBTOTAL
   let running: number | null = null;        // reconstructed running balance
   let currentDate = "";
@@ -290,6 +291,7 @@ export async function parseBoi(pdfBytes: Uint8Array): Promise<StatementData> {
           running = balance;
           if (!sawOpening) {
             openingBalance = balance;
+            openingDate = currentDate || null; // period start (may precede the first transaction)
             sawOpening = true;
           }
           // Also treat it as the latest known closing balance. In a normal
@@ -328,5 +330,6 @@ export async function parseBoi(pdfBytes: Uint8Array): Promise<StatementData> {
     openingBalance: openingBalance ?? 0,
     closingBalance: closingBalance ?? 0,
     transactions,
+    ...(openingDate ? { openingDate } : {}),
   };
 }

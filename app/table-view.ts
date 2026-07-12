@@ -9,8 +9,9 @@
 
 import type { Transaction } from "@/lib/core/types"
 
-/** Columns that can be sorted / filtered. `#` and Source are excluded. */
-export type ColumnKey = "date" | "description" | "debit" | "credit" | "balance" | "category"
+/** Columns that can be sorted / filtered. `#` and Source are excluded. `account` is
+ * present only in the multi-account combined table. */
+export type ColumnKey = "account" | "date" | "description" | "debit" | "credit" | "balance" | "category"
 
 /** One active sort criterion at a time (null = original statement order). */
 export type SortState = { key: ColumnKey; dir: "asc" | "desc" } | null
@@ -29,13 +30,14 @@ export type Filters = {
   description?: string
   category?: string[] | null
   date?: string[] | null
+  account?: string[] | null
   debit?: NumRange
   credit?: NumRange
   balance?: NumRange
 }
 
 /** Totals of the distinct values present, used to tell "all selected" from a real filter. */
-export type Totals = { categories: number; dates: number }
+export type Totals = { categories: number; dates: number; accounts: number }
 
 /** A displayed row keeps its ORIGINAL index so ids/highlights stay tied to the real row. */
 export type DisplayRow = { t: Transaction; idx: number }
@@ -51,6 +53,8 @@ const numOk = (value: number | null | undefined, range?: NumRange): boolean => {
 /** True when a given column currently narrows the view (drives the "active" indicator). */
 export function isColumnActive(col: ColumnKey, filters: Filters, totals: Totals): boolean {
   switch (col) {
+    case "account":
+      return filters.account != null && filters.account.length < totals.accounts
     case "description":
       return !!filters.description?.trim()
     case "category":
@@ -68,7 +72,7 @@ export function isColumnActive(col: ColumnKey, filters: Filters, totals: Totals)
 
 /** True when any column filter is active (drives "X of Y" + "Clear all filters"). */
 export function anyFilterActive(filters: Filters, totals: Totals): boolean {
-  const cols: ColumnKey[] = ["date", "description", "debit", "credit", "balance", "category"]
+  const cols: ColumnKey[] = ["account", "date", "description", "debit", "credit", "balance", "category"]
   return cols.some((c) => isColumnActive(c, filters, totals))
 }
 
@@ -85,12 +89,14 @@ export function applyView(
   const q = filters.description?.trim().toLowerCase() ?? ""
   const catSet = filters.category ? new Set(filters.category) : null
   const dateSet = filters.date ? new Set(filters.date) : null
+  const accountSet = filters.account ? new Set(filters.account) : null
 
   let rows: DisplayRow[] = transactions.map((t, idx) => ({ t, idx }))
   rows = rows.filter(({ t }) => {
     if (q && !(t.description || "").toLowerCase().includes(q)) return false
     if (catSet && !catSet.has(categoryOf(t))) return false
     if (dateSet && !dateSet.has(t.date ?? "")) return false
+    if (accountSet && !accountSet.has(t.accountLabel ?? "")) return false
     if (!numOk(t.debit, filters.debit)) return false
     if (!numOk(t.credit, filters.credit)) return false
     if (!numOk(t.balance, filters.balance)) return false
@@ -101,6 +107,8 @@ export function applyView(
     const { key } = sort
     const cmp = (a: Transaction, b: Transaction): number => {
       switch (key) {
+        case "account":
+          return (a.accountLabel ?? "").localeCompare(b.accountLabel ?? "")
         case "date":
           return (a.date ?? "").localeCompare(b.date ?? "")
         case "description":

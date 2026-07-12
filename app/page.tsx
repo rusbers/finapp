@@ -12,7 +12,7 @@
  *   - row-by-row balance check that highlights where the balance stops adding up
  */
 
-import { useState, useEffect, useMemo, useSyncExternalStore } from "react"
+import { useState, useEffect, useMemo, useRef, useSyncExternalStore } from "react"
 import { fromCents, checkReconciliation } from "@/lib/core/reconciliation"
 import { downloadCsv, findBalanceBreaks, isExplainedByCryptoFees, transactionSource } from "@/lib/core/verification"
 import type {
@@ -22,7 +22,9 @@ import type {
   SignCorrection,
   Transaction,
 } from "@/lib/core/types"
-import { BANK_LABELS, type BankId } from "@/lib/core/prompts"
+import { BANK_LABELS, SHORT_BANK_LABELS, type BankId } from "@/lib/core/prompts"
+import { mergeAccounts } from "@/lib/core/multi-account"
+import type { MultiAccount, MultiAccountResult } from "@/lib/core/multi-account"
 import { CATEGORIES, normalizeDescription } from "@/lib/core/categorization"
 import CategoryCombobox from "./category-combobox"
 import ColumnFilter from "./column-filter"
@@ -72,7 +74,11 @@ interface ConsolidatedResponse {
 }
 
 interface ApiResponse {
-  data: StatementData
+  // `data` is ABSENT for a multi-account result (see `multi` below), so it's optional.
+  // The other single-statement fields below are only ever read inside the single-mode
+  // render branch (gated on a non-null reconciliation), so they stay required — the
+  // multi response simply omits them and is never asked for them.
+  data?: StatementData
   reconciliation: ReconciliationResult
   attempts: ExtractionAttempt[]
   modelUsed: string
@@ -88,6 +94,17 @@ interface ApiResponse {
   categorization?: { ruleCount: number; aiCount: number; uniqueAiDescriptions: number } | null
   // Present only for a Revolut consolidated statement (per-account results):
   consolidated?: ConsolidatedResponse
+  // Present only for a multi-account client (several bank accounts, combined table):
+  multi?: MultiAccountResult
+}
+
+/** An additional bank account added in the multi-account upload flow (the primary
+ * account stays in `files`/`selectedBank`/`primaryLabel`). */
+interface ExtraAccount {
+  id: number
+  bank: BankId
+  label: string
+  files: File[]
 }
 
 // Default test settings + where they're saved in the browser.
@@ -243,8 +260,33 @@ function formatSize(bytes: number): string {
   return `${bytes} B`
 }
 
+/** The individual statements (PDFs) that make up one account, for the per-account
+ * breakdown (each with its period + balance range). A multi-file account already
+ * carries a `perFile`; a single-file account is summarised into one synthetic entry
+ * from its transactions + balances. */
+function accountStatements(a: MultiAccount): PerFileResult[] {
+  if (a.perFile && a.perFile.length > 0) return a.perFile
+  const dates = a.transactions.map((t) => t.date).filter((d): d is string => !!d).sort()
+  return [
+    {
+      fileName: a.fileNames[0] ?? "—",
+      transactionCount: a.transactionCount,
+      periodStart: dates[0] ?? null,
+      periodEnd: dates[dates.length - 1] ?? null,
+      openingBalance: a.openingBalance,
+      closingBalance: a.closingBalance,
+    },
+  ]
+}
+
 export default function Page() {
   const [files, setFiles] = useState<File[]>([])
+  // Multi-account flow: the primary account stays in `files`/`selectedBank`; each
+  // extra account is its own bank + optional label + PDFs. `primaryLabel` is the
+  // (optional) label for the primary account, shown only once an extra is added.
+  const [extraAccounts, setExtraAccounts] = useState<ExtraAccount[]>([])
+  const [primaryLabel, setPrimaryLabel] = useState("")
+  const nextAccountId = useRef(1)
   const [isLoading, setIsLoading] = useState(false)
   const [result, setResult] = useState<ApiResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -337,6 +379,31 @@ export default function Page() {
   const updateSettings = (patch: Partial<Settings>) => saveSettings({ ...settings, ...patch })
   const resetSettings = () => saveSettings(DEFAULTS)
 
+  // --- Multi-account upload (add another bank account) ---
+  // Once at least one extra account exists we're in multi-account mode: each account
+  // (primary + extras) is reconciled on its own and shown in one combined table.
+  const isMultiAccount = extraAccounts.length > 0
+  const resetResult = () => {
+    setResult(null)
+    setError(null)
+    setDurationMs(null)
+  }
+  const addAccount = () => {
+    setExtraAccounts((prev) => [
+      ...prev,
+      { id: nextAccountId.current++, bank: "generic", label: "", files: [] },
+    ])
+    resetResult()
+  }
+  const updateAccount = (id: number, patch: Partial<Omit<ExtraAccount, "id">>) => {
+    setExtraAccounts((prev) => prev.map((a) => (a.id === id ? { ...a, ...patch } : a)))
+    resetResult()
+  }
+  const removeAccount = (id: number) => {
+    setExtraAccounts((prev) => prev.filter((a) => a.id !== id))
+    resetResult()
+  }
+
   // Scroll the transaction table to a specific row and briefly highlight it, so a
   // listed balance error links straight to its row (no manual scrolling through a
   // long table). Respects prefers-reduced-motion, like the back-to-top button.
@@ -360,8 +427,13 @@ export default function Page() {
     }
   }
 
+  // Ready to check when the primary account has files and (in multi mode) every extra
+  // account has files too.
+  const canCheck =
+    files.length > 0 && (!isMultiAccount || extraAccounts.every((a) => a.files.length > 0))
+
   async function handleCheck() {
-    if (files.length === 0) return
+    if (!canCheck) return
     setIsLoading(true)
     setError(null)
     setResult(null)
@@ -373,16 +445,28 @@ export default function Page() {
     const startedAt = performance.now()
     try {
       const fd = new FormData()
-      // Send one file under "file" (single-statement path) or many under "files".
-      if (files.length === 1) {
+      if (isMultiAccount) {
+        // Multi-account: the primary account is #0, then the extras. Each account's
+        // files go under the repeated key "account-<i>"; the bank/label list is one
+        // JSON field. Each account reconciles independently on the server.
+        const allAccounts = [
+          { bank: selectedBank, label: primaryLabel, files },
+          ...extraAccounts.map((a) => ({ bank: a.bank, label: a.label, files: a.files })),
+        ]
+        fd.append("accounts", JSON.stringify(allAccounts.map((a) => ({ bank: a.bank, label: a.label }))))
+        allAccounts.forEach((a, i) => a.files.forEach((f) => fd.append(`account-${i}`, f)))
+      } else if (files.length === 1) {
+        // Single statement.
         fd.append("file", files[0])
+        fd.append("bank", selectedBank)
       } else {
+        // Several PDFs of the same account.
         for (const f of files) fd.append("files", f)
+        fd.append("bank", selectedBank)
       }
       fd.append("primaryModel", primaryModel)
       fd.append("fallbackModel", fallbackModel)
       fd.append("enableFallback", String(enableFallback))
-      fd.append("bank", selectedBank)
       fd.append("categorize", String(categorize))
       const { ok, data } = await postExtract(fd, {
         onUploadProgress: (pct) => setUploadPct(pct),
@@ -414,7 +498,24 @@ export default function Page() {
     [result, period],
   )
   const r = viewData ? checkReconciliation(viewData) : null
-  const transactions = viewData?.transactions ?? []
+
+  // Multi-account: interleave every account's rows into ONE chronological list for the
+  // combined table (each row stamped with its accountLabel). The table stack below is
+  // reused as-is by pointing `transactions` at these merged rows. Reconciliation stays
+  // PER ACCOUNT (in `result.multi.accounts`) — there is no combined reconciliation.
+  const isMulti = !!result?.multi
+  const merged = useMemo(
+    () =>
+      result?.multi
+        ? mergeAccounts(result.multi.accounts.map((a) => ({ label: a.label, transactions: a.transactions })))
+        : null,
+    [result],
+  )
+  const tableData: StatementData | null = merged
+    ? { bank: "combined", openingBalance: 0, closingBalance: 0, transactions: merged.transactions }
+    : viewData
+
+  const transactions = tableData?.transactions ?? []
   const hasBalances = transactions.some((t) => t.balance != null)
   const showCategory = transactions.some((t) => !!t.category) // category column only when categorized
 
@@ -481,7 +582,12 @@ export default function Page() {
     ? [...new Set(transactions.map((t) => effectiveCategory(t)))].sort((a, b) => a.localeCompare(b))
     : []
   const availableDates = [...new Set(transactions.map((t) => t.date).filter((d): d is string => !!d))].sort()
-  const totals = { categories: availableCategories.length, dates: availableDates.length }
+  // Account column (multi-account only): the labels present, in account order.
+  const availableAccounts =
+    isMulti && result?.multi
+      ? result.multi.accounts.filter((a) => a.transactionCount > 0).map((a) => a.label)
+      : []
+  const totals = { categories: availableCategories.length, dates: availableDates.length, accounts: availableAccounts.length }
   const displayRows = useMemo(
     () => applyView(transactions, filters, sort, (t) => catOverrides[catKey(t)] ?? t.category ?? "Other"),
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -527,16 +633,17 @@ export default function Page() {
   const singleSummary =
     result?.data && !result.perFile && !result.consolidated
       ? (() => {
-          const dates = result.data.transactions
+          const d = result.data!
+          const dates = d.transactions
             .map((t) => t.date)
-            .filter((d): d is string => !!d)
+            .filter((dt): dt is string => !!dt)
             .sort()
           return {
-            transactionCount: result.data.transactions.length,
+            transactionCount: d.transactions.length,
             periodStart: dates[0] ?? null,
             periodEnd: dates[dates.length - 1] ?? null,
-            openingBalance: result.data.openingBalance,
-            closingBalance: result.data.closingBalance,
+            openingBalance: d.openingBalance,
+            closingBalance: d.closingBalance,
           }
         })()
       : null
@@ -601,6 +708,21 @@ export default function Page() {
             setDurationMs(null)
           }}
         />
+        {/* Primary account label — only once we're adding more accounts. */}
+        {isMultiAccount && (
+          <input
+            className="account-label-input"
+            type="text"
+            value={primaryLabel}
+            placeholder={SHORT_BANK_LABELS[selectedBank]}
+            maxLength={40}
+            disabled={isLoading}
+            onChange={(e) => {
+              setPrimaryLabel(e.target.value)
+              resetResult()
+            }}
+          />
+        )}
         {files.length > 0 && (
           <div className="files">
             <div className="files-head">
@@ -698,7 +820,88 @@ export default function Page() {
           </label>
         </div>
 
-        <button className="button" onClick={handleCheck} disabled={files.length === 0 || isLoading}>
+        {/* Extra accounts (a client with several bank accounts). Each has its own bank,
+            optional label and PDF(s); all are reconciled independently. */}
+        {extraAccounts.map((acc, i) => (
+          <div className="account-block" key={acc.id}>
+            <div className="account-block-head">
+              <span className="account-block-title">{s.accountBlockTitle(i + 2)}</span>
+              <button
+                type="button"
+                className="file-remove"
+                aria-label={s.removeAccount}
+                disabled={isLoading}
+                onClick={() => removeAccount(acc.id)}
+              >
+                ✕
+              </button>
+            </div>
+            <div className="controls">
+              <div className="control">
+                <label className="control-label">{s.bankLabel}</label>
+                <select
+                  value={acc.bank}
+                  disabled={isLoading}
+                  onChange={(e) => updateAccount(acc.id, { bank: e.target.value as BankId })}
+                >
+                  {visibleBanks.map((id) => (
+                    <option key={id} value={id}>
+                      {BANK_LABELS[id]}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <input
+                className="account-label-input"
+                type="text"
+                value={acc.label}
+                placeholder={SHORT_BANK_LABELS[acc.bank]}
+                maxLength={40}
+                disabled={isLoading}
+                onChange={(e) => updateAccount(acc.id, { label: e.target.value })}
+              />
+            </div>
+            <input
+              type="file"
+              accept="application/pdf"
+              multiple
+              disabled={isLoading}
+              onChange={(e) =>
+                updateAccount(acc.id, { files: e.target.files ? Array.from(e.target.files) : [] })
+              }
+            />
+            {acc.files.length > 0 && (
+              <ul className="account-files">
+                {acc.files.map((f, fi) => (
+                  <li key={`${f.name}-${fi}`}>
+                    <span className="account-file-name">{f.name}</span>
+                    <span className="account-file-size">{formatSize(f.size)}</span>
+                    <button
+                      type="button"
+                      className="file-remove"
+                      aria-label={`${s.removeFile} ${f.name}`}
+                      disabled={isLoading}
+                      onClick={() =>
+                        updateAccount(acc.id, { files: acc.files.filter((_, idx) => idx !== fi) })
+                      }
+                    >
+                      ✕
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        ))}
+
+        {/* Appears once the first bank's statements are attached. */}
+        {files.length > 0 && (
+          <button type="button" className="link-button add-account" onClick={addAccount} disabled={isLoading}>
+            {s.addAccountButton}
+          </button>
+        )}
+
+        <button className="button" onClick={handleCheck} disabled={!canCheck || isLoading}>
           {isLoading ? s.checkingButton : s.checkButton}
         </button>
 
@@ -902,8 +1105,118 @@ export default function Page() {
         </>
       )}
 
-      {result && r && (
+      {/* Multiple bank accounts (one client) — each reconciled independently, shown
+          in one combined table below. */}
+      {result?.multi && (
         <>
+          <div className={`verdict ${result.multi.allReconciled ? "pass" : "fail"}`}>
+            <div className="verdict-head">
+              <span className="pill">{result.multi.allReconciled ? "✓" : "!"}</span>
+              {result.multi.allReconciled ? s.multiPass : s.multiFail}
+            </div>
+          </div>
+          <div className="multi-head">
+            <span className="per-file-title">{s.multiHeading(result.multi.accounts.length)}</span>
+          </div>
+
+          {/* One block per account: header (bank · tx · reconciled · CSV) + a per-statement
+              breakdown showing each PDF's period and balance range. */}
+          {result.multi.accounts.map((a, ai) => (
+            <div key={ai} className="account-detail">
+              <div className="meta">
+                <span className="account-name">
+                  <b>{a.label}</b>
+                </span>
+                <span>
+                  {BANK_LABELS[a.bank]}
+                  {a.currency ? ` · ${a.currency}` : ""}
+                </span>
+                <span>
+                  {s.metaTransactions}: <b>{a.transactionCount}</b>
+                </span>
+                <span className={a.transactionCount === 0 ? "" : a.reconciliation.passed ? "trace-ok" : "trace-fail"}>
+                  {a.transactionCount === 0
+                    ? "—"
+                    : a.reconciliation.passed
+                      ? `✓ ${s.attemptReconciled}`
+                      : `✗ ${fromCents(Math.abs(a.reconciliation.discrepancyCents))}`}
+                </span>
+                {a.transactionCount > 0 && (
+                  <button
+                    type="button"
+                    className="link-button"
+                    onClick={() =>
+                      downloadCsv(
+                        {
+                          bank: a.label,
+                          openingBalance: a.openingBalance,
+                          closingBalance: a.closingBalance,
+                          transactions: withEditedCategories(a.transactions),
+                        },
+                        `${a.label.replace(/[^\w.-]+/g, "_")}.csv`,
+                        a.fileNames[0],
+                      )
+                    }
+                  >
+                    {s.downloadCsv}
+                  </button>
+                )}
+              </div>
+              {a.transactionCount > 0 && (
+                <table className="files-table">
+                  <thead>
+                    <tr>
+                      <th>{s.perFileColumns.file}</th>
+                      <th className="num">{s.perFileColumns.count}</th>
+                      <th>{s.perFileColumns.period}</th>
+                      <th>{s.perFileColumns.range}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {accountStatements(a).map((p, pi) => (
+                      <tr key={pi}>
+                        <td className="files-name">{p.fileName}</td>
+                        <td className="num">{p.transactionCount}</td>
+                        <td className="date">
+                          {p.periodStart && p.periodEnd ? `${p.periodStart} → ${p.periodEnd}` : "—"}
+                        </td>
+                        <td className="files-range">
+                          {balRange(p.openingBalance, p.closingBalance)}
+                          {a.currency ? ` ${a.currency}` : ""}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          ))}
+
+          {/* Per-account gap warnings — a missing statement in that account's series. */}
+          {result.multi.accounts.some((a) => a.gaps && a.gaps.length > 0) && (
+            <div className="gap-warning">
+              <strong>{s.gapWarningTitle}</strong>
+              <ul className="gap-list">
+                {result.multi.accounts.flatMap((a) =>
+                  (a.gaps ?? []).map((g, gi) => (
+                    <li key={`${a.label}-${gi}`}>
+                      <b>{a.label}</b>:{" "}
+                      {g.beforeEnd && g.afterStart
+                        ? s.gapMissingPeriodShort(g.beforeEnd, g.afterStart)
+                        : s.gapMissingGeneric}
+                    </li>
+                  )),
+                )}
+              </ul>
+            </div>
+          )}
+        </>
+      )}
+
+      {result && (r || isMulti) && (
+        <>
+          {r && (
+            <>
           {/* Financial period — slice the result to a year/custom range and
               re-reconcile it (opening/closing derived from the running balance). */}
           {result.data && result.data.transactions.length > 0 && (
@@ -1158,11 +1471,21 @@ export default function Page() {
                 </ul>
               </details>
             ))}
+            </>
+          )}
 
           {/* Details + actions */}
           <div className="meta">
             <span>
-              {s.metaBank}: <b>{result.data.bank || "—"}</b>
+              {isMulti && result.multi ? (
+                <>
+                  {s.metaAccountsLabel}: <b>{result.multi.accounts.length}</b>
+                </>
+              ) : (
+                <>
+                  {s.metaBank}: <b>{result.data?.bank || "—"}</b>
+                </>
+              )}
             </span>
             <span>
               {s.metaTransactions}:{" "}
@@ -1204,17 +1527,26 @@ export default function Page() {
               className="link-button"
               onClick={() =>
                 downloadCsv(
-                  {
-                    ...(viewData ?? result.data),
-                    transactions: withEditedCategories((viewData ?? result.data).transactions),
-                  },
-                  result.fileName.replace(/\.pdf$/i, "") +
-                    (period.kind === "year"
-                      ? `-${period.year}`
-                      : period.kind === "range"
-                        ? `-${period.from}_${period.to}`
-                        : "") +
-                    ".csv",
+                  isMulti && merged
+                    ? {
+                        bank: "combined",
+                        openingBalance: 0,
+                        closingBalance: 0,
+                        transactions: withEditedCategories(merged.transactions),
+                      }
+                    : {
+                        ...viewData!,
+                        transactions: withEditedCategories(viewData!.transactions),
+                      },
+                  isMulti
+                    ? "combined-accounts.csv"
+                    : result.fileName.replace(/\.pdf$/i, "") +
+                      (period.kind === "year"
+                        ? `-${period.year}`
+                        : period.kind === "range"
+                          ? `-${period.from}_${period.to}`
+                          : "") +
+                      ".csv",
                   result.fileName,
                 )
               }
@@ -1229,6 +1561,14 @@ export default function Page() {
             <thead>
               <tr>
                 {checkMode && <th className="check-col" aria-label={s.verifiedColumn}></th>}
+                {isMulti && (
+                  <th className="account sortable">
+                    <ColumnFilter type="checkbox" {...columnFilterProps("account", s.thAccount)}
+                      options={availableAccounts}
+                      value={filters.account ?? null}
+                      onChange={(v) => setFilterSlice("account", v == null || v.length === availableAccounts.length ? undefined : v)} />
+                  </th>
+                )}
                 <th className="rownum">#</th>
                 <th className="date sortable">
                   <ColumnFilter type="dateTree" {...columnFilterProps("date", s.thDate)}
@@ -1280,6 +1620,7 @@ export default function Page() {
                       />
                     </td>
                   )}
+                  {isMulti && <td className="account">{t.accountLabel}</td>}
                   <td className="rownum">{idx + 1}</td>
                   <td className="date">{t.date}</td>
                   <td>{t.description}</td>
@@ -1300,7 +1641,7 @@ export default function Page() {
               ))}
               {displayRows.length === 0 && (
                 <tr>
-                  <td className="filter-empty" colSpan={(showCategory ? 8 : 7) + (checkMode ? 1 : 0)}>
+                  <td className="filter-empty" colSpan={(showCategory ? 8 : 7) + (checkMode ? 1 : 0) + (isMulti ? 1 : 0)}>
                     {s.filterNoMatch}
                   </td>
                 </tr>

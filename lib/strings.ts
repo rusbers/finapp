@@ -140,6 +140,21 @@ export const strings = {
     status: "Reconciled",
   },
 
+  // Multi-account: several bank accounts of one client, each reconciled on its own,
+  // shown in one combined table (the "add another bank account" flow).
+  multiPass: "Reconciled — all accounts match",
+  multiFail: "Out of balance — check the accounts below",
+  multiHeading: (n: number) => `Linked accounts — ${n} account${n === 1 ? "" : "s"}`,
+  metaAccountsLabel: "Accounts",
+  thAccount: "Account",
+  // Upload flow for adding accounts.
+  addAccountButton: "+ Add another bank statement",
+  accountBlockTitle: (n: number) => `Account ${n}`,
+  accountLabelPlaceholder: "Label (optional)",
+  primaryLabelPlaceholder: "Label (optional)",
+  removeAccount: "Remove account",
+  accountFilesLabel: "Statement PDF(s)",
+
   eqOpening: "Opening balance",
   eqCredits: "Credits",
   eqDebits: "Debits",
@@ -190,4 +205,8 @@ export const strings = {
   errorTooLarge: "File is too large (max 15 MB).",
   errorGeneric: "Processing failed.",
   errorUnknown: "Unknown error.",
+  // Multi-account upload errors.
+  errorBadAccounts: "Invalid account list.",
+  errorTooManyAccounts: (max: number) => `Too many accounts (max ${max}).`,
+  errorAccountNoFile: (label: string) => `Account "${label}" has no statement attached.`,
 } as const

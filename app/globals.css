@@ -481,6 +481,110 @@ input[type="file"]::file-selector-button {
   padding-top: 0;
   border-top: 0;
 }
+/* Add-expenses button row: the button sizes to its content so the "New" badge and the
+   info tooltip sit right after it (the button's own .add-account rule is flex:1 1 100%). */
+.add-expenses-row {
+  flex: 1 1 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.add-expenses-row .add-account {
+  flex: 0 0 auto;
+}
+/* Small green "New" pill — signals the feature is new; dropped after the first open.
+   inline-block so the button's underline doesn't propagate onto the pill. */
+.badge-new {
+  display: inline-block;
+  vertical-align: middle;
+  margin-left: 8px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--ledger-green);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  user-select: none;
+}
+/* Info tooltip variant anchored to its LEFT edge (the button is left-aligned), wrapping a
+   short sentence instead of the default centered nowrap bubble. */
+.info-tip--start .info-tip-bubble {
+  left: 0;
+  transform: none;
+  white-space: normal;
+  width: max-content;
+  max-width: 260px;
+}
+/* Expenses CSV upload (client-level, optional) — full-width labelled file input. */
+.expenses-input {
+  flex: 1 1 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.expenses-input input[type="file"] {
+  /* column layout: the global file-input `flex: 1 1 240px` would read as a height */
+  flex: 0 0 auto;
+}
+/* Expenses report table: fixed layout so the 6 columns get predictable widths and long
+   Supplier / Category values TRUNCATE with an ellipsis (auto layout can't ellipsis a cell)
+   instead of wrapping onto a second line; full text is on each cell's title (hover). */
+.expenses-table {
+  table-layout: fixed;
+  width: 100%;
+  font-size: 13px;
+}
+.expenses-table th,
+.expenses-table td {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Proportional widths (sum 100%). nth-child(1) overrides .files-table th:first-child:100%
+   (equal specificity, declared later) so Supplier no longer eats the whole row. */
+.expenses-table th:nth-child(1),
+.expenses-table td:nth-child(1) {
+  width: 20%;
+} /* Supplier */
+.expenses-table th:nth-child(2),
+.expenses-table td:nth-child(2) {
+  width: 19%;
+} /* Category */
+.expenses-table th:nth-child(3),
+.expenses-table td:nth-child(3) {
+  width: 14%;
+} /* Date */
+.expenses-table th:nth-child(4),
+.expenses-table td:nth-child(4) {
+  width: 12%;
+} /* Amount */
+.expenses-table th:nth-child(5),
+.expenses-table td:nth-child(5) {
+  width: 14%;
+} /* Found */
+.expenses-table th:nth-child(6),
+.expenses-table td:nth-child(6) {
+  width: 21%;
+} /* Matched */
+/* Optional 7th column (Link) — only present when the CSV carries links. Inert with 6
+   columns; with 7, the widths total >100% and table-layout:fixed scales them to fit. */
+.expenses-table th:nth-child(7),
+.expenses-table td:nth-child(7) {
+  width: 9%;
+} /* Link */
+.expense-missing td {
+  color: var(--ink-soft);
+}
+/* Hyperlink to the expense — reads as a link (same accent as .link-button). */
+.expense-link {
+  color: var(--action);
+  text-decoration: underline;
+}
+.expense-link:hover {
+  color: var(--action-hover);
+}
 .account-block {
   flex: 1 1 100%;
   display: flex;

@@ -367,6 +367,46 @@ larger attempt with transfer matching + badges was reverted by the user.)
   Deferred (named, not built): transfer detection; per-account balance-breaks in the
   combined table; period-bar in multi; cross-account duplicate warning.
 
+## Expense reconciliation (`expenses.ts`)
+
+Optional: the user uploads an `expenses.csv` (accounting export: Supplier, Description,
+Category, Date, Amount, VAT…) with the statements; the app matches each expense to a
+statement **debit** and reports found / not-found. `parseExpensesCsv` is a small
+quoted-field CSV reader (no CSV *reader* existed — only `toCsv` writes). `matchExpenses`
+pools ALL accounts' transactions and, for each expense with amount > 0, finds an unused
+debit matching **to the cent within ±7 days** (`DEFAULT_WINDOW_DAYS`), one-to-one,
+tiebroken by supplier-in-description then closest date; a match tags the row
+`category = "Expense"` (a marker — the user chose this over the expense's own category)
+and records where it matched (date · account · source file+page). **Matching is EXACT on
+purpose** — a fuzzy-but-wrong match is worse than a not-found the accountant reviews; the
+not-found list IS the deliverable (paid by cash / another account / a different amount).
+Wired in `route.ts`: expense matching runs **BEFORE** categorization, and `maybeCategorize`
+then **skips rows already tagged `"Expense"`** — so the marker isn't overwritten and no AI is
+spent on matched rows. Added to every branch's response as `expenses`; entries carry
+`{ tx, account }` so the report names the paying account WITHOUT setting `accountLabel` on
+rows (that would add a spurious "Account" column to the per-account CSV). UI: an "+ Add
+expenses" button (green "New" badge, dropped after first open; `.info-tip` tooltip) reveals the
+CSV uploader; the report table is Supplier · Category · Date ·
+Amount · Found · Matched (no expense Description; Matched = account/label first, then date).
+It's `table-layout: fixed`, so long Supplier/Category cells truncate with an ellipsis (full text
+on hover-`title`); the matched Source (file + page) is CSV-export-only, not shown on screen.
+**CSV export (`expensesReportToCsv`) reproduces the original expenses.csv verbatim** (all columns
+incl. VAT + the link column under its own name) and appends Found · Matched account · Matched date ·
+Source — account/date stay separate columns in the export (the single "Matched" cell is UI-only);
+nothing in the source is mutated (`Expense.raw`/`Expense.rawHeader` carry the original cells/header
+to the client). An optional **"Links"** column (short UI header) appears ON SCREEN only when the
+CSV has usable links: `parseExpensesCsv` reads a header containing "link"/"url" (substring) into
+`Expense.link`; the cell is a hyperlink with visible text "Link" (URL hidden, new tab), sanitised
+by `expenseHref` (http(s)/www only). In the CSV export the link stays as its original column.
+Additive — runs only when a CSV is uploaded, never
+touches reconciliation/parsers/the fingerprint. **Test**: `npm run test:expenses` (synthetic
+parse/match asserts + real case `statements/expenses-reconciliation/2/` = BOI×3 + Revolut →
+78/109 exact, rest correctly not-found). **Each numbered folder under
+`statements/expenses-reconciliation/` = one client** (statements + one `expenses.csv`).
+Calibration finding: on real data ~72% match exactly; the rest are genuinely not in the
+uploaded accounts (cash/other) or differ in amount — widening the window just creates false
+matches at 100+ days, so exact stays.
+
 ## Status snapshot (update as it changes)
 
 - **Revolut**: production-ready across RO/EN, EUR/RON, both number/date formats;
@@ -375,4 +415,6 @@ larger attempt with transfer matching + badges was reverted by the user.)
   deterministic parser yet (uses AI + reconciliation).
 - **Multi-account** (one client, several banks): combined table + per-account
   reconciliation shipped; NO transfer detection (out of scope). See section above.
+- **Expense reconciliation** (match an `expenses.csv` against statement debits):
+  shipped; exact cents + ±7-day match, "Expense" tag, found/not-found report. See above.
 - Next candidates: PTSB parser; automatic bank identification; DB/auth (Phasing).

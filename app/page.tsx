@@ -25,6 +25,7 @@ import type {
 import { BANK_LABELS, SHORT_BANK_LABELS, type BankId } from "@/lib/core/prompts"
 import { mergeAccounts } from "@/lib/core/multi-account"
 import type { MultiAccount, MultiAccountResult } from "@/lib/core/multi-account"
+import { expensesReportToCsv, type ExpenseReport } from "@/lib/core/expenses"
 import { CATEGORIES, normalizeDescription } from "@/lib/core/categorization"
 import CategoryCombobox from "./category-combobox"
 import ColumnFilter from "./column-filter"
@@ -96,6 +97,8 @@ interface ApiResponse {
   consolidated?: ConsolidatedResponse
   // Present only for a multi-account client (several bank accounts, combined table):
   multi?: MultiAccountResult
+  // Present only when an expenses.csv was uploaded (matched against the statement debits):
+  expenses?: ExpenseReport
 }
 
 /** An additional bank account added in the multi-account upload flow (the primary
@@ -253,11 +256,33 @@ function scrollToEnd(el: HTMLSpanElement | null): void {
   })
 }
 
+/** A safe href for an expense's link cell, or null if the value isn't a real web URL.
+ * Only http(s) (or a bare www., which we upgrade to https) is allowed — this blocks
+ * javascript:/data: and non-URL text, so a matched "link"/"url" column with junk in it
+ * simply shows no link. */
+function expenseHref(link?: string): string | null {
+  const t = (link ?? "").trim()
+  if (/^https?:\/\//i.test(t)) return t
+  if (/^www\./i.test(t)) return `https://${t}`
+  return null
+}
+
 /** Human-readable file size. */
 function formatSize(bytes: number): string {
   if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
   if (bytes >= 1024) return `${Math.round(bytes / 1024)} KB`
   return `${bytes} B`
+}
+
+/** Trigger a client-side download of a text file (e.g. the expenses report CSV). */
+function downloadTextFile(text: string, fileName: string): void {
+  const blob = new Blob([text], { type: "text/csv;charset=utf-8;" })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement("a")
+  a.href = url
+  a.download = fileName
+  a.click()
+  URL.revokeObjectURL(url)
 }
 
 /** The individual statements (PDFs) that make up one account, for the per-account
@@ -287,6 +312,12 @@ export default function Page() {
   const [extraAccounts, setExtraAccounts] = useState<ExtraAccount[]>([])
   const [primaryLabel, setPrimaryLabel] = useState("")
   const nextAccountId = useRef(1)
+  // Optional expenses.csv — matched against the statement debits after reconciling.
+  // Revealed by an "Add expenses" button (like adding another account).
+  const [expensesFile, setExpensesFile] = useState<File | null>(null)
+  const [expensesOpen, setExpensesOpen] = useState(false)
+  // "New" badge on the Add-expenses button — dropped once the user has opened it once.
+  const [expensesSeen, setExpensesSeen] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
   const [result, setResult] = useState<ApiResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -471,6 +502,7 @@ export default function Page() {
       fd.append("fallbackModel", fallbackModel)
       fd.append("enableFallback", String(enableFallback))
       fd.append("categorize", String(categorize))
+      if (expensesFile) fd.append("expenses", expensesFile)
       const { ok, data } = await postExtract(fd, {
         onUploadProgress: (pct) => setUploadPct(pct),
         onUploaded: () => setPhase("processing"),
@@ -689,6 +721,10 @@ export default function Page() {
       return a.i - b.i // undated or equal → keep upload order
     })
 
+  // Show the "Link" column only when the uploaded expenses.csv actually carries usable
+  // (http/www) links — a plain expenses export leaves the table at its 6 columns.
+  const hasExpenseLinks = result?.expenses?.matches.some((m) => expenseHref(m.expense.link)) ?? false
+
   return (
     <main className="page">
       <header className="header">
@@ -870,6 +906,57 @@ export default function Page() {
           </button>
         )}
 
+        {/* Add expenses — reveals the expenses.csv uploader (matched against the debits).
+            Carries a green "New" badge (dropped after the first open) + an info tooltip. */}
+        {files.length > 0 && !expensesOpen && (
+          <div className="add-expenses-row">
+            <button
+              type="button"
+              className="link-button add-account"
+              onClick={() => {
+                setExpensesOpen(true)
+                setExpensesSeen(true)
+              }}
+              disabled={isLoading}
+            >
+              {s.addExpensesButton}
+              {!expensesSeen && <span className="badge-new">{s.newBadge}</span>}
+            </button>
+            <span className="info-tip info-tip--start" tabIndex={0} aria-label={s.expensesInfo}>
+              i<span className="info-tip-bubble">{s.expensesInfo}</span>
+            </span>
+          </div>
+        )}
+        {expensesOpen && (
+          <div className="expenses-input">
+            <div className="account-block-head">
+              <label className="control-label">{s.expensesLabel}</label>
+              <button
+                type="button"
+                className="file-remove"
+                aria-label={s.removeExpenses}
+                disabled={isLoading}
+                onClick={() => {
+                  setExpensesOpen(false)
+                  setExpensesFile(null)
+                  resetResult()
+                }}
+              >
+                ✕
+              </button>
+            </div>
+            <input
+              type="file"
+              accept=".csv,text/csv"
+              disabled={isLoading}
+              onChange={(e) => {
+                setExpensesFile(e.target.files?.[0] ?? null)
+                resetResult()
+              }}
+            />
+          </div>
+        )}
+
         {/* Categorization is a per-run cost choice, made right before reconciling. */}
         <label className="toggle categorize-toggle">
           <input
@@ -966,6 +1053,89 @@ export default function Page() {
       </section>
 
       {error && <div className="error">{error}</div>}
+
+      {/* Expense reconciliation — the uploaded expenses.csv matched against the
+          statement debits (found / not found per expense). Shown in addition to the
+          normal reconciliation result. */}
+      {result?.expenses && (
+        <>
+          <div
+            className={`verdict ${result.expenses.foundCount === result.expenses.total ? "pass" : "soft"}`}
+          >
+            <div className="verdict-head">
+              <span className="pill">
+                {result.expenses.foundCount === result.expenses.total ? "✓" : "≈"}
+              </span>
+              {s.expensesSummary(result.expenses.foundCount, result.expenses.total)}
+            </div>
+          </div>
+          <div className="per-file">
+            <div className="files-head">
+              <span className="per-file-title">{s.expensesHeading}</span>
+              <button
+                className="link-button"
+                onClick={() =>
+                  downloadTextFile(expensesReportToCsv(result.expenses!), "expenses-reconciled.csv")
+                }
+              >
+                {s.downloadCsv}
+              </button>
+            </div>
+            <table className="files-table expenses-table">
+              <thead>
+                <tr>
+                  <th>{s.expensesColumns.supplier}</th>
+                  <th>{s.expensesColumns.category}</th>
+                  <th className="date">{s.expensesColumns.date}</th>
+                  <th className="num">{s.expensesColumns.amount}</th>
+                  <th>{s.expensesColumns.found}</th>
+                  <th>{s.expensesColumns.matched}</th>
+                  {hasExpenseLinks && <th>{s.expensesColumns.link}</th>}
+                </tr>
+              </thead>
+              <tbody>
+                {result.expenses.matches.map((m, i) => {
+                  // "Matched" shows the account (bank / label) first, then the date. The
+                  // Source (which file it came from) is intentionally NOT shown on screen —
+                  // it lives only in the CSV export (expensesReportToCsv).
+                  const matched = m.found
+                    ? `${m.matchedAccount ? `${m.matchedAccount} · ` : ""}${m.matchedDate ?? ""}`
+                    : ""
+                  const href = expenseHref(m.expense.link)
+                  return (
+                    <tr key={i} className={m.found ? "" : "expense-missing"}>
+                      <td title={m.expense.supplier}>{m.expense.supplier}</td>
+                      <td title={m.expense.category}>{m.expense.category}</td>
+                      <td className="date">{m.expense.date}</td>
+                      <td className="num">{m.expense.amount.toFixed(2)}</td>
+                      <td className={m.found ? "trace-ok" : "trace-fail"}>
+                        {m.found ? `✓ ${s.expenseFound}` : `✗ ${s.expenseNotFound}`}
+                      </td>
+                      <td className="date" title={matched}>
+                        {matched}
+                      </td>
+                      {hasExpenseLinks && (
+                        <td>
+                          {href && (
+                            <a
+                              className="expense-link"
+                              href={href}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                            >
+                              {s.expenseLinkText}
+                            </a>
+                          )}
+                        </td>
+                      )}
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
 
       {result?.consolidated && (
         <>

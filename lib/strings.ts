@@ -59,6 +59,30 @@ export const strings = {
   // Multi-statement (combining several PDFs of the same account)
   perFileColumns: { file: "File", count: "Transactions", period: "Period", range: "Balance range" },
   perFileHeading: (n: number) => `Statements — ${n} file${n === 1 ? "" : "s"}`,
+
+  // Expense reconciliation (match an expenses.csv against the statement debits)
+  expensesLabel: "Expenses (CSV)",
+  addExpensesButton: "+ Add expenses",
+  newBadge: "New", // green badge on the Add-expenses button until it's opened once
+  expensesInfo: "Checks which of your listed expenses appear in the bank statement.",
+  removeExpenses: "Remove expenses",
+  expensesHeading: "Expense reconciliation",
+  expensesSummary: (found: number, total: number) =>
+    `${found} of ${total} expenses found in the statement`,
+  expensesColumns: {
+    supplier: "Supplier",
+    description: "Description",
+    category: "Category",
+    date: "Date",
+    amount: "Amount",
+    found: "Found",
+    matched: "Matched",
+    source: "Source",
+    link: "Links", // optional column HEADER (short label in the UI; export keeps the CSV's own name)
+  },
+  expenseFound: "found",
+  expenseNotFound: "not found",
+  expenseLinkText: "Link", // the hyperlink text inside each cell (the URL itself stays hidden)
   // Files table — duplicate row badges
   fileBadgeDuplicate: "Duplicate",
   fileBadgeIgnored: "Ignored", // the copy that was excluded from the combined series

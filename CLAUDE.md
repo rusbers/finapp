@@ -261,6 +261,7 @@ lib/
 │   ├── pipeline.ts        → extract-and-reconcile cascade + per-model stats
 │   ├── sign-correction.ts → balance-based debit/credit auto-correction
 │   ├── categorization.ts  → category per transaction: keyword RULES first, AI only for the rest
+│   ├── expenses.ts        → PURE: parse expenses.csv + match each expense to a statement debit
 │   └── verification.ts    → CSV export + row-by-row running-balance check
 └── strings.ts             → all UI copy in one place (ready for future i18n)
 ```
@@ -615,6 +616,57 @@ pdfjs-dist`): for the target banks, reading the PDF's text positions (x/y) and
   tag drops once its category is manually edited. The Category column has a fixed
   `min-width` so picking a longer preset doesn't shift the layout; the **Source** column is
   last in both the tables and the CSV.
+- **Expense reconciliation** (`expenses.ts`): the user optionally uploads an `expenses.csv`
+  (an accounting export: `Supplier, Description, Category, Date, Amount, VAT…`) alongside the
+  statements; the app matches each expense to a statement **debit** and reports which are
+  found. **`parseExpensesCsv`** is a small quoted-field CSV reader (the codebase had no CSV
+  *reader*, only `toCsv`); **`matchExpenses`** pools every account's transactions and, for each
+  expense with `amount > 0`, finds an unused debit whose amount matches **to the cent** within a
+  **±7-day window** (`DEFAULT_WINDOW_DAYS`), one-to-one, tiebroken by the supplier appearing in
+  the bank description then closest date. A matched transaction is tagged `category = "Expense"`
+  (marker, per the user's choice — NOT the expense's own category); the returned
+  `ExpenseReport` lists every expense with a **found / not-found** flag + where it matched
+  (date · account · **source file+page** of the matched debit, via `matchedSourceFile`/
+  `matchedPage`). Matching is EXACT on purpose — a fuzzy-but-wrong match is worse than a
+  not-found the accountant can review; the not-found list is the deliverable (expenses paid
+  by cash / another account / with a different amount). Wired in `app/api/extract/route.ts`
+  parallel to `maybeCategorize`: expense matching runs **BEFORE** categorization, and
+  `maybeCategorize` then **skips rows already tagged `"Expense"`** (`.filter(t => t.category !==
+  "Expense")`) — so the marker is never overwritten AND no AI is spent on matched rows. Added to
+  every branch's response as `expenses`; the entries carry the account label
+  (`{ tx, account }`) so the report says which account paid, WITHOUT setting `accountLabel` on
+  the rows (that would wrongly add an "Account" column to the per-account CSV). UI: an **"+ Add
+  expenses"** button (after "+ Add another bank statement") reveals the **"Expenses (CSV)"**
+  uploader; the button carries a green **"New"** badge (dropped once opened — `expensesSeen`
+  state) and an **info tooltip** (reused `.info-tip`) with a one-line description. The **Expense
+  reconciliation** result section shows a summary "X of Y found" + a
+  per-expense table (**Supplier · Category · Date · Amount · Found · Matched** — the expense
+  Description is dropped; **Matched shows the account/label FIRST, then the date**). The table is
+  `table-layout: fixed` with proportional column widths, so long Supplier/Category values
+  **truncate with an ellipsis** (full text on the cell's `title`, hover) instead of wrapping. The
+  matched debit's **Source (file + page) is NOT shown on screen** — it lives only in the CSV
+  export. **CSV export (`expensesReportToCsv`) reproduces the ORIGINAL `expenses.csv` verbatim**
+  — every source column in its own order, incl. all VAT columns and the link column under its
+  OWN original name — and appends **Found · Matched account · Matched date · Source** (account and
+  date stay SEPARATE columns in the export, for spreadsheet use; the single "Matched" cell is
+  UI-only). Nothing in the source is mutated. To do this,
+  `parseExpensesCsv` stores each row's original cells on `Expense.raw` and the original header on
+  `Expense.rawHeader`, which travel to the client in the report; the export re-quotes cells via
+  `csvCell` (so unnecessary quotes may drop, but values/columns are identical). **Optional "Link"
+  column**: some expense exports carry a URL to each expense in an extra column whose name varies —
+  `parseExpensesCsv` detects it by a header **containing "link" or "url"** (substring,
+  case-insensitive) into `Expense.link`. The **on-screen** report table appends a **"Links"**
+  column (short UI header) ONLY when the CSV has usable links; each cell is a hyperlink whose
+  visible text is just "Link" (the URL isn't shown), opening in a new tab. The href is sanitised in
+  `expenseHref` (app/page.tsx) — only `http(s)://` (or a bare `www.` → `https://`) renders as a
+  link, blocking `javascript:`/non-URL values. In the **CSV export** the link is NOT a separate
+  appended column — it's simply the original link column, kept under its own name with the full URL.
+  Additive: matching runs only when an `expenses.csv` is
+  uploaded; it never affects reconciliation, parsers, or the regression fingerprint. Test: `npm
+  run test:expenses` (synthetic parse/match/source asserts + a real case
+  `statements/expenses-reconciliation/2/` = BOI×3 + Revolut, 78/109 exact matches — the rest
+  correctly not-found). **Each numbered folder under `statements/expenses-reconciliation/` is one
+  client** (statements + one `expenses.csv`).
 - **Transaction provenance (Source column)**: each `Transaction` carries an optional
   `page` (1-based PDF page, set by the deterministic parsers — Revolut/AIB/BOI/
   consolidated) and an optional `sourceFile` (set only when several PDFs are combined,

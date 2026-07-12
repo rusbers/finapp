@@ -13,6 +13,7 @@ import { extractAccounts, type AccountInput } from "@/lib/core/multi-account-ext
 import { isAllowedModel } from "@/lib/core/config"
 import { BANK_LABELS, SHORT_BANK_LABELS, type BankId } from "@/lib/core/prompts"
 import { categorizeTransactions } from "@/lib/core/categorization"
+import { parseExpensesCsv, matchExpenses, type MatchEntry } from "@/lib/core/expenses"
 import type { Transaction } from "@/lib/core/types"
 import { strings } from "@/lib/strings"
 
@@ -46,11 +47,27 @@ export async function POST(req: NextRequest) {
     // toggle is on (it costs AI). Rules catch most rows for free; AI handles the
     // rest (unique descriptions, in parallel). It mutates `category` in place and
     // NEVER affects reconciliation.
+    // Categorization skips rows already tagged "Expense" (matched by the expense step,
+    // which runs FIRST in each branch) — so an expense's marker is never overwritten and
+    // no AI is spent on it.
     const categorize = formData.get("categorize") === "true"
     const maybeCategorize = async (txArrays: Transaction[][]) =>
       categorize
-        ? await categorizeTransactions(txArrays.flat(), { useAi: true, model: primaryModel })
+        ? await categorizeTransactions(
+            txArrays.flat().filter((t) => t.category !== "Expense"),
+            { useAi: true, model: primaryModel },
+          )
         : null
+
+    // Optional expense reconciliation — when an `expenses.csv` is attached, match each
+    // expense against a statement debit (exact cents + date window) and tag matched rows
+    // `category = "Expense"`. Runs AFTER categorization (called later in each branch) so a
+    // match wins the cell. Pure, deterministic, never affects reconciliation.
+    const expensesFile = formData.get("expenses")
+    const parsedExpenses =
+      expensesFile instanceof File ? parseExpensesCsv(await expensesFile.text()) : null
+    const maybeExpenses = (entries: MatchEntry[]) =>
+      parsedExpenses ? matchExpenses(parsedExpenses, entries) : null
 
     // --- Multiple ACCOUNTS (a client with several bank accounts) ---
     // Sent as an "accounts" JSON field [{bank, label}] plus the files of account i
@@ -109,6 +126,9 @@ export async function POST(req: NextRequest) {
       }
 
       const multi = await extractAccounts(inputs, { primaryModel, fallbackModel, enableFallback })
+      const expenses = maybeExpenses(
+        multi.accounts.flatMap((a) => a.transactions.map((tx) => ({ tx, account: a.label }))),
+      )
       const categorization = await maybeCategorize(multi.accounts.map((a) => a.transactions))
       const accountCount = multi.accounts.length
       return NextResponse.json({
@@ -117,6 +137,7 @@ export async function POST(req: NextRequest) {
           `${accountCount} account${accountCount === 1 ? "" : "s"} · ` +
           `${totalFiles} file${totalFiles === 1 ? "" : "s"}`,
         categorization,
+        expenses,
       })
     }
 
@@ -153,8 +174,11 @@ export async function POST(req: NextRequest) {
     if (bank === "revolut-consolidated") {
       const pdfBytes = new Uint8Array(await uploaded[0].arrayBuffer())
       const consolidated = await extractConsolidated(pdfBytes)
+      const expenses = maybeExpenses(
+        consolidated.accounts.flatMap((a) => a.transactions.map((tx) => ({ tx, account: a.label }))),
+      )
       const categorization = await maybeCategorize(consolidated.accounts.map((a) => a.transactions))
-      return NextResponse.json({ consolidated, fileName: uploaded[0].name, categorization })
+      return NextResponse.json({ consolidated, fileName: uploaded[0].name, categorization, expenses })
     }
 
     // Single file → single-statement result (unchanged shape). Revolut goes through
@@ -165,15 +189,20 @@ export async function POST(req: NextRequest) {
       if (bank === "revolut") {
         const r = await extractRevolut(pdfBytes, options)
         if (r.kind === "multi") {
+          const expenses = maybeExpenses(
+            r.consolidated.accounts.flatMap((a) => a.transactions.map((tx) => ({ tx, account: a.label }))),
+          )
           const categorization = await maybeCategorize(r.consolidated.accounts.map((a) => a.transactions))
-          return NextResponse.json({ consolidated: r.consolidated, fileName: uploaded[0].name, categorization })
+          return NextResponse.json({ consolidated: r.consolidated, fileName: uploaded[0].name, categorization, expenses })
         }
+        const expenses = maybeExpenses(r.result.data.transactions.map((tx) => ({ tx })))
         const categorization = await maybeCategorize([r.result.data.transactions])
-        return NextResponse.json({ ...r.result, fileName: uploaded[0].name, categorization })
+        return NextResponse.json({ ...r.result, fileName: uploaded[0].name, categorization, expenses })
       }
       const result = await extractAndReconcile(pdfBytes, options)
+      const expenses = maybeExpenses(result.data.transactions.map((tx) => ({ tx })))
       const categorization = await maybeCategorize([result.data.transactions])
-      return NextResponse.json({ ...result, fileName: uploaded[0].name, categorization })
+      return NextResponse.json({ ...result, fileName: uploaded[0].name, categorization, expenses })
     }
 
     // Multiple files → chain + combine + reconcile across the whole series.
@@ -184,6 +213,7 @@ export async function POST(req: NextRequest) {
       })),
     )
     const multiResult = await extractAndReconcileMany(filesWithBytes, options)
+    const expenses = maybeExpenses(multiResult.result.data.transactions.map((tx) => ({ tx })))
     const categorization = await maybeCategorize([multiResult.result.data.transactions])
 
     // Flatten so the UI gets the same top-level result fields, plus multi extras.
@@ -198,6 +228,7 @@ export async function POST(req: NextRequest) {
       fullyChained: multiResult.fullyChained,
       duplicates: multiResult.duplicates,
       categorization,
+      expenses,
     })
   } catch (e: unknown) {
     const message = e instanceof Error ? e.message : strings.errorUnknown

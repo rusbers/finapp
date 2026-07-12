@@ -10,7 +10,7 @@ import type { StatementData, Transaction } from "./types"
 import { toCents, fromCents } from "./reconciliation"
 
 /** Escape a value for safe inclusion in a CSV cell. */
-function csvCell(value: string | number): string {
+export function csvCell(value: string | number): string {
   const s = String(value ?? "")
   // Quote if it contains comma, quote, or newline; double any inner quotes.
   if (/[",\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`

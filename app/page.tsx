@@ -431,6 +431,9 @@ export default function Page() {
   // account has files too.
   const canCheck =
     files.length > 0 && (!isMultiAccount || extraAccounts.every((a) => a.files.length > 0))
+  // Total statements attached (primary + every extra account) — drives the button's
+  // singular/plural label.
+  const totalStatements = files.length + extraAccounts.reduce((n, a) => n + a.files.length, 0)
 
   async function handleCheck() {
     if (!canCheck) return
@@ -655,7 +658,6 @@ export default function Page() {
       : null
   const balRange = (open: number, close: number) =>
     `${fromCents(Math.round(open * 100))} → ${fromCents(Math.round(close * 100))}`
-  const filesChecked = !!(result && result.data)
   // Every file involved in a duplicate group (the kept original AND its copies) gets a
   // "Duplicate" badge — so each looks the same and the user can drop whichever.
   const duplicateNames = new Set<string>()
@@ -702,107 +704,9 @@ export default function Page() {
       </header>
 
       <section className="upload">
-        <label>{s.fileLabel}</label>
-        <input
-          type="file"
-          accept="application/pdf"
-          multiple
-          onChange={(e) => {
-            setFiles(e.target.files ? Array.from(e.target.files) : [])
-            setResult(null)
-            setError(null)
-            setDurationMs(null)
-          }}
-        />
-        {/* Optional label for the FIRST account — available as soon as its statements
-            are attached (used when reconciling several accounts together). */}
-        {files.length > 0 && (
-          <input
-            className="account-label-input"
-            type="text"
-            value={primaryLabel}
-            placeholder={SHORT_BANK_LABELS[selectedBank]}
-            maxLength={40}
-            disabled={isLoading}
-            onChange={(e) => {
-              setPrimaryLabel(e.target.value)
-              resetResult()
-            }}
-          />
-        )}
-        {files.length > 0 && (
-          <div className="files">
-            <div className="files-head">
-              <span className="files-title">{s.filesSelected(files.length)}</span>
-              {result?.fullyChained && result.perFile && result.perFile.length > 1 && (
-                <span className="chained-ok">✓ {s.chainedOk}</span>
-              )}
-            </div>
-            <table className="files-table">
-              <thead>
-                <tr>
-                  <th>{s.perFileColumns.file}</th>
-                  <th className="num">{s.perFileColumns.count}</th>
-                  <th>{s.perFileColumns.period}</th>
-                  <th>{s.perFileColumns.range}</th>
-                  <th className="files-x" aria-hidden="true"></th>
-                </tr>
-              </thead>
-              <tbody>
-                {fileRows.map(({ f, i, isDuplicate, isIgnored, sum }) => {
-                  const removeBtn = (
-                    <button
-                      type="button"
-                      className="file-remove"
-                      aria-label={`${s.removeFile} ${f.name}`}
-                      disabled={isLoading}
-                      onClick={() => {
-                        setFiles(files.filter((_, idx) => idx !== i))
-                        setResult(null)
-                        setError(null)
-                        setDurationMs(null)
-                      }}
-                    >
-                      ✕
-                    </button>
-                  )
-                  return (
-                    <tr key={`${f.name}-${i}`}>
-                      <td className="files-name">
-                        {f.name}
-                        {isDuplicate && <span className="file-badge">{s.fileBadgeDuplicate}</span>}
-                        {isIgnored && (
-                          <span className="file-badge file-badge--ignored">{s.fileBadgeIgnored}</span>
-                        )}
-                      </td>
-                      {sum ? (
-                        <>
-                          <td className="num">{sum.transactionCount}</td>
-                          <td className="date">
-                            {sum.periodStart && sum.periodEnd
-                              ? `${sum.periodStart} → ${sum.periodEnd}`
-                              : "—"}
-                          </td>
-                          <td className="files-range">
-                            {balRange(sum.openingBalance, sum.closingBalance)}
-                          </td>
-                        </>
-                      ) : (
-                        <td className="files-pending" colSpan={3}>
-                          {filesChecked ? "—" : formatSize(f.size)}
-                        </td>
-                      )}
-                      <td className="files-x">{removeBtn}</td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-        {/* Bank — an everyday choice the user makes before checking, kept visible */}
-        <div className="controls">
-          <div className="control">
+        {/* Step 1 — choose the bank and (optionally) label this account. */}
+        <div className="controls controls--top">
+          <div className="control control--grow">
             <label className="control-label">{s.bankLabel}</label>
             <select
               value={selectedBank}
@@ -816,8 +720,72 @@ export default function Page() {
               ))}
             </select>
           </div>
+          <div className="control control--grow">
+            <label className="control-label">{s.accountLabelField}</label>
+            <input
+              className="account-label-input"
+              type="text"
+              value={primaryLabel}
+              placeholder={SHORT_BANK_LABELS[selectedBank]}
+              maxLength={40}
+              disabled={isLoading}
+              onChange={(e) => {
+                setPrimaryLabel(e.target.value)
+                resetResult()
+              }}
+            />
+          </div>
         </div>
 
+        {/* Step 2 — upload its statements. */}
+        <label>{s.fileLabel}</label>
+        <input
+          type="file"
+          accept="application/pdf"
+          multiple
+          onChange={(e) => {
+            setFiles(e.target.files ? Array.from(e.target.files) : [])
+            setResult(null)
+            setError(null)
+            setDurationMs(null)
+          }}
+        />
+        {files.length > 0 && (
+          <div className="files">
+            <div className="files-head">
+              <span className="files-title">{s.filesSelected(files.length)}</span>
+            </div>
+            {/* Compact list (same style as the extra-account file lists), on the upload
+                card's background: just the attached files + size. The per-file report
+                (period, transactions, balance range) appears in the RESULT after Reconcile. */}
+            <ul className="account-files">
+              {fileRows.map(({ f, i, isDuplicate, isIgnored }) => (
+                <li key={`${f.name}-${i}`}>
+                  <span className="account-file-name">{f.name}</span>
+                  {isDuplicate && <span className="file-badge">{s.fileBadgeDuplicate}</span>}
+                  {isIgnored && (
+                    <span className="file-badge file-badge--ignored">{s.fileBadgeIgnored}</span>
+                  )}
+                  <span className="account-file-size">{formatSize(f.size)}</span>
+                  <button
+                    type="button"
+                    className="file-remove"
+                    aria-label={`${s.removeFile} ${f.name}`}
+                    disabled={isLoading}
+                    onClick={() => {
+                      setFiles(files.filter((_, idx) => idx !== i))
+                      setResult(null)
+                      setError(null)
+                      setDurationMs(null)
+                    }}
+                  >
+                    ✕
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
         {/* Extra accounts (a client with several bank accounts). Each has its own bank,
             optional label and PDF(s); all are reconciled independently. */}
         {extraAccounts.map((acc, i) => (
@@ -835,7 +803,7 @@ export default function Page() {
               </button>
             </div>
             <div className="controls">
-              <div className="control">
+              <div className="control control--grow">
                 <label className="control-label">{s.bankLabel}</label>
                 <select
                   value={acc.bank}
@@ -849,15 +817,18 @@ export default function Page() {
                   ))}
                 </select>
               </div>
-              <input
-                className="account-label-input"
-                type="text"
-                value={acc.label}
-                placeholder={SHORT_BANK_LABELS[acc.bank]}
-                maxLength={40}
-                disabled={isLoading}
-                onChange={(e) => updateAccount(acc.id, { label: e.target.value })}
-              />
+              <div className="control control--grow">
+                <label className="control-label">{s.accountLabelField}</label>
+                <input
+                  className="account-label-input"
+                  type="text"
+                  value={acc.label}
+                  placeholder={SHORT_BANK_LABELS[acc.bank]}
+                  maxLength={40}
+                  disabled={isLoading}
+                  onChange={(e) => updateAccount(acc.id, { label: e.target.value })}
+                />
+              </div>
             </div>
             <input
               type="file"
@@ -911,7 +882,7 @@ export default function Page() {
         </label>
 
         <button className="button" onClick={handleCheck} disabled={!canCheck || isLoading}>
-          {isLoading ? s.checkingButton : s.checkButton}
+          {isLoading ? s.checkingButton : s.checkButton(totalStatements)}
         </button>
 
         {/* Processing feedback: real upload % then an indeterminate processing phase */}
@@ -1391,7 +1362,36 @@ export default function Page() {
             </div>
           )}
 
-          {/* The per-file breakdown now lives in the Files table (production), above. */}
+          {/* Per-statement report — one row per uploaded PDF (period, transactions,
+              balance range). Shown for a multi-PDF account; a single file needs none. */}
+          {result.perFile && result.perFile.length > 1 && (
+            <div className="per-file">
+              <span className="per-file-title">{s.perFileHeading(result.perFile.length)}</span>
+              {result.fullyChained && <span className="chained-ok">✓ {s.chainedOk}</span>}
+              <table className="files-table">
+                <thead>
+                  <tr>
+                    <th>{s.perFileColumns.file}</th>
+                    <th className="num">{s.perFileColumns.count}</th>
+                    <th>{s.perFileColumns.period}</th>
+                    <th>{s.perFileColumns.range}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {result.perFile.map((p, i) => (
+                    <tr key={i}>
+                      <td className="files-name">{p.fileName}</td>
+                      <td className="num">{p.transactionCount}</td>
+                      <td className="date">
+                        {p.periodStart && p.periodEnd ? `${p.periodStart} → ${p.periodEnd}` : "—"}
+                      </td>
+                      <td className="files-range">{balRange(p.openingBalance, p.closingBalance)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
 
           {/* Extraction trace — which models were tried, which reconciled (dev only) */}
           {dev && (

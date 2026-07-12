@@ -13,7 +13,7 @@ export const strings = {
   pageSubtitle: "Upload a statement, then verify the extraction and reconciliation one at a time.",
 
   fileLabel: "Bank statement (PDF)",
-  checkButton: "Reconcile",
+  checkButton: (n: number) => `Reconcile ${n === 1 ? "statement" : "statements"}`,
   checkingButton: "Reconciling…",
   filesSelected: (n: number) => `${n} file${n === 1 ? "" : "s"} selected`,
   removeFile: "Remove",
@@ -57,8 +57,8 @@ export const strings = {
     "No transactions were found. This statement's format may not be recognized by the selected bank's parser (for example a different language or layout). Try the generic/AI option, or check the bank selection.",
   errorTooManyFiles: "Too many files. Please upload fewer statements at once.",
   // Multi-statement (combining several PDFs of the same account)
-  perFileHeading: "Statements combined",
   perFileColumns: { file: "File", count: "Transactions", period: "Period", range: "Balance range" },
+  perFileHeading: (n: number) => `Statements — ${n} file${n === 1 ? "" : "s"}`,
   // Files table — duplicate row badges
   fileBadgeDuplicate: "Duplicate",
   fileBadgeIgnored: "Ignored", // the copy that was excluded from the combined series
@@ -154,8 +154,7 @@ export const strings = {
   // Upload flow for adding accounts.
   addAccountButton: "+ Add another bank statement",
   accountBlockTitle: (n: number) => `Account ${n}`,
-  accountLabelPlaceholder: "Label (optional)",
-  primaryLabelPlaceholder: "Label (optional)",
+  accountLabelField: "Label (optional)", // shown above the label input, beside the bank selector
   removeAccount: "Remove account",
   accountFilesLabel: "Statement PDF(s)",
 

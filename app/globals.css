@@ -227,7 +227,9 @@ input[type="file"]::file-selector-button {
   font-weight: 500;
   font-family: var(--font-num);
   cursor: pointer;
-  transition: background 0.12s, border-color 0.12s;
+  transition:
+    background 0.12s,
+    border-color 0.12s;
 }
 .chip:hover {
   border-color: var(--action);
@@ -453,15 +455,31 @@ input[type="file"]::file-selector-button {
 }
 
 /* --- Multi-account upload (add another bank account) --- */
+/* Label input sits in a .control column beside the bank <select>; it fills the column
+   and matches the select's height/border so the two columns line up. */
 .account-label-input {
-  flex: 1 1 100%;
+  width: 100%;
   font-size: 14px;
   color: var(--ink);
-  padding: 10px 12px;
+  padding: 8px 10px;
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: 8px;
   background: var(--paper);
   font-family: var(--font-ui);
+}
+/* Bank + label columns share the row equally (same width). Their field fills the column. */
+.control--grow {
+  flex: 1 1 180px;
+}
+.control--grow select,
+.control--grow .account-label-input {
+  width: 100%;
+}
+/* The bank/label row is the first thing in the upload card — no top divider. */
+.controls--top {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
 }
 .account-block {
   flex: 1 1 100%;
@@ -479,8 +497,10 @@ input[type="file"]::file-selector-button {
   padding-top: 0;
   border-top: 0;
 }
-.account-block .account-label-input {
-  flex: 1 1 200px; /* sit beside the bank select, not on its own row */
+/* The account block is a flex COLUMN, so the global file-input `flex: 1 1 240px` would
+   read as a 240px HEIGHT — reset it to natural height. */
+.account-block input[type="file"] {
+  flex: 0 0 auto;
 }
 .account-block-head {
   display: flex;
@@ -520,9 +540,20 @@ input[type="file"]::file-selector-button {
   color: var(--ink-soft);
   font-variant-numeric: tabular-nums;
 }
+/* Right-hand meta on a compact file row (period → balance range, or size while pending). */
+.account-file-meta {
+  flex-shrink: 0;
+  color: var(--ink-soft);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.account-files .file-badge {
+  flex-shrink: 0;
+}
 .add-account {
   flex: 1 1 100%;
   align-self: flex-start;
+  text-align: left; /* buttons center their text by default — keep the link at the left */
 }
 /* Categorize toggle sits on its own row, between "add account" and the Reconcile button. */
 .categorize-toggle {
@@ -1338,9 +1369,6 @@ tbody tr.flash td {
   flex-wrap: wrap;
   align-items: center;
   gap: 16px 24px;
-  margin-top: 16px;
-  padding-top: 16px;
-  border-top: 1px solid var(--line);
 }
 .control {
   display: flex;

@@ -13,8 +13,8 @@ export const strings = {
   pageSubtitle: "Upload a statement, then verify the extraction and reconciliation one at a time.",
 
   fileLabel: "Bank statement (PDF)",
-  checkButton: "Check statement",
-  checkingButton: "Checking…",
+  checkButton: "Reconcile",
+  checkingButton: "Reconciling…",
   filesSelected: (n: number) => `${n} file${n === 1 ? "" : "s"} selected`,
   removeFile: "Remove",
 
@@ -99,6 +99,10 @@ export const strings = {
   // Per-column sort + filter dropdowns (BACKLOG 1.3) — presentation only.
   sortAsc: "Ascending",
   sortDesc: "Descending",
+  sortAtoZ: "From A to Z",
+  sortZtoA: "From Z to A",
+  sortOldToNew: "From oldest to newest",
+  sortNewToOld: "From newest to oldest",
   filterContains: "Contains…",
   filterSelectAll: "Select all",
   filterDeselectAll: "Deselect all",

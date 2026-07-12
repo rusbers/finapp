@@ -524,6 +524,10 @@ input[type="file"]::file-selector-button {
   flex: 1 1 100%;
   align-self: flex-start;
 }
+/* Categorize toggle sits on its own row, between "add account" and the Reconcile button. */
+.categorize-toggle {
+  flex: 1 1 100%;
+}
 /* Per-account breakdown (multi-account result): a title above the account blocks,
    then one .account-detail block per account. */
 .multi-head {

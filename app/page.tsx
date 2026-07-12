@@ -524,11 +524,17 @@ export default function Page() {
   // every row with the same merchant (not "contains"). Purely informative — never
   // touches reconciliation.
   const catKey = (t: Transaction) => normalizeDescription(t.description) || (t.description || "").toLowerCase()
+  // For DISPLAY the cell falls back to "Other" (a clickable default). For EXPORT we do
+  // NOT invent "Other": a row keeps its real/edited category, otherwise the Category
+  // cell stays EMPTY (so an export without categorization has a Category column but no
+  // fabricated values). A genuine "Other" assigned by the categorization step is a real
+  // value on `t.category` and is preserved either way.
   const effectiveCategory = (t: Transaction) => catOverrides[catKey(t)] ?? t.category ?? "Other"
+  const exportCategory = (t: Transaction) => catOverrides[catKey(t)] ?? t.category
   const setCategory = (t: Transaction, value: string) =>
     setCatOverrides((prev) => ({ ...prev, [catKey(t)]: value }))
   const withEditedCategories = (txs: Transaction[]) =>
-    txs.map((t) => ({ ...t, category: effectiveCategory(t) }))
+    txs.map((t) => ({ ...t, category: exportCategory(t) }))
   // Suggestions for the edit combobox: the fixed list plus any custom categories
   // the user already typed this session (so a new one is reusable on other rows).
   const catSuggestions = [
@@ -708,8 +714,9 @@ export default function Page() {
             setDurationMs(null)
           }}
         />
-        {/* Primary account label — only once we're adding more accounts. */}
-        {isMultiAccount && (
+        {/* Optional label for the FIRST account — available as soon as its statements
+            are attached (used when reconciling several accounts together). */}
+        {files.length > 0 && (
           <input
             className="account-label-input"
             type="text"
@@ -809,15 +816,6 @@ export default function Page() {
               ))}
             </select>
           </div>
-          <label className="toggle">
-            <input
-              type="checkbox"
-              checked={categorize}
-              onChange={(e) => updateSettings({ categorize: e.target.checked })}
-              disabled={isLoading}
-            />
-            {s.categorizeLabel}
-          </label>
         </div>
 
         {/* Extra accounts (a client with several bank accounts). Each has its own bank,
@@ -900,6 +898,17 @@ export default function Page() {
             {s.addAccountButton}
           </button>
         )}
+
+        {/* Categorization is a per-run cost choice, made right before reconciling. */}
+        <label className="toggle categorize-toggle">
+          <input
+            type="checkbox"
+            checked={categorize}
+            onChange={(e) => updateSettings({ categorize: e.target.checked })}
+            disabled={isLoading}
+          />
+          {s.categorizeLabel}
+        </label>
 
         <button className="button" onClick={handleCheck} disabled={!canCheck || isLoading}>
           {isLoading ? s.checkingButton : s.checkButton}

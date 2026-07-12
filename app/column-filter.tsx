@@ -40,22 +40,34 @@ const PANEL_MAX_HEIGHT = 320
 
 export default function ColumnFilter(props: Props) {
   const { label, align = "left", sortDir, onSort, active, onClear, open, onToggle, onClose } = props
+  // Sort labels read naturally per column type (text = A→Z, dates = oldest→newest).
+  const ascLabel = props.type === "text" ? s.sortAtoZ : props.type === "dateTree" ? s.sortOldToNew : s.sortAsc
+  const descLabel = props.type === "text" ? s.sortZtoA : props.type === "dateTree" ? s.sortNewToOld : s.sortDesc
   const triggerRef = useRef<HTMLButtonElement>(null)
   const panelRef = useRef<HTMLDivElement>(null)
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null)
 
   // Position the portalled panel under the trigger; clamp inside the viewport.
+  // The panel is rendered first (hidden) so we can measure its REAL height — a short
+  // panel (e.g. the Description filter) then sits right under the header instead of
+  // being pushed far above it by the max-height estimate.
   useLayoutEffect(() => {
-    if (!open) return
+    if (!open) {
+      setPos(null)
+      return
+    }
     const place = () => {
       const el = triggerRef.current
       if (!el) return
       const r = el.getBoundingClientRect()
+      const panelH = panelRef.current?.offsetHeight || PANEL_MAX_HEIGHT
       const below = window.innerHeight - r.bottom
-      const flip = below < PANEL_MAX_HEIGHT + 16 && r.top > below
+      // Flip above the trigger only when the panel genuinely doesn't fit below.
+      const flip = below < panelH + 8 && r.top > below
       let left = align === "right" ? r.right - PANEL_WIDTH : r.left
       left = Math.max(8, Math.min(left, window.innerWidth - PANEL_WIDTH - 8))
-      setPos({ top: flip ? r.top - 4 - PANEL_MAX_HEIGHT : r.bottom + 4, left })
+      const top = flip ? Math.max(8, r.top - 4 - panelH) : r.bottom + 4
+      setPos({ top, left })
     }
     place()
     window.addEventListener("scroll", place, true)
@@ -100,12 +112,19 @@ export default function ColumnFilter(props: Props) {
         ▾
       </button>
       {open &&
-        pos &&
         createPortal(
           <div
             ref={panelRef}
             className="filter-panel"
-            style={{ position: "fixed", top: pos.top, left: pos.left, width: PANEL_WIDTH }}
+            style={{
+              position: "fixed",
+              top: pos?.top ?? 0,
+              left: pos?.left ?? 0,
+              width: PANEL_WIDTH,
+              // Hidden (but laid out, so measurable) until positioned — avoids a flash
+              // at (0,0) and lets the layout effect read the real height first.
+              visibility: pos ? "visible" : "hidden",
+            }}
           >
             <div className="filter-sort">
               <button
@@ -113,14 +132,14 @@ export default function ColumnFilter(props: Props) {
                 className={sortDir === "asc" ? "active" : ""}
                 onClick={() => onSort("asc")}
               >
-                ▲ {s.sortAsc}
+                ▲ {ascLabel}
               </button>
               <button
                 type="button"
                 className={sortDir === "desc" ? "active" : ""}
                 onClick={() => onSort("desc")}
               >
-                ▼ {s.sortDesc}
+                ▼ {descLabel}
               </button>
             </div>
             <div className="filter-sep" />

@@ -11,7 +11,7 @@
 export const DEFAULT_ENABLE_FALLBACK = false
 
 export const DEFAULT_PRIMARY_MODEL = "gemini-2.5-flash-lite" // cheapest + fastest
-export const DEFAULT_FALLBACK_MODEL = "gemini-2.5-pro" // strongest
+export const DEFAULT_FALLBACK_MODEL = "gemini-2.5-flash" // strongest remaining (Pro removed)
 
 /**
  * PDF chunking — large statements are split into small page-chunks that are
@@ -30,7 +30,6 @@ export const MAX_CONCURRENT_CHUNKS = 8 // how many chunks to run at once
 export const ALLOWED_MODELS = [
   "gemini-2.5-flash-lite",
   "gemini-2.5-flash",
-  "gemini-2.5-pro",
 ] as const
 
 export type AllowedModel = (typeof ALLOWED_MODELS)[number]

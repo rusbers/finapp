@@ -23,6 +23,7 @@ import type {
   Transaction,
 } from "@/lib/core/types"
 import { BANK_LABELS, SHORT_BANK_LABELS, type BankId } from "@/lib/core/prompts"
+import { isAllowedModel } from "@/lib/core/config"
 import { mergeAccounts } from "@/lib/core/multi-account"
 import type { MultiAccount, MultiAccountResult } from "@/lib/core/multi-account"
 import { expensesReportToCsv, type ExpenseReport } from "@/lib/core/expenses"
@@ -113,7 +114,7 @@ interface ExtraAccount {
 // Default test settings + where they're saved in the browser.
 const DEFAULTS = {
   primaryModel: "gemini-2.5-flash-lite",
-  fallbackModel: "gemini-2.5-pro",
+  fallbackModel: "gemini-2.5-flash",
   enableFallback: false,
   bank: "generic" as BankId,
   devMode: false, // production view by default; toggled on for the full developer detail
@@ -407,6 +408,11 @@ export default function Page() {
   // A stale "ptsb" persisted in localStorage falls back to "generic" so we never
   // post a hidden bank to the backend.
   const selectedBank: BankId = visibleBanks.includes(bank) ? bank : "generic"
+  // Pro was removed from the model list. A stale "gemini-2.5-pro" persisted in
+  // localStorage falls back to a valid model so the selector + the request never
+  // carry an unsupported model.
+  const selectedPrimaryModel = isAllowedModel(primaryModel) ? primaryModel : DEFAULTS.primaryModel
+  const selectedFallbackModel = isAllowedModel(fallbackModel) ? fallbackModel : DEFAULTS.fallbackModel
   const updateSettings = (patch: Partial<Settings>) => saveSettings({ ...settings, ...patch })
   const resetSettings = () => saveSettings(DEFAULTS)
 
@@ -498,8 +504,8 @@ export default function Page() {
         for (const f of files) fd.append("files", f)
         fd.append("bank", selectedBank)
       }
-      fd.append("primaryModel", primaryModel)
-      fd.append("fallbackModel", fallbackModel)
+      fd.append("primaryModel", selectedPrimaryModel)
+      fd.append("fallbackModel", selectedFallbackModel)
       fd.append("enableFallback", String(enableFallback))
       fd.append("categorize", String(categorize))
       if (expensesFile) fd.append("expenses", expensesFile)
@@ -1007,13 +1013,12 @@ export default function Page() {
             <div className="control">
               <label className="control-label">{s.primaryModelLabel}</label>
               <select
-                value={primaryModel}
+                value={selectedPrimaryModel}
                 onChange={(e) => updateSettings({ primaryModel: e.target.value })}
                 disabled={isLoading}
               >
                 <option value="gemini-2.5-flash-lite">{s.modelLiteName}</option>
                 <option value="gemini-2.5-flash">{s.modelFlashName}</option>
-                <option value="gemini-2.5-pro">{s.modelProName}</option>
               </select>
             </div>
 
@@ -1030,13 +1035,12 @@ export default function Page() {
             <div className="control" style={{ opacity: enableFallback ? 1 : 0.5 }}>
               <label className="control-label">{s.fallbackModelLabel}</label>
               <select
-                value={fallbackModel}
+                value={selectedFallbackModel}
                 onChange={(e) => updateSettings({ fallbackModel: e.target.value })}
                 disabled={isLoading || !enableFallback}
               >
                 <option value="gemini-2.5-flash-lite">{s.modelLiteName}</option>
                 <option value="gemini-2.5-flash">{s.modelFlashName}</option>
-                <option value="gemini-2.5-pro">{s.modelProName}</option>
               </select>
             </div>
 

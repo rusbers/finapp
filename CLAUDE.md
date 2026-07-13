@@ -157,13 +157,13 @@ generating large tangled chunks that are hard to supervise.
   structures until the market asks for it.
 - **No bank-specific templates yet.** The template + auto-repair + versioning
   system is the long-term destination, but for now extraction runs the AI on
-  every statement + reconciliation (with the flash→pro cascade). Add templates
+  every statement + reconciliation (with the flash-lite→flash cascade). Add templates
   later, once the base engine is proven and there is data on which banks dominate.
 - **No enterprise features (teams, API plans, SOC 2) yet.** Add when justified.
 
 Note: the model **cascade** (primary → fallback on reconciliation failure) IS now
 implemented in `pipeline.ts`. Models and fallback on/off are selectable from the
-UI per request, with defaults in `config.ts` (lite / pro / off). Keep fallback on
+UI per request, with defaults in `config.ts` (lite / flash / off). Keep fallback on
 for testing; off by default in production to control cost.
 
 ### Templates (future design, for reference)
@@ -568,7 +568,8 @@ pdfjs-dist`): for the target banks, reading the PDF's text positions (x/y) and
   discrepancy, duration) for stats. The primary model, fallback model, and
   fallback on/off are all **selectable from the UI per request** (test controls).
   When the caller omits them (e.g. a future API), defaults from `config.ts` apply:
-  primary `gemini-2.5-flash-lite`, fallback `gemini-2.5-pro`, fallback OFF.
+  primary `gemini-2.5-flash-lite`, fallback `gemini-2.5-flash`, fallback OFF
+  (Pro was removed from the model list; the allow-list is flash-lite + flash).
   The backend validates model names against an allow-list in `config.ts`.
 - **Retry with backoff** (`gemini.ts`): transient errors (429/500/502/503/504,
   timeout, network) are retried up to 4 attempts with 1s→2s→4s backoff. Auth /
@@ -581,7 +582,7 @@ pdfjs-dist`): for the target banks, reading the PDF's text positions (x/y) and
 - **UI**: signature reconciliation equation (verdict), running-balance column,
   extraction trace (model stats), CSV export, a row-by-row balance diagnosis that
   highlights exactly which row breaks, and test controls (primary/fallback model
-  selectors + fallback toggle, defaulting to lite / pro / off). The verdict has a
+  selectors + fallback toggle, defaulting to lite / flash / off). The verdict has a
   third **"soft" (amber) state** for an out-of-balance that is fully explained by a
   known bank-side inconsistency (e.g. Revolut crypto-sell spreads — see
   `isExplainedByCryptoFees` in `verification.ts`), so it's visually distinct from a

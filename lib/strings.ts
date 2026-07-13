@@ -43,7 +43,6 @@ export const strings = {
   enableFallbackLabel: "Use fallback if reconciliation fails",
   modelLiteName: "Flash-Lite (fastest)",
   modelFlashName: "Flash (balanced)",
-  modelProName: "Pro (most accurate)",
   resetButton: "Reset to defaults",
 
   // Balance-based sign corrections

@@ -86,9 +86,13 @@ const RULES: Rule[] = [
 
   // --- Top-up (account funding) — its own category, AFTER Savings so "savings vault
   // topup" stays Savings, and BEFORE Transfers. Real wordings: EN "top-up by" /
-  // "*mobi top-up", RO "alimentare …", RU "пополнение счета …", any "… open banking". ---
+  // "*mobi top-up" / "TPP" (open-banking third-party provider) / "early credit grant",
+  // RO "alimentare …", RU "пополнение счета …" (matched by the "пополнение" substring),
+  // any "… open banking". "tpp" uses a word boundary so it never matches inside a word. ---
   ["top-up", "Top-up"],
   ["topup", "Top-up"],
+  [/\btpp\b/, "Top-up"],
+  ["early credit grant", "Top-up"],
   ["alimentare", "Top-up"],
   ["пополнение", "Top-up"],
   ["open banking", "Top-up"],

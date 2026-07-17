@@ -770,6 +770,17 @@ layer (bank identification + saving results).
   filterable HTML report (`.reconcile/report.html`, open with `npm run test:report` or the
   `--open` flag) — a dev/local artifact only, nothing in `app/`. See `WORKFLOW.md` →
   "Regression harness".
+- **Performance baseline (`npm run test:perf`).** The timing counterpart to the
+  regression harness: `scripts/test-perf.mts` times the DETERMINISTIC path
+  (`extractAndReconcile`, no AI) on a few representative real statements and flags any
+  speed regression (>25% AND >50ms slower) vs a saved baseline
+  (`.reconcile/perf-baseline.json`, gitignored — timings are machine-specific, so the
+  baseline is per-machine, not committed). First run writes the baseline; `-- --update`
+  rewrites it. Reconciliation must still pass (a `RECON-FAIL` fails the run). Reference
+  numbers (warm, local): Revolut full-year ≈3170 tx ~5.3s (heaviest, dominated by tx
+  count); BOI 320 tx ~0.4s; typical sub-500-tx statements are sub-second. Extraction is
+  the only speed-critical path — the UI/route work (period slicing, `#` column,
+  sort/filter, `stampBank`) sits outside it and does not affect these numbers.
 - **Concise chat replies.** Keep prose responses in chat short and to the point.
   This applies ONLY to chat — code, diffs, and documentation are never shortened
   for the sake of brevity.

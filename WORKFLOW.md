@@ -125,6 +125,24 @@ breaks a previously-good statement is caught immediately.
 - **Workflow:** after a parser change, run `-- <bank>`, eyeball the diff; if every change
   is intended, re-run with `--update-baseline` to lock it in, then commit.
 
+### Performance baseline (`npm run test:perf`)
+
+The timing counterpart to the correctness harness above. `scripts/test-perf.mts` times the
+DETERMINISTIC path (`extractAndReconcile`, no AI, warm process, 3 runs after a warm-up) on a
+few representative real statements and flags a speed regression — average >25% slower AND
+>50ms absolute — vs a saved baseline.
+
+- **Baseline:** `.reconcile/perf-baseline.json` (gitignored). Timings are machine-specific,
+  so the baseline is **per-machine, never committed**: the first run on a machine writes it;
+  `-- --update` rewrites it after an intended change. Missing statement files are skipped
+  (not an error), like the correctness harness.
+- **Also asserts reconciliation** still passes (a `RECON-FAIL` fails the run), so it can't
+  silently time broken extraction. Exit code is non-zero on any regression/failure.
+- **Reference numbers (warm, local):** Revolut full-year ≈3170 tx ~5.3s (heaviest —
+  dominated by tx count, ~1.7ms/tx), BOI 320 tx ~0.4s, AIB 82 tx ~0.08s; typical
+  sub-500-tx statements are sub-second. Extraction is the ONLY speed-critical path; the
+  UI/route work (period slicing, `#` column, sort/filter, `stampBank`) is outside it.
+
 ---
 
 ## Per-bank parsers (general)

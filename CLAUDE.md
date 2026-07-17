@@ -629,16 +629,28 @@ pdfjs-dist`): for the target banks, reading the PDF's text positions (x/y) and
   (an accounting export: `Supplier, Description, Category, Date, Amount, VAT…`) alongside the
   statements; the app matches each expense to a statement **debit** and reports which are
   found. **`parseExpensesCsv`** is a small quoted-field CSV reader (the codebase had no CSV
-  *reader*, only `toCsv`); **`matchExpenses`** pools every account's transactions and, for each
-  expense with `amount > 0`, finds an unused debit whose amount matches **to the cent** within a
-  **±7-day window** (`DEFAULT_WINDOW_DAYS`), one-to-one, tiebroken by the supplier appearing in
-  the bank description then closest date. A matched transaction is tagged `category = "Expense"`
-  (marker, per the user's choice — NOT the expense's own category); the returned
-  `ExpenseReport` lists every expense with a **found / not-found** flag + where it matched
-  (date · account · **source file+page** of the matched debit, via `matchedSourceFile`/
-  `matchedPage`). Matching is EXACT on purpose — a fuzzy-but-wrong match is worse than a
-  not-found the accountant can review; the not-found list is the deliverable (expenses paid
-  by cash / another account / with a different amount). Wired in `app/api/extract/route.ts`
+  *reader*, only `toCsv`); **`matchExpenses`** pools every account's transactions and matches on a
+  **single strict rule, one-to-one**: for each expense with `amount > 0`, an unused debit whose amount
+  matches **to the cent** AND whose description **contains the supplier name** (fuzzy `nameMatches`)
+  AND whose date is **within ±5 days** (`DEFAULT_WINDOW_DAYS`); `pickBest` breaks ties by closest date.
+  **The supplier name is REQUIRED** — this is deliberate: an exact-amount debit alone produces
+  coincidental false matches (a €X expense hitting an unrelated €X transfer / ATM withdrawal / a
+  different merchant with the same amount). Requiring the name removes those (measured on real data:
+  6 wrong "exact" matches eliminated); an expense with no name-confirmed debit is left **not found**
+  for the accountant to review (cash / another account / genuinely absent — the not-found list is the
+  deliverable). The fuzzy matcher **`nameMatches`** handles the ways a bank line differs from the
+  supplier: (a) **truncation/abbreviation** via token-prefix match either direction, ≥4 chars
+  ("Screwfix Blanchardstown"→"SCREWFIX", even "SCREW"; "Tool Fix"→"TOOLFIX"); (b) **punctuation/spacing**
+  via a word-boundary n-gram on the collapsed form ("B&Q" ↔ "B & Q" → "bq"), which — being a word
+  boundary, not a raw substring — avoids "EE" matching inside "coff**ee**"; a `NAME_STOPWORDS` list
+  drops generic words that collide across merchants (ltd, service, **station**, **ireland**, insurance,
+  motor, direct…) so "Spar … Service **Station**" doesn't match "Circle K Gas **Station**". **Known
+  limit:** a supplier name containing a LOCATION can rarely still collide (e.g. "Centra Artane" vs a
+  different merchant "… ARTAN" at the same amount+date) — place names are structurally
+  indistinguishable from a distinctive brand token (cf. the correct "Richard J Gough"→"R J GOUGH"
+  abbreviation), so this is accepted, not special-cased. A matched transaction is tagged `category =
+  "Expense"` (marker — NOT the expense's own category); the returned `ExpenseMatch` records where it
+  matched (date · account · **source file+page**). Wired in `app/api/extract/route.ts`
   parallel to `maybeCategorize`: expense matching runs **BEFORE** categorization, and
   `maybeCategorize` then **skips rows already tagged `"Expense"`** (`.filter(t => t.category !==
   "Expense")`) — so the marker is never overwritten AND no AI is spent on matched rows. Added to
@@ -672,10 +684,11 @@ pdfjs-dist`): for the target banks, reading the PDF's text positions (x/y) and
   appended column — it's simply the original link column, kept under its own name with the full URL.
   Additive: matching runs only when an `expenses.csv` is
   uploaded; it never affects reconciliation, parsers, or the regression fingerprint. Test: `npm
-  run test:expenses` (synthetic parse/match/source asserts + a real case
-  `statements/expenses-reconciliation/2/` = BOI×3 + Revolut, 78/109 exact matches — the rest
-  correctly not-found). **Each numbered folder under `statements/expenses-reconciliation/` is one
-  client** (statements + one `expenses.csv`).
+  run test:expenses` (synthetic parse/match/source asserts + fuzzy `nameMatches` + name-tier asserts,
+  and a real case `statements/expenses-reconciliation/2/` = BOI×3 + Revolut, **70/109 found** (exact
+  amount + name + ≤5 days; manually reviewed — 69 correct, 1 location-word collision, and it recovered
+  real matches the old exact-only rule got wrong, e.g. Toolfix). **Each numbered folder under
+  `statements/expenses-reconciliation/` is one client** (statements + one `expenses.csv`).
 - **Reconciled-CSV re-import** (`csv-import.ts`): the user can upload a transactions CSV the app
   EXPORTED earlier to rebuild the already-reconciled account(s) — no PDF re-parse, no AI — mainly
   to reconcile them against an `expenses.csv`, or to re-view / re-export after editing a value.

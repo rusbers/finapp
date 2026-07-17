@@ -17,7 +17,7 @@ import { toCents } from "./reconciliation"
 import { csvCell } from "./verification"
 
 /** A day window (either side) within which a debit may match an expense's date. */
-export const DEFAULT_WINDOW_DAYS = 7
+export const DEFAULT_WINDOW_DAYS = 5
 
 export interface Expense {
   supplier: string
@@ -182,6 +182,77 @@ function supplierTokens(supplier: string): string[] {
     .filter((w) => w.length >= 4)
 }
 
+// --- Fuzzy supplier-name matching (Tier 2) --------------------------------
+// The bank line rarely equals the supplier name verbatim: it truncates
+// ("Screwfix Blanchardstown" → "Screwfix", even "Screw"), abbreviates, and varies
+// punctuation/spacing ("B&Q" ↔ "B & Q"). A plain `includes` is too rigid, so we
+// match on cleaned/collapsed forms. A light local cleaner (not categorization.ts's
+// `normalizeDescription`) keeps this module free of the Gemini import chain.
+
+/** Generic words that carry no brand signal — dropped from the supplier so a lone
+ * "Ltd"/"Station"/"Ireland" can never trigger a name match (they collide across
+ * unrelated merchants: "… Service Station" ↔ "Circle K Gas Station"; "… Ireland" ↔
+ * "LIDL IRELAND"). Entity suffixes, retail/fuel nouns, and country/generic terms. */
+const NAME_STOPWORDS = new Set([
+  // entity / legal
+  "ltd", "limited", "plc", "llc", "inc", "co", "company", "group", "holdings", "ulc", "dac", "ta",
+  // retail / fuel / generic nouns
+  "service", "services", "shop", "store", "retail", "station", "garage", "filling", "fuel",
+  "mart", "market", "supermarket", "express", "outlet", "village", "centre", "center",
+  "direct", "online", "sales", "insurance", "motor", "motors", "motorway",
+  // country / filler
+  "ireland", "irl", "the", "and",
+])
+
+/** Split into lowercased alphanumeric words, dropping pure-number tokens (refs, card
+ * masks, POS codes collapse to noise that never matches a brand word). */
+function wordsOf(text: string): string[] {
+  return (text || "")
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter((w) => w.length > 0 && !/^\d+$/.test(w))
+}
+
+/**
+ * Does the bank `description` fuzzily contain the `supplier` name? Two rules, EITHER:
+ *   1. Token prefix (min 4 chars, either direction) — truncation/normal brands
+ *      (screwfix↔screw, "Screwfix Blanchardstown"↔screwfix, tesco↔"tesco express").
+ *   2. Short-brand word-boundary n-gram — the collapsed supplier (≥2 chars) equals the
+ *      collapsed join of 1–3 ADJACENT description words (B&Q "bq" == "b"+"q"). Using a
+ *      word boundary (not a raw substring) avoids "EE" matching inside "coffee".
+ * A supplier with no signal (no strong token AND collapsed < 2) never matches.
+ */
+export function nameMatches(supplier: string, description: string): boolean {
+  const supWords = wordsOf(supplier)
+  const supStrong = supWords.filter((w) => w.length >= 3 && !NAME_STOPWORDS.has(w))
+  const supCollapsed = supWords.join("")
+  if (supStrong.length === 0 && supCollapsed.length < 2) return false
+
+  const descWords = wordsOf(description)
+
+  // Rule 1 — token prefix, ≥4 char overlap, either direction.
+  for (const sw of supStrong) {
+    for (const dw of descWords) {
+      const shorter = Math.min(sw.length, dw.length)
+      if (shorter >= 4 && (sw.startsWith(dw) || dw.startsWith(sw))) return true
+    }
+  }
+
+  // Rule 2 — short brand: collapsed supplier equals a 1–3 adjacent-word join.
+  if (supCollapsed.length >= 2) {
+    for (let i = 0; i < descWords.length; i++) {
+      let gram = ""
+      for (let n = 0; n < 3 && i + n < descWords.length; n++) {
+        gram += descWords[i + n]
+        if (gram === supCollapsed) return true
+        if (gram.length > supCollapsed.length) break
+      }
+    }
+  }
+
+  return false
+}
+
 /** Of several same-amount, in-window candidates, prefer one whose description
  * contains the supplier, then the closest date, then a deterministic order. */
 function pickBest(expense: Expense, candidates: MatchEntry[]): MatchEntry {
@@ -203,8 +274,13 @@ function pickBest(expense: Expense, candidates: MatchEntry[]): MatchEntry {
 }
 
 /**
- * Match each expense to a statement debit (exact cents + date window, one-to-one).
- * MUTATES matched transactions' `category` to "Expense". Returns the report.
+ * Match each expense to a statement debit. A match requires ALL THREE: the **exact**
+ * cent amount, the **supplier name** present in the bank description (fuzzy `nameMatches`),
+ * and a date **within ±windowDays** (default ±5). One-to-one; MUTATES the matched
+ * transaction's `category` to "Expense". Requiring the name removes coincidental
+ * same-amount matches to a different merchant (e.g. a €X expense won't match an unrelated
+ * €X transfer/ATM withdrawal); an expense with no name-confirmed debit is left "not found"
+ * for the accountant to review.
  */
 export function matchExpenses(
   expenses: Expense[],
@@ -225,13 +301,15 @@ export function matchExpenses(
 
   const used = new Set<MatchEntry>()
   const matches: ExpenseMatch[] = []
-  let foundCount = 0
 
   for (const expense of expenses) {
     let match: ExpenseMatch = { expense, found: false }
     if (expense.amountCents > 0) {
       const candidates = (byCents.get(expense.amountCents) ?? []).filter(
-        (e) => !used.has(e) && withinWindow(expense.date, e.tx.date, windowDays),
+        (e) =>
+          !used.has(e) &&
+          withinWindow(expense.date, e.tx.date, windowDays) &&
+          nameMatches(expense.supplier, e.tx.description),
       )
       if (candidates.length > 0) {
         const best = pickBest(expense, candidates)
@@ -247,12 +325,12 @@ export function matchExpenses(
           matchedSourceFile: best.tx.sourceFile,
           matchedPage: best.tx.page,
         }
-        foundCount += 1
       }
     }
     matches.push(match)
   }
 
+  const foundCount = matches.filter((m) => m.found).length
   return { matches, total: expenses.length, foundCount }
 }
 

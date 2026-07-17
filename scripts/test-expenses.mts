@@ -14,6 +14,7 @@ import {
   parseExpensesCsv,
   matchExpenses,
   expensesReportToCsv,
+  nameMatches,
   type MatchEntry,
 } from "../lib/core/expenses"
 import { extractAccounts, type AccountInput } from "../lib/core/multi-account-extract"
@@ -73,11 +74,11 @@ check("parse: no link column -> link undefined", parsed[0].link === undefined)
   check("parse: 'Receipt URL' header -> link captured (substring)", withUrl[0].link === "https://receipts.example/2")
 }
 
-// Matching: exact cents + date window (±7).
+// Matching: exact cents + supplier name + date window (±5). Both debits carry the name.
 {
   const entries: MatchEntry[] = [
-    { tx: tx("2025-12-31", 30.03, "POS CIRCLE K CLONTARF") }, // +1 day -> match
-    { tx: tx("2025-12-27", 55.49, "WOODIES DIY") }, // exact day -> match
+    { tx: tx("2025-12-31", 30.03, "POS CIRCLE K CLONTARF") }, // +1 day, name present -> match
+    { tx: tx("2025-12-27", 55.49, "WOODIES DIY") }, // exact day, name present -> match
   ]
   const r = matchExpenses(parsed, entries)
   check("match: 2 of 3 found (zero-amount not matchable)", r.foundCount === 2 && r.total === 3)
@@ -85,53 +86,41 @@ check("parse: no link column -> link undefined", parsed[0].link === undefined)
   check("match: zero-amount expense not found", r.matches[2].found === false)
   check("match: records matched date", r.matches[0].matchedDate === "2025-12-31")
 }
-// Date window edge: +7 matches, +8 doesn't.
+// Date window edge: +5 matches, +6 doesn't (name present in both).
 {
-  const e7 = matchExpenses([parseExpensesCsv(CSV)[0]], [{ tx: tx("2026-01-06", 30.03) }]) // +7 days
-  const e8 = matchExpenses([parseExpensesCsv(CSV)[0]], [{ tx: tx("2026-01-07", 30.03) }]) // +8 days
-  check("match: +7 days within window", e7.foundCount === 1)
-  check("match: +8 days outside window", e8.foundCount === 0)
+  const ck = parseExpensesCsv(CSV)[0] // Circle K Clontarf, 2025-12-30, 30.03
+  const e5 = matchExpenses([ck], [{ tx: tx("2026-01-04", 30.03, "POS CIRCLE K CLONTARF") }]) // +5 days
+  const e6 = matchExpenses([ck], [{ tx: tx("2026-01-05", 30.03, "POS CIRCLE K CLONTARF") }]) // +6 days
+  check("match: +5 days within window", e5.foundCount === 1)
+  check("match: +6 days outside window", e6.foundCount === 0)
 }
-// One-to-one: two same-amount expenses, one debit -> one found, one not.
+// One-to-one: two same-amount, same-name expenses, one debit -> one found, one not.
 {
   const two = parseExpensesCsv(
     `"Supplier","Description","Category","Date","Amount"
-"A","A","X","2025-06-01","10.00"
-"B","B","X","2025-06-02","10.00"`,
+"Tesco","A","X","2025-06-01","10.00"
+"Tesco","B","X","2025-06-02","10.00"`,
   )
-  const one = matchExpenses(two, [{ tx: tx("2025-06-01", 10.0) }])
+  const one = matchExpenses(two, [{ tx: tx("2025-06-01", 10.0, "POS TESCO EXPRESS") }])
   check("match: one-to-one (2 expenses, 1 debit -> 1 found)", one.foundCount === 1)
-}
-// Supplier tiebreak: pick the debit whose description contains the supplier.
-{
-  const [exp] = parseExpensesCsv(
-    `"Supplier","Description","Category","Date","Amount"
-"Woodies","Woodies paint","X","2025-06-10","20.00"`,
-  )
-  const entries: MatchEntry[] = [
-    { tx: tx("2025-06-10", 20.0, "SOME OTHER SHOP") },
-    { tx: tx("2025-06-12", 20.0, "POS WOODIES CORK") },
-  ]
-  const r = matchExpenses([exp], entries)
-  check("match: supplier tiebreak picks WOODIES", r.matches[0].matchedDescription === "POS WOODIES CORK")
 }
 // Source: the matched debit's file + page are recorded.
 {
   const [exp] = parseExpensesCsv(
     `"Supplier","Description","Category","Date","Amount"
-"A","A","X","2025-06-10","20.00"`,
+"Woodies","A","X","2025-06-10","20.00"`,
   )
   const r = matchExpenses([exp], [
-    { tx: { ...tx("2025-06-10", 20.0), sourceFile: "june.pdf", page: 3 }, account: "AIB" },
+    { tx: { ...tx("2025-06-10", 20.0, "POS WOODIES CORK"), sourceFile: "june.pdf", page: 3 }, account: "AIB" },
   ])
   check(
     "match: records source file + page",
     r.matches[0].matchedSourceFile === "june.pdf" && r.matches[0].matchedPage === 3,
   )
 }
-// Export shape: original CSV preserved verbatim (incl. VAT) + exactly 3 appended columns.
+// Export shape: original CSV preserved verbatim (incl. VAT) + exactly 4 appended columns.
 {
-  const r = matchExpenses(parsed, [{ tx: tx("2025-12-30", 30.03) }])
+  const r = matchExpenses(parsed, [{ tx: tx("2025-12-30", 30.03, "POS CIRCLE K CLONTARF") }])
   const csv = expensesReportToCsv(r)
   const head = csv.split("\n")[0]
   check("export: preserves original VAT column", head.includes("VAT Total"))
@@ -152,6 +141,58 @@ check("parse: no link column -> link undefined", parsed[0].link === undefined)
     head === "Supplier,Amount,Receipt URL,Found,Matched account,Matched date,Source",
   )
   check("export: original link URL preserved", csv.includes("https://receipts.example/1"))
+}
+
+// --- Fuzzy supplier-name matcher + NAME-REQUIRED matching -----------------
+console.log("\n# Fuzzy name matcher + name-required matching")
+// nameMatches unit checks — truncation, punctuation, and no false hits.
+check("name: truncation (Screwfix Blanchardstown -> SCREW)", nameMatches("Screwfix Blanchardstown", "POS SCREW DUBLIN"))
+check("name: full brand in the line", nameMatches("Screwfix Blanchardstown", "SCREWFIX IE 12"))
+check("name: punctuation B&Q == 'B & Q'", nameMatches("B&Q", "B & Q RETAIL PARK"))
+check("name: no false hit ('EE' inside 'coffee')", !nameMatches("EE", "COFFEE ANGEL DUBLIN"))
+check("name: generic-only supplier never matches", !nameMatches("Services Ltd", "RANDOM MERCHANT CORK"))
+check("name: unrelated brands don't match", !nameMatches("Tesco", "SUPERVALU CORK"))
+// Generic-word collisions must NOT match (real false positives found on live data).
+check("name: 'Service Station' doesn't collide via 'station'", !nameMatches("Spar Hollystown Service Station", "Circle K Gas Station"))
+check("name: 'Ireland' doesn't collide", !nameMatches("Screwfix Ireland Ltd", "LIDL IRELAND"))
+check("name: but the real brand still matches", nameMatches("Screwfix Ireland Ltd", "POSC23SEP SCREWFIX IR"))
+
+// Exact amount + name + within window -> found.
+{
+  const [exp] = parseExpensesCsv(
+    `"Supplier","Description","Category","Date","Amount"
+"Screwfix Blanchardstown","tools","X","2025-06-10","50.00"`,
+  )
+  const r = matchExpenses([exp], [{ tx: tx("2025-06-12", 50.0, "POS SCREWFIX IE") }])
+  check("match: exact amount + name + <=5d -> found", r.matches[0].found === true && r.matches[0].matchedDescription === "POS SCREWFIX IE")
+}
+// Exact amount but the NAME is ABSENT -> NOT found (the key precision rule: no
+// coincidental same-amount match to a different merchant / a transfer / an ATM).
+{
+  const [exp] = parseExpensesCsv(
+    `"Supplier","Description","Category","Date","Amount"
+"Toolfix","tools","X","2025-06-10","50.00"`,
+  )
+  const r = matchExpenses([exp], [{ tx: tx("2025-06-10", 50.0, "Transfer to JOHN SMITH") }])
+  check("match: exact amount but NO name -> not found", r.matches[0].found === false)
+}
+// Name present but the amount differs -> NOT found (amount must be exact).
+{
+  const [exp] = parseExpensesCsv(
+    `"Supplier","Description","Category","Date","Amount"
+"Screwfix","tools","X","2025-06-10","50.00"`,
+  )
+  const r = matchExpenses([exp], [{ tx: tx("2025-06-11", 52.0, "POS SCREWFIX IE") }])
+  check("match: name present but amount differs -> not found", r.matches[0].found === false)
+}
+// Exact amount + name but OUTSIDE the ±5-day window -> NOT found.
+{
+  const [exp] = parseExpensesCsv(
+    `"Supplier","Description","Category","Date","Amount"
+"Woodies","paint","X","2025-06-01","20.00"`,
+  )
+  const r = matchExpenses([exp], [{ tx: tx("2025-06-20", 20.0, "POS WOODIES CORK") }]) // +19 days
+  check("match: exact amount + name but >5 days -> not found", r.matches[0].found === false)
 }
 
 // --- 2. Real case (case 2: BOI x3 + Revolut) ------------------------------

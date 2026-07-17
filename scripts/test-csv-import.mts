@@ -73,7 +73,7 @@ const combined: StatementData = {
   transactions: [
     { date: "2024-01-02", description: "AIB in", debit: 0, credit: 100, balance: 100, sourceFile: "aib.pdf", page: 3, accountLabel: "AIB" },
     { date: "2024-01-03", description: "Rev in", debit: 0, credit: 5, balance: 15, sourceFile: "rev.pdf", accountLabel: "Revolut" },
-    { date: "2024-01-05", description: "AIB out", debit: 40, credit: 0, balance: 60, sourceFile: "aib.pdf", page: 4, accountLabel: "AIB" },
+    { date: "2024-01-05", description: "POS SCREWFIX BLANCH", debit: 40, credit: 0, balance: 60, sourceFile: "aib.pdf", page: 4, accountLabel: "AIB" },
     { date: "2024-01-06", description: "Rev out", debit: 5, credit: 0, balance: 10, sourceFile: "rev.pdf", accountLabel: "Revolut" },
   ],
 }
@@ -127,7 +127,7 @@ const entries: MatchEntry[] = imp3.flatMap((a) =>
 )
 const expensesCsv =
   "Supplier,Description,Category,Date,Amount\n" +
-  "Landlord,office rent,Rent,2024-01-04,40.00\n" + // matches AIB out (40) within 7 days
+  "Screwfix,tools,Repairs,2024-01-04,40.00\n" + // exact 40 + name in "POS SCREWFIX BLANCH" + within 5 days
   "Ghost,nothing,Misc,2024-01-04,999.00\n" // no matching debit
 const report = matchExpenses(parseExpensesCsv(expensesCsv), entries)
 console.log("\n# 7. Expense matching on reconstructed accounts")

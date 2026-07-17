@@ -404,14 +404,25 @@ Optional: the user uploads an `expenses.csv` (accounting export: Supplier, Descr
 Category, Date, Amount, VAT…) with the statements; the app matches each expense to a
 statement **debit** and reports found / not-found. `parseExpensesCsv` is a small
 quoted-field CSV reader (no CSV *reader* existed — only `toCsv` writes). `matchExpenses`
-pools ALL accounts' transactions and, for each expense with amount > 0, finds an unused
-debit matching **to the cent within ±7 days** (`DEFAULT_WINDOW_DAYS`), one-to-one,
-tiebroken by supplier-in-description then closest date; a match tags the row
-`category = "Expense"` (a marker — the user chose this over the expense's own category)
-and records where it matched (date · account · source file+page). **Matching is EXACT on
-purpose** — a fuzzy-but-wrong match is worse than a not-found the accountant reviews; the
-not-found list IS the deliverable (paid by cash / another account / a different amount).
-Wired in `route.ts`: expense matching runs **BEFORE** categorization, and `maybeCategorize`
+pools ALL accounts' transactions and matches on a **single strict rule, one-to-one**: for each
+expense with amount > 0, an unused debit whose amount matches **to the cent** AND whose description
+**contains the supplier name** (fuzzy `nameMatches`) AND whose date is **within ±5 days**
+(`DEFAULT_WINDOW_DAYS`); `pickBest` breaks ties by closest date. **The name is REQUIRED** on purpose —
+an exact-amount debit alone produces coincidental false matches (a €X expense hitting an unrelated €X
+transfer / ATM / a different merchant at the same amount); requiring the name removes those (measured:
+6 wrong exact matches eliminated on the real case, and it recovered real ones the old rule missed, e.g.
+Toolfix). An expense with no name-confirmed debit is left **not found** for the accountant to review.
+`nameMatches` is fuzzy on purpose: (a) token-prefix either direction, ≥4 chars, for
+truncation/abbreviation ("Screwfix Blanchardstown"→"SCREWFIX"/"SCREW"; "Tool Fix"→"TOOLFIX"); (b) a
+word-boundary n-gram on the collapsed form for punctuation ("B&Q"↔"B & Q"→"bq"; word-boundary, not raw
+substring, so "EE"∌"coffee"); a `NAME_STOPWORDS` list drops words that collide across merchants (ltd,
+service, **station**, **ireland**, insurance, motor…). **Known limit:** a supplier name with a LOCATION
+can rarely still collide ("Centra Artane" vs a different merchant "…ARTAN" at the same amount+date) —
+place names are structurally indistinguishable from a distinctive brand token (cf. the correct
+"Richard J Gough"→"R J GOUGH"), so it's accepted, not special-cased. A match tags the row
+`category = "Expense"` (a marker — the user chose this over the expense's own category) and records
+where it matched (date · account · source file+page). Wired in `route.ts`: expense matching runs
+**BEFORE** categorization, and `maybeCategorize`
 then **skips rows already tagged `"Expense"`** — so the marker isn't overwritten and no AI is
 spent on matched rows. Added to every branch's response as `expenses`; entries carry
 `{ tx, account }` so the report names the paying account WITHOUT setting `accountLabel` on
@@ -431,12 +442,13 @@ CSV has usable links: `parseExpensesCsv` reads a header containing "link"/"url" 
 by `expenseHref` (http(s)/www only). In the CSV export the link stays as its original column.
 Additive — runs only when a CSV is uploaded, never
 touches reconciliation/parsers/the fingerprint. **Test**: `npm run test:expenses` (synthetic
-parse/match asserts + real case `statements/expenses-reconciliation/2/` = BOI×3 + Revolut →
-78/109 exact, rest correctly not-found). **Each numbered folder under
-`statements/expenses-reconciliation/` = one client** (statements + one `expenses.csv`).
-Calibration finding: on real data ~72% match exactly; the rest are genuinely not in the
-uploaded accounts (cash/other) or differ in amount — widening the window just creates false
-matches at 100+ days, so exact stays.
+parse/match + fuzzy `nameMatches` + name-required asserts, and real case
+`statements/expenses-reconciliation/2/` = BOI×3 + Revolut → **70/109 found**; manually reviewed —
+69 correct + 1 location-word collision (Centra Artane), and it recovered real matches the old
+exact-only rule got wrong). **Each numbered folder under `statements/expenses-reconciliation/` = one
+client** (statements + one `expenses.csv`). Calibration finding: exact-amount-alone gave ~72% but with
+~6 WRONG coincidental matches (same amount, different merchant/transfer/ATM); requiring the name trades
+a slightly lower recall (70/109) for much higher precision — the not-found list stays the deliverable.
 
 ## Reconciled-CSV re-import (`csv-import.ts`)
 
@@ -481,7 +493,7 @@ client-safe `checkReconciliation` / `mergeAccounts` / `matchExpenses` as a norma
 - **Multi-account** (one client, several banks): combined table + per-account
   reconciliation shipped; NO transfer detection (out of scope). See section above.
 - **Expense reconciliation** (match an `expenses.csv` against statement debits):
-  shipped; exact cents + ±7-day match, "Expense" tag, found/not-found report. See above.
+  shipped; exact cents + supplier name (fuzzy) + ±5-day match, "Expense" tag, found/not-found. See above.
 - **Reconciled-CSV re-import** (re-load an exported transactions CSV → rebuild + reconcile
   client-side → match expenses): shipped; own-export format, one file. See section above.
 - Next candidates: PTSB parser; automatic bank identification; DB/auth (Phasing).

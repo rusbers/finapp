@@ -28,6 +28,15 @@ const MAX_ACCOUNTS = 8 // sanity cap on how many accounts one client can reconci
 const MAX_FILES_TOTAL = 60 // total PDFs across all accounts (one account can still hold up to MAX_FILES)
 const MAX_LABEL_LENGTH = 40 // max characters for a user-typed account label
 
+/** Tag every row with the bank's short label so the UI + CSV always show a "Bank"
+ * column, even for a single-bank statement (multi-account already carries per-account
+ * labels). Display-only; the deterministic core never sets accountLabel, so the
+ * regression harness's snapshots — taken straight from the core — stay unchanged. */
+function stampBank(txs: Transaction[], bank: BankId): void {
+  const label = SHORT_BANK_LABELS[bank]
+  for (const t of txs) t.accountLabel = label
+}
+
 export async function POST(req: NextRequest) {
   try {
     const formData = await req.formData()
@@ -197,11 +206,13 @@ export async function POST(req: NextRequest) {
         }
         const expenses = maybeExpenses(r.result.data.transactions.map((tx) => ({ tx })))
         const categorization = await maybeCategorize([r.result.data.transactions])
+        stampBank(r.result.data.transactions, bank)
         return NextResponse.json({ ...r.result, fileName: uploaded[0].name, categorization, expenses })
       }
       const result = await extractAndReconcile(pdfBytes, options)
       const expenses = maybeExpenses(result.data.transactions.map((tx) => ({ tx })))
       const categorization = await maybeCategorize([result.data.transactions])
+      stampBank(result.data.transactions, bank)
       return NextResponse.json({ ...result, fileName: uploaded[0].name, categorization, expenses })
     }
 
@@ -215,6 +226,7 @@ export async function POST(req: NextRequest) {
     const multiResult = await extractAndReconcileMany(filesWithBytes, options)
     const expenses = maybeExpenses(multiResult.result.data.transactions.map((tx) => ({ tx })))
     const categorization = await maybeCategorize([multiResult.result.data.transactions])
+    stampBank(multiResult.result.data.transactions, bank)
 
     // Flatten so the UI gets the same top-level result fields, plus multi extras.
     // The file label reflects the files actually used (unique = perFile), so ignored

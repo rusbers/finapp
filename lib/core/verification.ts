@@ -32,9 +32,10 @@ export function transactionSource(t: Transaction, fallbackFile?: string): string
  * Build a CSV string from the extracted statement.
  * Columns: Date, Description, Debit, Credit, Balance, Category, Source — in statement order.
  *
- * When any row carries an `accountLabel` (the multi-account combined export), an
- * "Account" column is prepended. Statements without account labels are byte-for-byte
- * unchanged, so the regression harness's snapshots stay identical.
+ * When any row carries an `accountLabel`, an "Account" column is prepended — the route
+ * stamps the bank on single-account statements and the account labels on multi-account
+ * ones. The deterministic core never sets `accountLabel`, so statements exported straight
+ * from it (the regression harness) get NO column and stay byte-for-byte identical.
  */
 export function toCsv(data: StatementData, opts: { defaultSource?: string } = {}): string {
   const txs = data.transactions ?? []

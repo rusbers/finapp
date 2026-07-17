@@ -173,7 +173,7 @@ export const strings = {
   multiFail: "Out of balance — check the accounts below",
   multiHeading: (n: number) => `Linked accounts — ${n} account${n === 1 ? "" : "s"}`,
   metaAccountsLabel: "Accounts",
-  thAccount: "Account",
+  thAccount: "Account", // source column, always shown (single = the bank; multi = account labels)
   // Upload flow for adding accounts.
   addAccountButton: "+ Add another bank statement",
   accountBlockTitle: (n: number) => `Account ${n}`,

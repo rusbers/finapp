@@ -357,10 +357,13 @@ larger attempt with transfer matching + badges was reverted by the user.)
 - **API**: `accounts` JSON `[{bank, label}]` + files under repeated `account-<i>` keys
   (caps: 8 accounts / 60 files total / 40-char labels), backward-compatible with
   `file`/`files`. Returns `{ multi: { accounts, allReconciled }, fileName, categorization }`.
-- **CSV**: `toCsv` prepends an "Account" column ONLY when a row carries `accountLabel`
-  (combined export). Per-account CSVs and every existing single/harness CSV are unchanged
-  (byte-identical) because their rows have no `accountLabel`. `Transaction.accountLabel`
-  is display-only and NOT part of the reconciliation fingerprint.
+- **CSV / "Account" column**: `toCsv` prepends an **"Account"** column ONLY when a row carries
+  `accountLabel`. The extract route stamps `SHORT_BANK_LABELS[bank]` on single-account
+  statements (so the column is ALWAYS shown in-app, even for one bank) and multi-account
+  carries per-account labels. The deterministic CORE never sets `accountLabel`, so every
+  harness CSV (taken from the core, not the route) has no column and stays byte-identical.
+  `Transaction.accountLabel` is display-only and NOT part of the reconciliation fingerprint.
+  In the UI the column shows whenever any row has a label (`showAccountCol` in `page.tsx`).
 - **Test**: `npm run test:multi` — synthetic asserts (dedupe, merge order + stamping) +
   real clients under `statements/interbank/<n>/`. **Each numbered folder = ONE separate
   client; never mix folders.** Runs with `allowAiFallback: false` (deterministic, no API).

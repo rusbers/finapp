@@ -542,9 +542,12 @@ pdfjs-dist`): for the target banks, reading the PDF's text positions (x/y) and
   JSON field `[{bank, label}]` + files under repeated `account-<i>` keys (caps: 8 accounts,
   60 files total, 40-char labels), backward-compatible with the `file`/`files` paths;
   returns `{ multi: { accounts, allReconciled }, fileName: "N accounts · M files" }`.
-  `Transaction.accountLabel` (display-only) carries the account into the merged table +
-  CSV (an "Account" column is prepended ONLY when rows carry it, so harness snapshots stay
-  byte-identical). In multi-account mode the single-statement verdict/equation/period-bar/
+  `Transaction.accountLabel` (display-only) carries the source into the merged table +
+  CSV as an **"Account" column, ALWAYS shown**: the extract route stamps
+  `SHORT_BANK_LABELS[bank]` on a single-account statement's rows (so even one bank gets the
+  column) and multi-account carries per-account labels. `toCsv` prepends the column ONLY
+  when a row carries `accountLabel`; the deterministic CORE never sets it, so harness
+  snapshots (taken from the core, not the route) stay byte-identical. In multi-account mode the single-statement verdict/equation/period-bar/
   balance-breaks/dev-trace are hidden (they're per-extraction concepts). Headless test:
   `npm run test:multi` (synthetic asserts + real clients under `statements/interbank/<n>/`,
   **each numbered folder = one separate client**). Verified end-to-end: 4×AIB+Revolut and

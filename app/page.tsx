@@ -629,11 +629,14 @@ export default function Page() {
     ? [...new Set(transactions.map((t) => effectiveCategory(t)))].sort((a, b) => a.localeCompare(b))
     : []
   const availableDates = [...new Set(transactions.map((t) => t.date).filter((d): d is string => !!d))].sort()
-  // Account column (multi-account only): the labels present, in account order.
+  // Bank/source column — shown whenever any row carries an accountLabel (multi-account
+  // labels, OR the bank stamped by the route for a single-bank statement).
+  const showAccountCol = transactions.some((t) => !!t.accountLabel)
+  // Filter values: account order in multi-account; otherwise the distinct labels present.
   const availableAccounts =
     isMulti && result?.multi
       ? result.multi.accounts.filter((a) => a.transactionCount > 0).map((a) => a.label)
-      : []
+      : [...new Set(transactions.map((t) => t.accountLabel).filter((l): l is string => !!l))]
   const totals = { categories: availableCategories.length, dates: availableDates.length, accounts: availableAccounts.length }
   const displayRows = useMemo(
     () => applyView(transactions, filters, sort, (t) => catOverrides[catKey(t)] ?? t.category ?? "Other"),
@@ -1744,7 +1747,7 @@ export default function Page() {
             <thead>
               <tr>
                 {checkMode && <th className="check-col" aria-label={s.verifiedColumn}></th>}
-                {isMulti && (
+                {showAccountCol && (
                   <th className="account sortable">
                     <ColumnFilter type="checkbox" {...columnFilterProps("account", s.thAccount)}
                       options={availableAccounts}
@@ -1803,7 +1806,7 @@ export default function Page() {
                       />
                     </td>
                   )}
-                  {isMulti && <td className="account">{t.accountLabel}</td>}
+                  {showAccountCol && <td className="account">{t.accountLabel}</td>}
                   <td className="rownum">{idx + 1}</td>
                   <td className="date">{t.date}</td>
                   <td>{t.description}</td>

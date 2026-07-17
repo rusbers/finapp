@@ -1755,7 +1755,9 @@ export default function Page() {
                       onChange={(v) => setFilterSlice("account", v == null || v.length === availableAccounts.length ? undefined : v)} />
                   </th>
                 )}
-                <th className="rownum">#</th>
+                <th className="rownum sortable">
+                  <ColumnFilter type="sort" {...columnFilterProps("row", "#")} />
+                </th>
                 <th className="date sortable">
                   <ColumnFilter type="dateTree" {...columnFilterProps("date", s.thDate)}
                     options={availableDates}

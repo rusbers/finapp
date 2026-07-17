@@ -243,7 +243,9 @@ touches reconciliation.
 **Per-column sort + filter (BACKLOG 1.3).** The main table's headers each open an
 Excel-style dropdown (`app/column-filter.tsx`, portalled to `<body>`): sort asc/desc + a
 type-specific filter (text contains, category checkboxes, a Year→Month→Day date tree, numeric
-min/max).
+min/max). The **`#` (`row`)** column is **sort-only** (a `type: "sort"` ColumnFilter, no filter
+body) — it sorts on the 1-based STATEMENT-ORDER index (`idx` in `applyView`, not a field), so
+sort-asc restores statement order after you've sorted by something else.
 **Manual verification tick (BACKLOG 2.1).** A "Check mode" toggle (off by default) reveals a
 leading checkbox column on the main table to mark rows "verified" while checking against the PDF
 (subtle green wash + a "X of Y verified" counter). State is a client-side `Set` of original row

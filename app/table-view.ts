@@ -9,9 +9,9 @@
 
 import type { Transaction } from "@/lib/core/types"
 
-/** Columns that can be sorted / filtered. `#` and Source are excluded. `account` is
- * present only in the multi-account combined table. */
-export type ColumnKey = "account" | "date" | "description" | "debit" | "credit" | "balance" | "category"
+/** Columns that can be sorted / filtered. `row` is the "#" statement-order index — SORT-only
+ * (no filter); Source is excluded. `account` is present only in the multi-account table. */
+export type ColumnKey = "row" | "account" | "date" | "description" | "debit" | "credit" | "balance" | "category"
 
 /** One active sort criterion at a time (null = original statement order). */
 export type SortState = { key: ColumnKey; dir: "asc" | "desc" } | null
@@ -53,6 +53,8 @@ const numOk = (value: number | null | undefined, range?: NumRange): boolean => {
 /** True when a given column currently narrows the view (drives the "active" indicator). */
 export function isColumnActive(col: ColumnKey, filters: Filters, totals: Totals): boolean {
   switch (col) {
+    case "row":
+      return false // "#" is sort-only — no filter to be active
     case "account":
       return filters.account != null && filters.account.length < totals.accounts
     case "description":
@@ -105,26 +107,29 @@ export function applyView(
 
   if (sort) {
     const { key } = sort
-    const cmp = (a: Transaction, b: Transaction): number => {
+    // Compares DisplayRows so "row" can sort on the original index (idx), not a field.
+    const cmp = (a: DisplayRow, b: DisplayRow): number => {
       switch (key) {
+        case "row":
+          return a.idx - b.idx
         case "account":
-          return (a.accountLabel ?? "").localeCompare(b.accountLabel ?? "")
+          return (a.t.accountLabel ?? "").localeCompare(b.t.accountLabel ?? "")
         case "date":
-          return (a.date ?? "").localeCompare(b.date ?? "")
+          return (a.t.date ?? "").localeCompare(b.t.date ?? "")
         case "description":
-          return (a.description ?? "").localeCompare(b.description ?? "")
+          return (a.t.description ?? "").localeCompare(b.t.description ?? "")
         case "category":
-          return categoryOf(a).localeCompare(categoryOf(b))
+          return categoryOf(a.t).localeCompare(categoryOf(b.t))
         case "debit":
-          return (a.debit ?? -Infinity) - (b.debit ?? -Infinity)
+          return (a.t.debit ?? -Infinity) - (b.t.debit ?? -Infinity)
         case "credit":
-          return (a.credit ?? -Infinity) - (b.credit ?? -Infinity)
+          return (a.t.credit ?? -Infinity) - (b.t.credit ?? -Infinity)
         case "balance":
-          return (a.balance ?? -Infinity) - (b.balance ?? -Infinity)
+          return (a.t.balance ?? -Infinity) - (b.t.balance ?? -Infinity)
       }
     }
     // Array.sort is stable, so equal keys keep their original statement order.
-    rows = [...rows].sort((a, b) => cmp(a.t, b.t))
+    rows = [...rows].sort(cmp)
     if (sort.dir === "desc") rows.reverse()
   }
 

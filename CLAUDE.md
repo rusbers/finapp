@@ -687,12 +687,15 @@ pdfjs-dist`): for the target banks, reading the PDF's text positions (x/y) and
   re-import of the app's own CSV). UI-export-only: the harness calls `toCsv` WITHOUT the
   flag, so its snapshots stay byte-identical.
 - **Per-column sort + filter (BACKLOG 1.3)**: the main single/combined transaction table
-  has an Excel/Sheets-style dropdown on each header (Date, Description, Debit, Credit,
+  has an Excel/Sheets-style dropdown on each header (**#**, Date, Description, Debit, Credit,
   Balance, Category) — a `<ColumnFilter>` (`app/column-filter.tsx`) whose panel is portalled
   to `<body>` (escaping the table's `overflow: hidden`). Each dropdown offers sort
   (asc/desc) + a type-specific filter: text "contains" (description), value checkboxes with
   select/deselect-all (category), an Excel-style Year→Month→Day checkbox tree (date, built by
-  `buildDateTree`), numeric min/max (debit/credit/balance).
+  `buildDateTree`), numeric min/max (debit/credit/balance). The **`row` ("#")** column is
+  **sort-only** (a `type: "sort"` ColumnFilter — asc/desc, no filter body): it sorts on the
+  1-based STATEMENT-ORDER index (`idx` in `applyView`, not a field), so sort-asc restores
+  statement order after you've sorted by another column / desc reverses it.
   Filters on different columns combine with **AND**; a single sort key is active at a time.
   The pure logic lives in `app/table-view.ts` (`applyView`, `isColumnActive`,
   `anyFilterActive` + the `ColumnKey`/`Filters`/`SortState` types); `app/page.tsx` holds the

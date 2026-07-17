@@ -28,6 +28,7 @@ type Base = {
   onClose: () => void
 }
 type Variant =
+  | { type: "sort" } // sort asc/desc only, no filter body (e.g. the "#" row-order column)
   | { type: "text"; value: string; onChange: (v: string) => void }
   | { type: "checkbox"; value: string[] | null; options: string[]; onChange: (v: string[] | null) => void }
   | { type: "dateTree"; value: string[] | null; options: string[]; onChange: (v: string[] | null) => void }
@@ -142,8 +143,12 @@ export default function ColumnFilter(props: Props) {
                 ▼ {descLabel}
               </button>
             </div>
-            <div className="filter-sep" />
-            <FilterBody {...props} />
+            {props.type !== "sort" && (
+              <>
+                <div className="filter-sep" />
+                <FilterBody {...props} />
+              </>
+            )}
             {active && (
               <div className="filter-actions">
                 <button type="button" className="link-button" onClick={onClear}>
@@ -160,6 +165,7 @@ export default function ColumnFilter(props: Props) {
 
 /** The filter section, whose shape depends on the column type. */
 function FilterBody(props: Props) {
+  if (props.type === "sort") return null // sort-only column: no filter body
   if (props.type === "text") {
     return (
       <input

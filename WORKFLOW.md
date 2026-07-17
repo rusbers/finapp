@@ -364,6 +364,10 @@ larger attempt with transfer matching + badges was reverted by the user.)
   harness CSV (taken from the core, not the route) has no column and stays byte-identical.
   `Transaction.accountLabel` is display-only and NOT part of the reconciliation fingerprint.
   In the UI the column shows whenever any row has a label (`showAccountCol` in `page.tsx`).
+- **CSV "#" column**: the UI export (`downloadCsv` → `toCsv({ rowNumbers: true })`) adds a
+  **"#"** column after Account = the 1-based statement-order index, so order can be restored
+  after sorting the file (running balance is only valid in that order). Harness calls `toCsv`
+  without the flag → snapshots unchanged. Forward-compatible with a future CSV re-import.
 - **Test**: `npm run test:multi` — synthetic asserts (dedupe, merge order + stamping) +
   real clients under `statements/interbank/<n>/`. **Each numbered folder = ONE separate
   client; never mix folders.** Runs with `allowAiFallback: false` (deterministic, no API).

@@ -680,6 +680,12 @@ pdfjs-dist`): for the target banks, reading the PDF's text positions (x/y) and
   The AI/vision path does NOT set `page` (it works on multi-page chunks), so those rows
   show the file only. These fields are NOT part of the reconciliation or the regression
   fingerprint (which hashes only date/description/debit/credit/balance).
+- **CSV "#" (row-order) column**: the UI CSV export (`downloadCsv` → `toCsv` with
+  `rowNumbers: true`) prepends a **"#"** column after Account — the 1-based position in
+  statement order — so the user can restore that order after sorting/filtering the file
+  elsewhere (the running balance is only valid in statement order; also handy for a future
+  re-import of the app's own CSV). UI-export-only: the harness calls `toCsv` WITHOUT the
+  flag, so its snapshots stay byte-identical.
 - **Per-column sort + filter (BACKLOG 1.3)**: the main single/combined transaction table
   has an Excel/Sheets-style dropdown on each header (Date, Description, Debit, Credit,
   Balance, Category) — a `<ColumnFilter>` (`app/column-filter.tsx`) whose panel is portalled

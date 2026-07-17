@@ -36,12 +36,22 @@ export function transactionSource(t: Transaction, fallbackFile?: string): string
  * stamps the bank on single-account statements and the account labels on multi-account
  * ones. The deterministic core never sets `accountLabel`, so statements exported straight
  * from it (the regression harness) get NO column and stay byte-for-byte identical.
+ *
+ * With `opts.rowNumbers` (set by the UI export via `downloadCsv`), a "#" column — the
+ * 1-based position in statement order — is inserted after Account. It lets the user
+ * restore statement order after sorting/filtering the CSV elsewhere (the running balance
+ * is only valid in that order). The harness calls `toCsv` WITHOUT the flag, so its
+ * snapshots stay byte-identical.
  */
-export function toCsv(data: StatementData, opts: { defaultSource?: string } = {}): string {
+export function toCsv(
+  data: StatementData,
+  opts: { defaultSource?: string; rowNumbers?: boolean } = {},
+): string {
   const txs = data.transactions ?? []
   const hasAccount = txs.some((t) => t.accountLabel)
   const header = [
     ...(hasAccount ? ["Account"] : []),
+    ...(opts.rowNumbers ? ["#"] : []),
     "Date",
     "Description",
     "Debit",
@@ -50,8 +60,9 @@ export function toCsv(data: StatementData, opts: { defaultSource?: string } = {}
     "Category",
     "Source",
   ]
-  const rows = txs.map((t) => [
+  const rows = txs.map((t, i) => [
     ...(hasAccount ? [csvCell(t.accountLabel ?? "")] : []),
+    ...(opts.rowNumbers ? [csvCell(String(i + 1))] : []),
     csvCell(t.date),
     csvCell(t.description),
     csvCell(t.debit ? t.debit.toFixed(2) : ""),
@@ -63,9 +74,10 @@ export function toCsv(data: StatementData, opts: { defaultSource?: string } = {}
   return [header, ...rows].map((r) => r.join(",")).join("\n")
 }
 
-/** Trigger a CSV download in the browser. */
+/** Trigger a CSV download in the browser. The UI export always includes the "#"
+ * (statement-order) column so the order can be restored after editing the file. */
 export function downloadCsv(data: StatementData, fileName: string, defaultSource?: string): void {
-  const csv = toCsv(data, { defaultSource })
+  const csv = toCsv(data, { defaultSource, rowNumbers: true })
   const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" })
   const url = URL.createObjectURL(blob)
   const a = document.createElement("a")

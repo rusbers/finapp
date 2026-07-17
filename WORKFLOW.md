@@ -352,10 +352,14 @@ larger attempt with transfer matching + badges was reverted by the user.)
   table reuses the existing single-table stack by pointing `transactions` at these rows;
   the merged index IS the row's "original index" (ids/highlights/category-cell/check-mode
   stay tied to it). `viewData`/`r`/balance-breaks stay on the single path (null in multi).
-- **Hidden in multi mode**: the standard verdict/equation, financial-period bar,
-  balance-breaks + "Next discrepancy", and the dev trace/corrections (all per-extraction).
-  The verdict comes from the per-account summary; `allReconciled` = every account with
-  transactions reconciles.
+- **Hidden in multi mode**: the standard verdict/equation, balance-breaks + "Next discrepancy",
+  and the dev trace/corrections (all per-extraction). The verdict comes from the per-account
+  summary; `allReconciled` = every account with transactions reconciles.
+- **Financial-period bar IS shown in multi mode**: selecting a year/range slices EACH account
+  (`slicePeriod`, `lib/core/period.ts`) and RE-RECONCILES it (opening/closing from that account's
+  running balance) — so the per-account verdicts, the combined table and every CSV reflect the
+  period, exactly like a single statement (`displayMulti` in `page.tsx`). The per-file breakdown
+  shows only for the full period. Test: `npm run test:period`.
 - **API**: `accounts` JSON `[{bank, label}]` + files under repeated `account-<i>` keys
   (caps: 8 accounts / 60 files total / 40-char labels), backward-compatible with
   `file`/`files`. Returns `{ multi: { accounts, allReconciled }, fileName, categorization }`.
@@ -374,7 +378,7 @@ larger attempt with transfer matching + badges was reverted by the user.)
   real clients under `statements/interbank/<n>/`. **Each numbered folder = ONE separate
   client; never mix folders.** Runs with `allowAiFallback: false` (deterministic, no API).
   Deferred (named, not built): transfer detection; per-account balance-breaks in the
-  combined table; period-bar in multi; cross-account duplicate warning.
+  combined table; cross-account duplicate warning.
 
 ## Expense reconciliation (`expenses.ts`)
 

@@ -547,8 +547,12 @@ pdfjs-dist`): for the target banks, reading the PDF's text positions (x/y) and
   `SHORT_BANK_LABELS[bank]` on a single-account statement's rows (so even one bank gets the
   column) and multi-account carries per-account labels. `toCsv` prepends the column ONLY
   when a row carries `accountLabel`; the deterministic CORE never sets it, so harness
-  snapshots (taken from the core, not the route) stay byte-identical. In multi-account mode the single-statement verdict/equation/period-bar/
-  balance-breaks/dev-trace are hidden (they're per-extraction concepts). Headless test:
+  snapshots (taken from the core, not the route) stay byte-identical. In multi-account mode the single-statement equation/
+  balance-breaks/dev-trace are hidden (they're per-extraction concepts), BUT the **Financial-period bar
+  IS shown**: selecting a year/range slices EACH account (`slicePeriod` in `lib/core/period.ts`) and
+  **re-reconciles it** (opening/closing from that account's running balance), so the per-account
+  verdicts, the combined table and every CSV reflect the period — just like a single statement
+  (`displayMulti` in `page.tsx`; per-file breakdown shown only for the full period). Headless test:
   `npm run test:multi` (synthetic asserts + real clients under `statements/interbank/<n>/`,
   **each numbered folder = one separate client**). Verified end-to-end: 4×AIB+Revolut and
   BOI+Revolut clients reconcile per account, labels dedupe, combined table is chronological.

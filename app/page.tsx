@@ -24,6 +24,7 @@ import type {
 } from "@/lib/core/types"
 import { BANK_LABELS, SHORT_BANK_LABELS, type BankId } from "@/lib/core/prompts"
 import { isAllowedModel } from "@/lib/core/config"
+import { slicePeriod, type Period } from "@/lib/core/period"
 import { mergeAccounts } from "@/lib/core/multi-account"
 import type { MultiAccount, MultiAccountResult } from "@/lib/core/multi-account"
 import { expensesReportToCsv, type ExpenseReport } from "@/lib/core/expenses"
@@ -173,51 +174,6 @@ function saveSettings(next: Settings): void {
     // ignore write failures
   }
   settingsListeners.forEach((l) => l()) // notify this tab
-}
-
-/* ------------------------------------------------------------------ *
- * Financial-period filtering.
- * The accountant reconciles a closing financial YEAR. A combined upload can span
- * past the year boundary (e.g. end-2024 → start-2026); selecting a period slices
- * the extracted series into its own statement — deriving the period's OPENING
- * (the running balance entering it) and CLOSING (the running balance at its end) —
- * so the verdict is a REAL reconciliation of that period, not just hidden rows.
- * ------------------------------------------------------------------ */
-type Period = { kind: "all" } | { kind: "year"; year: string } | { kind: "range"; from: string; to: string }
-
-function slicePeriod(data: StatementData, period: Period): StatementData {
-  if (period.kind === "all") return data
-  const from = period.kind === "year" ? `${period.year}-01-01` : period.from
-  const to = period.kind === "year" ? `${period.year}-12-31` : period.to
-  const tx = data.transactions
-  const inRange = (d: string) => (!from || d >= from) && (!to || d <= to)
-
-  const firstIdx = tx.findIndex((t) => !!t.date && inRange(t.date))
-  if (firstIdx === -1) {
-    return { bank: data.bank, openingBalance: 0, closingBalance: 0, transactions: [] }
-  }
-  const sliceTx = tx.filter((t) => !!t.date && inRange(t.date))
-
-  // Opening = printed running balance of the row just before the period's first row
-  // (in series order); if the period starts at/before the data, the statement's own
-  // opening. Fallback (no balances): opening + Σ(credit−debit) of the rows before it.
-  const prev = firstIdx > 0 ? tx[firstIdx - 1] : null
-  const openingBalance =
-    firstIdx === 0
-      ? data.openingBalance
-      : prev && prev.balance != null
-        ? prev.balance
-        : data.openingBalance +
-          tx.slice(0, firstIdx).reduce((sum, t) => sum + (t.credit || 0) - (t.debit || 0), 0)
-
-  // Closing = printed running balance of the period's last row (fallback: computed).
-  const last = sliceTx[sliceTx.length - 1]
-  const closingBalance =
-    last.balance != null
-      ? last.balance
-      : openingBalance + sliceTx.reduce((sum, t) => sum + (t.credit || 0) - (t.debit || 0), 0)
-
-  return { bank: data.bank, openingBalance, closingBalance, transactions: sliceTx }
 }
 
 /**
@@ -525,10 +481,17 @@ export default function Page() {
     }
   }
 
-  // Distinct calendar years present (for the financial-period chips).
-  const years = result?.data
-    ? [...new Set(result.data.transactions.map((t) => t.date?.slice(0, 4)).filter((y): y is string => !!y))].sort()
-    : []
+  // Distinct calendar years present (for the financial-period chips) — from the single
+  // statement OR every multi-account's rows.
+  const yearSrc = result?.data?.transactions ?? (result?.multi?.accounts.flatMap((a) => a.transactions) ?? [])
+  const years = [...new Set(yearSrc.map((t) => t.date?.slice(0, 4)).filter((y): y is string => !!y))].sort()
+  // Filename suffix for the selected period (shared by the single/combined/per-account CSVs).
+  const periodSuffix =
+    period.kind === "year" ? `-${period.year}` : period.kind === "range" ? `-${period.from}_${period.to}` : ""
+  // Show the Financial period bar whenever the result actually has transactions (single or multi).
+  const hasResultTx =
+    (result?.data?.transactions.length ?? 0) > 0 ||
+    (result?.multi?.accounts.some((a) => a.transactions.length > 0) ?? false)
 
   // The result, SLICED to the selected financial period (single/combined path).
   // For "all" this is the whole extraction; for a year/range it's that period
@@ -540,17 +503,41 @@ export default function Page() {
   )
   const r = viewData ? checkReconciliation(viewData) : null
 
-  // Multi-account: interleave every account's rows into ONE chronological list for the
-  // combined table (each row stamped with its accountLabel). The table stack below is
-  // reused as-is by pointing `transactions` at these merged rows. Reconciliation stays
-  // PER ACCOUNT (in `result.multi.accounts`) — there is no combined reconciliation.
+  // Multi-account: the Financial period slices EACH account to the selected period and
+  // re-reconciles it (opening/closing from that account's running balance), exactly like a
+  // single statement — so the per-account verdicts, the combined table and the CSVs all
+  // reflect the period. For "all" it's the untouched server result.
   const isMulti = !!result?.multi
+  const displayMulti = useMemo(() => {
+    if (!result?.multi) return null
+    if (period.kind === "all") return result.multi
+    const accounts = result.multi.accounts.map((a) => {
+      const sliced = slicePeriod(
+        { bank: a.bank, openingBalance: a.openingBalance, closingBalance: a.closingBalance, transactions: a.transactions },
+        period,
+      )
+      return {
+        ...a,
+        transactions: sliced.transactions,
+        openingBalance: sliced.openingBalance,
+        closingBalance: sliced.closingBalance,
+        transactionCount: sliced.transactions.length,
+        reconciliation: checkReconciliation(sliced),
+      }
+    })
+    return {
+      ...result.multi,
+      accounts,
+      allReconciled: accounts.every((a) => a.transactionCount === 0 || a.reconciliation.passed),
+    }
+  }, [result, period])
+  // Interleave every (sliced) account's rows into ONE chronological list for the combined table.
   const merged = useMemo(
     () =>
-      result?.multi
-        ? mergeAccounts(result.multi.accounts.map((a) => ({ label: a.label, transactions: a.transactions })))
+      displayMulti
+        ? mergeAccounts(displayMulti.accounts.map((a) => ({ label: a.label, transactions: a.transactions })))
         : null,
-    [result],
+    [displayMulti],
   )
   const tableData: StatementData | null = merged
     ? { bank: "combined", openingBalance: 0, closingBalance: 0, transactions: merged.transactions }
@@ -634,8 +621,8 @@ export default function Page() {
   const showAccountCol = transactions.some((t) => !!t.accountLabel)
   // Filter values: account order in multi-account; otherwise the distinct labels present.
   const availableAccounts =
-    isMulti && result?.multi
-      ? result.multi.accounts.filter((a) => a.transactionCount > 0).map((a) => a.label)
+    isMulti && displayMulti
+      ? displayMulti.accounts.filter((a) => a.transactionCount > 0).map((a) => a.label)
       : [...new Set(transactions.map((t) => t.accountLabel).filter((l): l is string => !!l))]
   const totals = { categories: availableCategories.length, dates: availableDates.length, accounts: availableAccounts.length }
   const displayRows = useMemo(
@@ -1264,21 +1251,89 @@ export default function Page() {
 
       {/* Multiple bank accounts (one client) — each reconciled independently, shown
           in one combined table below. */}
-      {result?.multi && (
+      {/* Financial period — slice the whole result (a single statement OR every account) to a
+          year/custom range and RE-RECONCILE it (opening/closing derived from the running
+          balance): the verdict(s), the combined table and the CSVs all reflect the period.
+          Shown for both single and multi-account. */}
+      {hasResultTx && (
+        <div className="period-bar">
+          <span className="period-label">{s.periodLabel}</span>
+          <span className="info-tip" tabIndex={0} aria-label={s.periodHint}>
+            i<span className="info-tip-bubble">{s.periodHint}</span>
+          </span>
+          <div className="period-chips">
+            <button
+              type="button"
+              className={`chip ${period.kind === "all" ? "active" : ""}`}
+              onClick={() => setPeriod({ kind: "all" })}
+            >
+              {s.periodAll}
+            </button>
+            {years.map((y) => (
+              <button
+                key={y}
+                type="button"
+                className={`chip ${period.kind === "year" && period.year === y ? "active" : ""}`}
+                onClick={() => setPeriod({ kind: "year", year: y })}
+              >
+                {y}
+              </button>
+            ))}
+            <button
+              type="button"
+              className={`chip ${period.kind === "range" ? "active" : ""}`}
+              onClick={() =>
+                setPeriod({
+                  kind: "range",
+                  from: years[0] ? `${years[0]}-01-01` : "",
+                  to: years.length ? `${years[years.length - 1]}-12-31` : "",
+                })
+              }
+            >
+              {s.periodCustom}
+            </button>
+          </div>
+          {period.kind === "range" && (
+            <div className="period-range">
+              <input
+                type="date"
+                value={period.from}
+                onChange={(e) => setPeriod({ kind: "range", from: e.target.value, to: period.to })}
+              />
+              <span className="period-arrow">→</span>
+              <input
+                type="date"
+                value={period.to}
+                onChange={(e) => setPeriod({ kind: "range", from: period.from, to: e.target.value })}
+              />
+            </div>
+          )}
+          {period.kind !== "all" && (
+            <span className="period-covers">
+              {transactions.length > 0
+                ? s.periodCovers(transactions[0].date, transactions[transactions.length - 1].date)
+                : s.periodEmpty}
+            </span>
+          )}
+        </div>
+      )}
+
+      {displayMulti && (
         <>
-          <div className={`verdict ${result.multi.allReconciled ? "pass" : "fail"}`}>
+          <div className={`verdict ${displayMulti.allReconciled ? "pass" : "fail"}`}>
             <div className="verdict-head">
-              <span className="pill">{result.multi.allReconciled ? "✓" : "!"}</span>
-              {result.multi.allReconciled ? s.multiPass : s.multiFail}
+              <span className="pill">{displayMulti.allReconciled ? "✓" : "!"}</span>
+              {displayMulti.allReconciled ? s.multiPass : s.multiFail}
             </div>
           </div>
           <div className="multi-head">
-            <span className="per-file-title">{s.multiHeading(result.multi.accounts.length)}</span>
+            <span className="per-file-title">{s.multiHeading(displayMulti.accounts.length)}</span>
           </div>
 
           {/* One block per account: header (bank · tx · reconciled · CSV) + a per-statement
-              breakdown showing each PDF's period and balance range. */}
-          {result.multi.accounts.map((a, ai) => (
+              breakdown showing each PDF's period and balance range (only for the full period —
+              a year/range slice re-reconciles each account but the per-file rows are unsliced). */}
+          {displayMulti.accounts.map((a, ai) => (
             <div key={ai} className="account-detail">
               <div className="meta">
                 <span className="account-name">
@@ -1310,7 +1365,7 @@ export default function Page() {
                           closingBalance: a.closingBalance,
                           transactions: withEditedCategories(a.transactions),
                         },
-                        `${a.label.replace(/[^\w.-]+/g, "_")}.csv`,
+                        `${a.label.replace(/[^\w.-]+/g, "_")}${periodSuffix}.csv`,
                         a.fileNames[0],
                       )
                     }
@@ -1319,7 +1374,7 @@ export default function Page() {
                   </button>
                 )}
               </div>
-              {a.transactionCount > 0 && (
+              {period.kind === "all" && a.transactionCount > 0 && (
                 <table className="files-table">
                   <thead>
                     <tr>
@@ -1350,11 +1405,11 @@ export default function Page() {
           ))}
 
           {/* Per-account gap warnings — a missing statement in that account's series. */}
-          {result.multi.accounts.some((a) => a.gaps && a.gaps.length > 0) && (
+          {displayMulti.accounts.some((a) => a.gaps && a.gaps.length > 0) && (
             <div className="gap-warning">
               <strong>{s.gapWarningTitle}</strong>
               <ul className="gap-list">
-                {result.multi.accounts.flatMap((a) =>
+                {displayMulti.accounts.flatMap((a) =>
                   (a.gaps ?? []).map((g, gi) => (
                     <li key={`${a.label}-${gi}`}>
                       <b>{a.label}</b>:{" "}
@@ -1374,71 +1429,6 @@ export default function Page() {
         <>
           {r && (
             <>
-          {/* Financial period — slice the result to a year/custom range and
-              re-reconcile it (opening/closing derived from the running balance). */}
-          {result.data && result.data.transactions.length > 0 && (
-            <div className="period-bar">
-              <span className="period-label">{s.periodLabel}</span>
-              <span className="info-tip" tabIndex={0} aria-label={s.periodHint}>
-                i<span className="info-tip-bubble">{s.periodHint}</span>
-              </span>
-              <div className="period-chips">
-                <button
-                  type="button"
-                  className={`chip ${period.kind === "all" ? "active" : ""}`}
-                  onClick={() => setPeriod({ kind: "all" })}
-                >
-                  {s.periodAll}
-                </button>
-                {years.map((y) => (
-                  <button
-                    key={y}
-                    type="button"
-                    className={`chip ${period.kind === "year" && period.year === y ? "active" : ""}`}
-                    onClick={() => setPeriod({ kind: "year", year: y })}
-                  >
-                    {y}
-                  </button>
-                ))}
-                <button
-                  type="button"
-                  className={`chip ${period.kind === "range" ? "active" : ""}`}
-                  onClick={() =>
-                    setPeriod({
-                      kind: "range",
-                      from: years[0] ? `${years[0]}-01-01` : "",
-                      to: years.length ? `${years[years.length - 1]}-12-31` : "",
-                    })
-                  }
-                >
-                  {s.periodCustom}
-                </button>
-              </div>
-              {period.kind === "range" && (
-                <div className="period-range">
-                  <input
-                    type="date"
-                    value={period.from}
-                    onChange={(e) => setPeriod({ kind: "range", from: e.target.value, to: period.to })}
-                  />
-                  <span className="period-arrow">→</span>
-                  <input
-                    type="date"
-                    value={period.to}
-                    onChange={(e) => setPeriod({ kind: "range", from: period.from, to: e.target.value })}
-                  />
-                </div>
-              )}
-              {period.kind !== "all" && (
-                <span className="period-covers">
-                  {transactions.length > 0
-                    ? s.periodCovers(transactions[0].date, transactions[transactions.length - 1].date)
-                    : s.periodEmpty}
-                </span>
-              )}
-            </div>
-          )}
-
           {/* Verdict — the signature element */}
           <div className={`verdict ${r.passed ? "pass" : softExplained ? "soft" : "fail"}`}>
             <div className="verdict-head">
@@ -1663,9 +1653,9 @@ export default function Page() {
           {/* Details + actions */}
           <div className="meta">
             <span>
-              {isMulti && result.multi ? (
+              {isMulti && displayMulti ? (
                 <>
-                  {s.metaAccountsLabel}: <b>{result.multi.accounts.length}</b>
+                  {s.metaAccountsLabel}: <b>{displayMulti.accounts.length}</b>
                 </>
               ) : (
                 <>
@@ -1725,14 +1715,8 @@ export default function Page() {
                         transactions: withEditedCategories(viewData!.transactions),
                       },
                   isMulti
-                    ? "combined-accounts.csv"
-                    : result.fileName.replace(/\.pdf$/i, "") +
-                      (period.kind === "year"
-                        ? `-${period.year}`
-                        : period.kind === "range"
-                          ? `-${period.from}_${period.to}`
-                          : "") +
-                      ".csv",
+                    ? `combined-accounts${periodSuffix}.csv`
+                    : result.fileName.replace(/\.pdf$/i, "") + periodSuffix + ".csv",
                   result.fileName,
                 )
               }

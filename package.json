@@ -10,6 +10,7 @@
     "test:statements": "tsx scripts/test-statements.mts",
     "test:multi": "tsx scripts/test-multi-account.mts",
     "test:expenses": "tsx scripts/test-expenses.mts",
+    "test:period": "tsx scripts/test-period.mts",
     "test:report": "start \"\" .reconcile\\report.html"
   },
   "dependencies": {

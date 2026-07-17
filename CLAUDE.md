@@ -262,6 +262,7 @@ lib/
 │   ├── sign-correction.ts → balance-based debit/credit auto-correction
 │   ├── categorization.ts  → category per transaction: keyword RULES first, AI only for the rest
 │   ├── expenses.ts        → PURE: parse expenses.csv + match each expense to a statement debit
+│   ├── csv-import.ts      → PURE: parse a previously-EXPORTED transactions CSV back into accounts (inverse of toCsv)
 │   └── verification.ts    → CSV export + row-by-row running-balance check
 └── strings.ts             → all UI copy in one place (ready for future i18n)
 ```
@@ -675,6 +676,32 @@ pdfjs-dist`): for the target banks, reading the PDF's text positions (x/y) and
   `statements/expenses-reconciliation/2/` = BOI×3 + Revolut, 78/109 exact matches — the rest
   correctly not-found). **Each numbered folder under `statements/expenses-reconciliation/` is one
   client** (statements + one `expenses.csv`).
+- **Reconciled-CSV re-import** (`csv-import.ts`): the user can upload a transactions CSV the app
+  EXPORTED earlier to rebuild the already-reconciled account(s) — no PDF re-parse, no AI — mainly
+  to reconcile them against an `expenses.csv`, or to re-view / re-export after editing a value.
+  **Runs ENTIRELY CLIENT-SIDE**: `parseTransactionsCsv` is the pure inverse of `toCsv`, and the
+  rebuilt accounts feed the same client-safe `checkReconciliation` / `mergeAccounts` /
+  `matchExpenses` — no server route, no network. Scope: only the app's OWN export format
+  (columns Account?/#?/Date/Description/Debit/Credit/Balance/Category/Source; third-party/bank CSVs
+  with column mapping are a future feature). `parseTransactionsCsv` reuses the quote-aware
+  `parseCsvRows` + `amountToCents` + `normalizeDate` (now exported from `expenses.ts` — one CSV
+  engine, not two); it detects the header (Account/# optional), parses `Debit`/`Credit` blank→0,
+  `Balance` blank→null, splits `Source` back into `sourceFile`/`page`, **restores statement order
+  from the `#` column** (the user may have sorted the CSV — the running balance is only valid in
+  statement order), groups rows by `Account` (one account per distinct value; a single account if
+  no column → single-statement result, ≥2 → multi-account), and **derives each account's
+  opening/closing from the running-balance column** robustly to SPORADIC balances (AIB/BOI print it
+  only at checkpoints): opening anchored at the first printed balance, closing at the last. This
+  keeps reconciliation a REAL check — a clean export passes, but a hand-EDITED CSV whose amounts no
+  longer match the balances FAILS (and `findBalanceBreaks` pinpoints the row). UI (`app/page.tsx`):
+  an input-source segmented toggle at the top of the upload card — **"PDF statements"** (default) vs
+  **"Reconciled CSV"**; CSV mode shows one file input, reuses the same **"+ Add expenses"** uploader,
+  and a **"Reconcile CSV"** button → `handleImportCsv` builds an `ApiResponse`-shaped object and
+  `setResult`s it, so the verdict, period bar, combined table, filter/sort, per-account & combined
+  CSV re-export, and the expenses report all work unchanged. NO changes to the route or the core
+  pipeline. Test: `npm run test:csv-import` (round-trip fidelity incl. quoted Source, sporadic
+  balances, multi-account split, `#`-reorder robustness, an edited CSV failing reconciliation,
+  no-Balance-column, expense matching over reconstructed accounts, and rejecting an `expenses.csv`).
 - **Transaction provenance (Source column)**: each `Transaction` carries an optional
   `page` (1-based PDF page, set by the deterministic parsers — Revolut/AIB/BOI/
   consolidated) and an optional `sourceFile` (set only when several PDFs are combined,

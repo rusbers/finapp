@@ -438,6 +438,40 @@ Calibration finding: on real data ~72% match exactly; the rest are genuinely not
 uploaded accounts (cash/other) or differ in amount — widening the window just creates false
 matches at 100+ days, so exact stays.
 
+## Reconciled-CSV re-import (`csv-import.ts`)
+
+Upload a transactions CSV the app EXPORTED earlier to rebuild the already-reconciled account(s) —
+no PDF re-parse, no AI — mainly to reconcile them against an `expenses.csv`, or to re-view /
+re-export after editing a value. **Runs ENTIRELY CLIENT-SIDE** (no server route, no network):
+`parseTransactionsCsv` is the pure inverse of `toCsv`; the rebuilt accounts feed the same
+client-safe `checkReconciliation` / `mergeAccounts` / `matchExpenses` as a normal result.
+
+- **Scope**: the app's OWN export format only (columns Account?/#?/Date/Description/Debit/Credit/
+  Balance/Category/Source). Third-party/bank CSVs (needing a column-mapping step) are a future
+  feature.
+- **Reader**: reuses the quote-aware `parseCsvRows` + `amountToCents` + `normalizeDate`, now
+  EXPORTED from `expenses.ts` (one CSV engine, not two). `Debit`/`Credit` blank→0, `Balance`
+  blank→null, `Source` split back into `sourceFile`/`page`. Account/# columns are optional.
+- **Order**: if a `#` column is present, rows are sorted by it per account (the user may have sorted
+  the CSV in a spreadsheet — the running balance is only valid in statement order).
+- **Grouping**: rows grouped by `Account` value → one account per distinct value. 1 account (or no
+  Account column) → single-statement result; ≥2 → multi-account result.
+- **Opening/closing DERIVED from the running-balance column**, robust to SPORADIC balances
+  (AIB/BOI print it only at checkpoints): opening anchored at the FIRST printed balance (walk back
+  over the deltas), closing at the LAST (walk forward). No balances at all → opening 0, closing =
+  Σ(credit−debit) (still usable for expense matching).
+- **Reconciliation stays a REAL check, not a rubber stamp**: a clean export passes; a hand-EDITED
+  CSV whose amounts no longer match the balances FAILS, and the existing `findBalanceBreaks`
+  pinpoints the offending row.
+- **UI**: an input-source segmented toggle at the top of the upload card — "PDF statements"
+  (default) vs "Reconciled CSV". CSV mode = one file input + the same "+ Add expenses" uploader + a
+  "Reconcile CSV" button (`handleImportCsv` in `app/page.tsx`, which builds an `ApiResponse`-shaped
+  object and `setResult`s it). NO changes to the API route or the core pipeline — the whole feature
+  is client-side + one pure module.
+- **Test**: `npm run test:csv-import` (round-trip fidelity incl. quoted Source, sporadic balances,
+  multi-account split, `#`-reorder robustness, an edited CSV failing reconciliation,
+  no-Balance-column, expense matching over reconstructed accounts, rejecting an `expenses.csv`).
+
 ## Status snapshot (update as it changes)
 
 - **Revolut**: production-ready across RO/EN, EUR/RON, both number/date formats;
@@ -448,4 +482,6 @@ matches at 100+ days, so exact stays.
   reconciliation shipped; NO transfer detection (out of scope). See section above.
 - **Expense reconciliation** (match an `expenses.csv` against statement debits):
   shipped; exact cents + ±7-day match, "Expense" tag, found/not-found report. See above.
+- **Reconciled-CSV re-import** (re-load an exported transactions CSV → rebuild + reconcile
+  client-side → match expenses): shipped; own-export format, one file. See section above.
 - Next candidates: PTSB parser; automatic bank identification; DB/auth (Phasing).

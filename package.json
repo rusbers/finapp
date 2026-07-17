@@ -12,6 +12,7 @@
     "test:expenses": "tsx scripts/test-expenses.mts",
     "test:period": "tsx scripts/test-period.mts",
     "test:perf": "tsx scripts/test-perf.mts",
+    "test:csv-import": "tsx scripts/test-csv-import.mts",
     "test:report": "start \"\" .reconcile\\report.html"
   },
   "dependencies": {

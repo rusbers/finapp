@@ -18,6 +18,17 @@ export const strings = {
   filesSelected: (n: number) => `${n} file${n === 1 ? "" : "s"} selected`,
   removeFile: "Remove",
 
+  // Input source: extract from PDFs, or re-import a previously-exported transactions CSV.
+  sourcePdf: "PDF statements",
+  sourceCsv: "Reconciled CSV",
+  csvFileLabel: "Transactions CSV (a previous export)",
+  importCsvButton: "Reconcile CSV",
+  importCsvInfo:
+    "Re-load accounts you already reconciled from a CSV this app exported — no PDF re-parse — then match them against expenses.",
+  csvImportBadFormat:
+    "Not a recognized transactions CSV. Expected the Date, Debit, Credit and Balance columns from a previous export.",
+  csvImportEmpty: "This CSV has no transaction rows.",
+
   // Processing feedback
   uploading: (pct: number) => `Uploading… ${pct}%`,
   processingSteps: { reading: "Reading pages", extracting: "Extracting", reconciling: "Reconciling" },

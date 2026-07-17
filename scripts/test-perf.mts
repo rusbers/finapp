@@ -21,7 +21,7 @@
 import { readFileSync, existsSync, writeFileSync, mkdirSync } from "node:fs"
 import { dirname } from "node:path"
 import { extractAndReconcile } from "../lib/core/pipeline"
-import type { BankId } from "../lib/core/types"
+import type { BankId } from "../lib/core/prompts"
 
 type Case = { name: string; bank: BankId; file: string }
 

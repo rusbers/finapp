@@ -58,8 +58,11 @@ export interface MatchEntry {
 /**
  * Split CSV text into rows of fields, honouring quoted fields (embedded commas /
  * newlines) and `""` escapes — the mirror of `csvCell`'s quoting.
+ *
+ * Exported (with the two cell helpers below) so the transactions-CSV importer
+ * (`csv-import.ts`) can reuse the exact same reader — one CSV engine, not two.
  */
-function parseCsvRows(text: string): string[][] {
+export function parseCsvRows(text: string): string[][] {
   const s = text.replace(/\r\n/g, "\n").replace(/\r/g, "\n")
   const rows: string[][] = []
   let row: string[] = []
@@ -100,7 +103,7 @@ function parseCsvRows(text: string): string[][] {
 }
 
 /** Normalise a date cell to ISO YYYY-MM-DD (accepts ISO or DD/MM/YYYY). */
-function normalizeDate(s: string): string {
+export function normalizeDate(s: string): string {
   const iso = /^(\d{4})-(\d{2})-(\d{2})/.exec(s)
   if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}`
   const dmy = /^(\d{1,2})\/(\d{1,2})\/(\d{4})/.exec(s)
@@ -110,7 +113,7 @@ function normalizeDate(s: string): string {
 
 /** Parse an amount cell into integer cents. Strips currency symbols + thousands
  * separators (dot-decimal / comma-thousands, as in the Irish/UK exports). */
-function amountToCents(s: string): number {
+export function amountToCents(s: string): number {
   const cleaned = s.replace(/[^0-9.\-]/g, "") // drop currency, commas, spaces
   if (!cleaned || cleaned === "-" || cleaned === ".") return 0
   return toCents(cleaned)

@@ -25,9 +25,10 @@ import type {
 import { BANK_LABELS, SHORT_BANK_LABELS, type BankId } from "@/lib/core/prompts"
 import { isAllowedModel } from "@/lib/core/config"
 import { slicePeriod, type Period } from "@/lib/core/period"
-import { mergeAccounts } from "@/lib/core/multi-account"
+import { mergeAccounts, dedupeLabels } from "@/lib/core/multi-account"
 import type { MultiAccount, MultiAccountResult } from "@/lib/core/multi-account"
-import { expensesReportToCsv, type ExpenseReport } from "@/lib/core/expenses"
+import { expensesReportToCsv, parseExpensesCsv, matchExpenses, type ExpenseReport } from "@/lib/core/expenses"
+import { parseTransactionsCsv, CSV_IMPORT_BAD_FORMAT, CSV_IMPORT_EMPTY } from "@/lib/core/csv-import"
 import { CATEGORIES, normalizeDescription } from "@/lib/core/categorization"
 import CategoryCombobox from "./category-combobox"
 import ColumnFilter from "./column-filter"
@@ -120,6 +121,19 @@ const DEFAULTS = {
   bank: "generic" as BankId,
   devMode: false, // production view by default; toggled on for the full developer detail
   categorize: false, // assign a category to each transaction (rules + AI); off = no AI cost
+}
+
+// Neutral reconciliation used only to satisfy ApiResponse's required single-statement
+// fields on a MULTI-account CSV import (those fields are never read in the multi render
+// path — the per-account verdicts live in `multi.accounts[].reconciliation`).
+const EMPTY_RECON: ReconciliationResult = {
+  passed: true,
+  discrepancyCents: 0,
+  totalCreditCents: 0,
+  totalDebitCents: 0,
+  openingBalanceCents: 0,
+  closingBalanceCents: 0,
+  computedBalanceCents: 0,
 }
 const SETTINGS_KEY = "extractionSettings"
 type Settings = typeof DEFAULTS
@@ -275,6 +289,11 @@ export default function Page() {
   const [expensesOpen, setExpensesOpen] = useState(false)
   // "New" badge on the Add-expenses button — dropped once the user has opened it once.
   const [expensesSeen, setExpensesSeen] = useState(false)
+  // Input source: extract from PDFs (default) or re-import a previously-exported
+  // transactions CSV (rebuilt + reconciled entirely client-side; no PDF/AI). See
+  // lib/core/csv-import.ts.
+  const [importMode, setImportMode] = useState<"pdf" | "csv">("pdf")
+  const [csvFile, setCsvFile] = useState<File | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [result, setResult] = useState<ApiResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -478,6 +497,123 @@ export default function Page() {
       setIsLoading(false)
       setPhase("idle")
       setUploadPct(0)
+    }
+  }
+
+  // Reverse-map a short bank label ("BOI"/"AIB"/"Revolut") back to its BankId so a
+  // reconstructed account keeps a real bank; a custom/unknown label → "generic".
+  function bankFromLabel(label: string | null): BankId {
+    if (!label) return "generic"
+    const hit = (Object.keys(SHORT_BANK_LABELS) as BankId[]).find(
+      (id) => SHORT_BANK_LABELS[id].toLowerCase() === label.toLowerCase(),
+    )
+    return hit ?? "generic"
+  }
+
+  // Import a previously-exported transactions CSV: rebuild the reconciled account(s)
+  // ENTIRELY CLIENT-SIDE (no PDF re-parse, no AI, no network), optionally match an
+  // uploaded expenses.csv, then render exactly like a normal result. The CSV can hold
+  // several accounts (via the "Account" column of the combined export) → multi result.
+  async function handleImportCsv() {
+    if (!csvFile) return
+    setIsLoading(true)
+    setError(null)
+    setResult(null)
+    setDurationMs(null)
+    setPeriod({ kind: "all" })
+    clearView()
+    setCatOverrides({})
+    setVerified(new Set())
+    setCheckMode(false)
+    const startedAt = performance.now()
+    try {
+      const imported = parseTransactionsCsv(await csvFile.text())
+      const expensesText = expensesFile ? await expensesFile.text() : null
+
+      if (imported.length >= 2) {
+        // Several accounts (a combined export) → multi-account result.
+        const labels = dedupeLabels(imported.map((a) => a.label ?? "Account"))
+        const accounts: MultiAccount[] = imported.map((a, i) => {
+          const bank = bankFromLabel(a.label)
+          const data: StatementData = {
+            bank,
+            openingBalance: a.openingBalance,
+            closingBalance: a.closingBalance,
+            transactions: a.transactions,
+          }
+          return {
+            label: labels[i],
+            bank,
+            transactionCount: a.transactions.length,
+            openingBalance: a.openingBalance,
+            closingBalance: a.closingBalance,
+            reconciliation: checkReconciliation(data),
+            transactions: a.transactions,
+            fileNames: [csvFile.name],
+          }
+        })
+        const withTx = accounts.filter((a) => a.transactionCount > 0)
+        const allReconciled = withTx.length > 0 && withTx.every((a) => a.reconciliation.passed)
+        const expenses = expensesText
+          ? matchExpenses(
+              parseExpensesCsv(expensesText),
+              accounts.flatMap((a) => a.transactions.map((tx) => ({ tx, account: a.label }))),
+            )
+          : undefined
+        setResult({
+          multi: { accounts, allReconciled },
+          fileName: `${accounts.length} account${accounts.length === 1 ? "" : "s"} (CSV)`,
+          expenses,
+          // Neutral single-statement fields (never read in the multi render path).
+          reconciliation: EMPTY_RECON,
+          attempts: [],
+          modelUsed: "csv-import",
+          fallbackUsed: false,
+          corrections: [],
+        })
+      } else {
+        // One account (or a CSV with no "Account" column) → single-statement result.
+        const a = imported[0]
+        const data: StatementData = {
+          bank: a.label ?? "Imported",
+          openingBalance: a.openingBalance,
+          closingBalance: a.closingBalance,
+          transactions: a.transactions,
+        }
+        const reconciliation = checkReconciliation(data)
+        const expenses = expensesText
+          ? matchExpenses(parseExpensesCsv(expensesText), data.transactions.map((tx) => ({ tx })))
+          : undefined
+        setResult({
+          data,
+          reconciliation,
+          attempts: [
+            {
+              model: "csv-import",
+              reconciliationPassed: reconciliation.passed,
+              discrepancyCents: reconciliation.discrepancyCents,
+              durationMs: 0,
+            },
+          ],
+          modelUsed: "csv-import",
+          fallbackUsed: false,
+          corrections: [],
+          fileName: csvFile.name,
+          expenses,
+        })
+      }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : ""
+      setError(
+        msg === CSV_IMPORT_BAD_FORMAT
+          ? s.csvImportBadFormat
+          : msg === CSV_IMPORT_EMPTY
+            ? s.csvImportEmpty
+            : s.errorGeneric,
+      )
+    } finally {
+      setDurationMs(performance.now() - startedAt)
+      setIsLoading(false)
     }
   }
 
@@ -736,6 +872,40 @@ export default function Page() {
       </header>
 
       <section className="upload">
+        {/* Input source: reconcile PDFs, or re-import a CSV this app exported earlier. */}
+        <div className="source-toggle-row">
+          <div className="source-toggle" role="tablist">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={importMode === "pdf"}
+              className={importMode === "pdf" ? "on" : ""}
+              disabled={isLoading}
+              onClick={() => {
+                setImportMode("pdf")
+                resetResult()
+              }}
+            >
+              {s.sourcePdf}
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={importMode === "csv"}
+              className={importMode === "csv" ? "on" : ""}
+              disabled={isLoading}
+              onClick={() => {
+                setImportMode("csv")
+                resetResult()
+              }}
+            >
+              {s.sourceCsv}
+            </button>
+          </div>
+        </div>
+
+        {importMode === "pdf" && (
+          <>
         {/* Step 1 — choose the bank and (optionally) label this account. */}
         <div className="controls controls--top">
           <div className="control control--grow">
@@ -901,10 +1071,51 @@ export default function Page() {
             {s.addAccountButton}
           </button>
         )}
+          </>
+        )}
+
+        {/* CSV import: one file (which may itself hold several accounts via its Account column). */}
+        {importMode === "csv" && (
+          <>
+            <label>{s.csvFileLabel}</label>
+            <input
+              type="file"
+              accept=".csv,text/csv"
+              disabled={isLoading}
+              onChange={(e) => {
+                setCsvFile(e.target.files?.[0] ?? null)
+                resetResult()
+              }}
+            />
+            {csvFile && (
+              <div className="files">
+                <ul className="account-files">
+                  <li>
+                    <span className="account-file-name">{csvFile.name}</span>
+                    <span className="account-file-size">{formatSize(csvFile.size)}</span>
+                    <button
+                      type="button"
+                      className="file-remove"
+                      aria-label={`${s.removeFile} ${csvFile.name}`}
+                      disabled={isLoading}
+                      onClick={() => {
+                        setCsvFile(null)
+                        resetResult()
+                      }}
+                    >
+                      ✕
+                    </button>
+                  </li>
+                </ul>
+              </div>
+            )}
+          </>
+        )}
 
         {/* Add expenses — reveals the expenses.csv uploader (matched against the debits).
-            Carries a green "New" badge (dropped after the first open) + an info tooltip. */}
-        {files.length > 0 && !expensesOpen && (
+            Carries a green "New" badge (dropped after the first open) + an info tooltip.
+            Shown in BOTH modes: alongside PDFs, or the reconciled-CSV import. */}
+        {(importMode === "pdf" ? files.length > 0 : !!csvFile) && !expensesOpen && (
           <div className="add-expenses-row">
             <button
               type="button"
@@ -953,20 +1164,35 @@ export default function Page() {
           </div>
         )}
 
-        {/* Categorization is a per-run cost choice, made right before reconciling. */}
-        <label className="toggle categorize-toggle">
-          <input
-            type="checkbox"
-            checked={categorize}
-            onChange={(e) => updateSettings({ categorize: e.target.checked })}
-            disabled={isLoading}
-          />
-          {s.categorizeLabel}
-        </label>
+        {importMode === "pdf" && (
+          <>
+            {/* Categorization is a per-run cost choice, made right before reconciling. */}
+            <label className="toggle categorize-toggle">
+              <input
+                type="checkbox"
+                checked={categorize}
+                onChange={(e) => updateSettings({ categorize: e.target.checked })}
+                disabled={isLoading}
+              />
+              {s.categorizeLabel}
+            </label>
 
-        <button className="button" onClick={handleCheck} disabled={!canCheck || isLoading}>
-          {isLoading ? s.checkingButton : s.checkButton(totalStatements)}
-        </button>
+            <button className="button" onClick={handleCheck} disabled={!canCheck || isLoading}>
+              {isLoading ? s.checkingButton : s.checkButton(totalStatements)}
+            </button>
+          </>
+        )}
+
+        {importMode === "csv" && (
+          <div className="csv-import-actions">
+            <button className="button" onClick={handleImportCsv} disabled={!csvFile || isLoading}>
+              {isLoading ? s.checkingButton : s.importCsvButton}
+            </button>
+            <span className="info-tip" tabIndex={0} aria-label={s.importCsvInfo}>
+              i<span className="info-tip-bubble">{s.importCsvInfo}</span>
+            </span>
+          </div>
+        )}
 
         {/* Processing feedback: real upload % then an indeterminate processing phase */}
         {isLoading && (

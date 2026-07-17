@@ -89,6 +89,49 @@ body {
   color: #fff;
 }
 
+/* Input-source switch (PDF statements ⟷ reconciled CSV) — a segmented control
+   spanning the upload card's top row. */
+.source-toggle-row {
+  flex: 1 1 100%;
+}
+.source-toggle {
+  display: inline-flex;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--paper);
+}
+.source-toggle button {
+  border: none;
+  background: transparent;
+  color: var(--ink-soft);
+  font-size: 13px;
+  font-weight: 600;
+  padding: 6px 16px;
+  border-radius: 999px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.source-toggle button:hover:not(.on) {
+  color: var(--ink);
+}
+.source-toggle button.on {
+  background: var(--card);
+  color: var(--ink);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+}
+.source-toggle button:disabled {
+  cursor: default;
+}
+/* CSV-import action row: the Reconcile button + its info tooltip. */
+.csv-import-actions {
+  flex: 1 1 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
 /* Upload area */
 .upload {
   background: var(--card);

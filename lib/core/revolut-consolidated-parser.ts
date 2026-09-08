@@ -57,6 +57,11 @@ const X_CATEGORY = 240
 const X_RIGHT = 308
 const MAIN_MIN_SIZE = 7
 
+// A date cell opens a transaction row: "5 Mar 2025" / "20 нояб. 2025г." (day first)
+// or "Mar 5, 2025" (month first). Only the SHAPE is checked here — the value is
+// parsed by `toIsoDate`, which keeps the raw text when it can't read the month.
+const DATE_ROW_RE = /^(?:\d{1,2}\s+\S|[a-zA-ZăâîЀ-ӿ]{3,}\.?\s+\d{1,2}\b)/
+
 // One money value, grouping-aware so it works across all Revolut number formats
 // and never spans two values: optional sign/symbol, 1-3 digits, zero+ groups of
 // exactly 3 digits (space/comma/dot/nbsp separator), then a 2-decimal fraction.
@@ -125,13 +130,23 @@ const MONTHS: Record<string, string> = {
   июл: "07", авг: "08", сен: "09", окт: "10", ноя: "11", дек: "12",
 }
 
-/** "5 Mar 2025" / "5 mar. 2025" / "5 мар. 2025" → "2025-03-05" (or "" if no match). */
+/**
+ * "5 Mar 2025" / "5 mar. 2025" / "5 мар. 2025" → "2025-03-05", and the MONTH-FIRST
+ * form "Mar 5, 2025" that Revolut's newer consolidated template prints (both orders
+ * occur in the wild, exactly as in `revolut-parser.ts`). "" if neither matches.
+ */
 function toIsoDate(raw: string): string {
-  const m = raw.match(/(\d{1,2})\s+([a-zA-ZăâîЀ-ӿ]+)\.?\s+(\d{4})/)
-  if (!m) return ""
-  const month = MONTHS[m[2].slice(0, 3).toLowerCase()]
-  if (!month) return ""
-  return `${m[3]}-${month}-${m[1].padStart(2, "0")}`
+  let m = raw.match(/(\d{1,2})\s+([a-zA-ZăâîЀ-ӿ]+)\.?\s+(\d{4})/)
+  if (m) {
+    const month = MONTHS[m[2].slice(0, 3).toLowerCase()]
+    if (month) return `${m[3]}-${month}-${m[1].padStart(2, "0")}`
+  }
+  m = raw.match(/([a-zA-ZăâîЀ-ӿ]{3,})\.?\s+(\d{1,2}),?\s+(\d{4})/)
+  if (m) {
+    const month = MONTHS[m[1].slice(0, 3).toLowerCase()]
+    if (month) return `${m[3]}-${month}-${m[2].padStart(2, "0")}`
+  }
+  return ""
 }
 
 async function extractPages(pdfBytes: Uint8Array): Promise<Line[][]> {
@@ -215,14 +230,15 @@ export async function parseRevolutConsolidated(pdfBytes: Uint8Array): Promise<Co
       }
       if (!acc || line.size < MAIN_MIN_SIZE) continue
 
-      // A transaction row starts with a real date (day month year) in the date
-      // column. This excludes the table header, totals, and wrapped lines.
+      // A transaction row starts with a real date in the date column — day-first
+      // ("5 Mar 2025") or month-first ("Mar 5, 2025"), both of which Revolut prints.
+      // This excludes the table header, totals, and wrapped lines.
       const dateRaw = line.tokens
         .filter((t) => t.x0 < X_DESC && !isMoney(t.text))
         .map((t) => t.text)
         .join(" ")
         .trim()
-      if (!/^\d{1,2}\s+\S/.test(dateRaw) || !/\d{4}/.test(dateRaw)) continue
+      if (!DATE_ROW_RE.test(dateRaw) || !/\d{4}/.test(dateRaw)) continue
 
       // The money columns (amount, balance, tax, other, fees) are right of X_RIGHT.
       // Extract their values with the grouping-aware regex — this also splits an

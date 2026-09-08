@@ -153,31 +153,44 @@ documented per-bank in `CLAUDE.md` (keep them there, balanced across banks).
 
 - **Map tokens to columns by X anchor** (Date / Description / Money out / Money in
   / Balance). Anchors are per-bank; some banks' columns scale with page width, so
-  detect anchors from the header row rather than hardcoding (see AIB/BOI).
+  either detect anchors from the header row (AIB/BOI) or normalize each token's X by
+  `referenceWidth / pageWidth` before matching (Revolut — one template is 560pt wide
+  instead of ~595pt, which shifts every column outside the tolerance).
 - **Main vs sub rows by font size** — amounts come only from main rows; sub-rows
   (fees, FX rate, references) are skipped.
 - **Amounts** — `parseAmount` handles both number formats (English `1,234.56` and
   European `1.234,56`; rightmost separator = decimal). Money tokens are recognized
   by a currency symbol (€/$/£) or a 3-letter code suffix (e.g. `RON`).
-- **Dates** — `toIsoDate` accepts day-first and month-first orders.
+- **Dates** — `toIsoDate` accepts day-first AND month-first orders. Check BOTH in
+  whatever decides "is this line a transaction row" too, not just in the parse — a
+  row test that assumed day-first made a whole consolidated statement yield 0 rows.
 - **Start / skip / stop** — begin after the transaction-table header; skip
   per-statement summary/recap rows (a value in the opening-balance column). A single
   PDF may concatenate **several current-account periods**, each ending with a
   "Reverted" tail (no Balance column → its rows are skipped automatically), so do
   NOT stop at reverted — the next period re-syncs at its table header and chains by
-  balance. **Hard-stop only at a SEPARATE-account sub-statement** (savings/deposits/
-  pockets/vaults — `isSeparateAccountSection`), which carries its own balance series.
+  balance. **SKIP SEPARATE-account sub-statements** (savings/deposits/pockets/vaults —
+  `isSeparateAccountSection`), which carry their own balance series, and RESUME at the
+  next current-account title (`isCurrentAccountSection`). Do **not** treat the first
+  one as a permanent stop: Revolut interleaves them (Account → Pockets → Account →
+  Pockets), so stopping silently truncates the statement — and a truncated balance
+  series still reconciles, so it passes with a clean ✓ on partial data.
 
 Per-bank status (specifics → `CLAUDE.md`):
 
 - **Revolut** (`revolut-parser.ts`) — RO/EN/RU, EUR/RON/GBP, both number & date
   formats (incl. Cyrillic months), summary-row handling, multi-period PDFs (reverted
-  tails skipped, periods chained by balance), and separate-account hard-stop
+  tails skipped, periods chained by balance), and separate-account SKIP/RESUME
   (savings/deposits "Deposit transactions"/"Depuneri"/RU "Операции пополнения",
   pockets/vaults "Buzunare"/"Seifuri"/RU "сейф"/"кошельк", sub-accounts
   "contul pentru …"/"account for …"/RU "счету пользователя …"). The savings word is
   gated by font size so the everyday "Пополнение счета" top-up *transactions* don't
-  match. **Glued description+amount tokens** (pdfjs emits an outgoing "Перевод SWIFT
+  match. `isCurrentAccountSection` ("Account transactions from" / "… din cont de la" /
+  "Операции по счету с") resumes extraction and is tested FIRST — each locale's
+  sub-account title shares a prefix with it and only the continuation differs.
+  **Page-width normalization**: token X is scaled by `595 / pageWidth`, so the
+  narrow 560pt template (money-out at x0≈316 instead of 335) matches the same anchors.
+  **Glued description+amount tokens** (pdfjs emits an outgoing "Перевод SWIFT
   … 607,00€" as ONE item gluing description + amount in a money column) are split by
   `splitGluedAmount` so the amount is counted; a pure code-currency amount with no
   description (e.g. "168.99 RON") is left in place so summary rows still skip.
@@ -194,7 +207,10 @@ Per-bank status (specifics → `CLAUDE.md`):
   BOTH personal and JOINT current accounts ("Cont comun"/"Joint Account"/"Совместный
   счет") — a user can hold both in one currency. A PDF with NO current-accounts
   section (savings/crypto-only or empty period) reports `currentAccountsSection:
-  false` → `allReconciled: true` (nothing in scope), NOT a fail.
+  false` → `allReconciled: true` (nothing in scope), NOT a fail. Transaction rows are
+  detected by a date cell in EITHER order — day-first ("5 Mar 2025") or month-first
+  ("Mar 5, 2025", the newer template); requiring day-first yielded 0 rows on a whole
+  real statement.
 - **AIB** (`aib-parser.ts`) — per-page anchors detected from the header (columns
   scale with page width), glued `dr` overdraft, balance-forward per page.
 - **BOI** (`boi-parser.ts`) — Payments-out / Payments-in columns, `OD` overdraft,

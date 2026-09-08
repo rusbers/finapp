@@ -12,6 +12,11 @@
  *   - Money in     : left-aligned, x0 ≈ 417  (credit)
  *   - Balance      : right-aligned, x1 ≈ 556
  *
+ * These anchors are measured on Revolut's usual ~595pt-wide (A4) page. Revolut
+ * also issues a NARROWER template (560pt) whose layout is identical but whose
+ * columns all sit proportionally further left. `extractTokens` normalizes every
+ * token's X to the reference width below, so one set of anchors covers both.
+ *
  * Hierarchy by font size:
  *   - size ≈ 8.2  → a MAIN row (one transaction)
  *   - size ≈ 4.5  → a sub-row (reference / fee / FX rate) belonging to the row above
@@ -37,6 +42,8 @@ const X_CREDIT = 417 // money in, left-aligned (match on x0)
 const X1_BALANCE = 556 // balance, right-aligned (match on x1)
 const X_SUMMARY = 253 // "Sold inițial" column, present ONLY on per-section summary rows
 const X_TOL = 6
+/** Page width the anchors above were measured on; X is normalized to it. */
+const REF_PAGE_WIDTH = 595
 
 const MAIN_ROW_MIN_SIZE = 7 // size >= 7 → main row; below → sub-row
 const Y_TOL = 3 // tokens within this Y distance are the same line
@@ -117,7 +124,13 @@ async function extractTokens(pdfBytes: Uint8Array): Promise<PageTokens[]> {
   const pages: PageTokens[] = []
   for (let p = 1; p <= doc.numPages; p++) {
     const page = await doc.getPage(p)
-    const viewportHeight = page.getViewport({ scale: 1 }).height
+    const viewport = page.getViewport({ scale: 1 })
+    const viewportHeight = viewport.height
+    // Scale X into the reference frame so the fixed column anchors match every
+    // page template. Revolut's narrow (560pt) statement puts money-out at x≈316
+    // instead of 335 — outside X_TOL — while the usual ~595pt pages scale by
+    // ~1.0 (a shift under 0.3pt, far inside X_TOL), so they are unaffected.
+    const xScale = REF_PAGE_WIDTH / viewport.width
     const content = await page.getTextContent()
     const tokens: Token[] = []
 
@@ -129,14 +142,14 @@ async function extractTokens(pdfBytes: Uint8Array): Promise<PageTokens[]> {
     }>) {
       const text = item.str
       if (!text || !text.trim()) continue
-      const x0 = item.transform[4]
+      const x0 = item.transform[4] * xScale
       const yBottom = item.transform[5]
       // pdfjs Y is from the bottom; convert to top-down so "smaller = higher".
       const yTop = viewportHeight - yBottom
       tokens.push({
         text: text.trim(),
         x0,
-        x1: x0 + item.width,
+        x1: x0 + item.width * xScale,
         y: yTop,
         size: item.height || 0,
       })
@@ -293,11 +306,31 @@ function isTableHeader(line: Line): boolean {
 }
 
 /**
- * Is this line the start of a SEPARATE-ACCOUNT sub-statement — the sections we must
- * permanently STOP at? These are NOT the current account: they have their own
- * balance series that would corrupt the running balance if included. They always
- * come AFTER all current-account transactions, so stopping here keeps every real
- * current-account row. Observed titles (size ~12.4pt):
+ * Is this line the start of a CURRENT-ACCOUNT section ("Account transactions from
+ * <date> to <date>", size ~11.7)? It both opens the statement and RESUMES extraction
+ * after a skipped sub-statement.
+ *
+ * Each locale's sub-ACCOUNT title shares a prefix with this one and only the
+ * continuation tells them apart — RO "cont de la <date>" vs "contul pentru <Name>",
+ * RU "по счету с <date>" vs "по счету пользователя <Name>", EN "Account transactions"
+ * vs "Account for <Name>" — so match the continuation, and check this BEFORE
+ * `isSeparateAccountSection`.
+ */
+function isCurrentAccountSection(line: Line): boolean {
+  if (line.size < 10) return false // section titles are large (~11.7)
+  const text = line.tokens
+    .map((t) => t.text)
+    .join(" ")
+    .toLowerCase()
+  return /account transactions from|din cont de la|операции по счету с/.test(text)
+}
+
+/**
+ * Is this line the start of a SEPARATE-ACCOUNT sub-statement — a section we must
+ * SKIP? These are NOT the current account: they have their own balance series,
+ * which would corrupt the running balance if included. They do not necessarily come
+ * after all current-account transactions (see `isCurrentAccountSection`), so we skip
+ * them and resume at the next current-account title. Observed titles (size ~12.4pt):
  *   - savings/deposits: "Deposit transactions from ..." (EN), "Depuneri de la ..." (RO),
  *     "Операции пополнения ..." (RU savings). The RU word "пополнени" also appears in the
  *     everyday "Пополнение счета" top-up TRANSACTIONS (size ~8.2), so we only match it as
@@ -337,7 +370,9 @@ function isSeparateAccountSection(line: Line): boolean {
  *   - A single PDF may concatenate several periods (each balance-summary + table +
  *     "Reverted" tail), chained by balance. Reverted rows have no Balance column so
  *     they are skipped, and the next period's table header re-syncs extraction.
- *     Extraction hard-stops only at the savings/vault sub-statement.
+ *   - Savings/pockets/vault/sub-account sections are SKIPPED, not stopped at: they
+ *     can sit BETWEEN two current-account periods, so extraction resumes at the next
+ *     "Account transactions from …" title.
  *   - Each transaction's amounts come only from its MAIN row (size ≥ 7);
  *     sub-rows (fees, FX rates, references) are skipped.
  *   - Amounts are matched to columns by X anchor; only €/$ tokens count, so
@@ -360,21 +395,33 @@ function parseLines(pages: PageTokens[]): StatementData {
   let closingBalance: number | null = null
   let currentDate = ""
   let started = false // have we passed the transaction-table header yet?
-  let reachedSeparateAccount = false // hit a separate-account sub-statement (hard stop)?
+  let inSeparateAccount = false // inside a separate-account sub-statement — skip it
 
   for (const { page, tokens: pageTokens } of pages) {
-    if (reachedSeparateAccount) break
     const lines = groupLines(pageTokens)
 
     for (const line of lines) {
-      // Permanently stop only at a separate-account sub-statement (savings/deposits/
-      // pockets/vaults). The reverted/refunded tail is NOT a stop — a full-year
-      // statement can concatenate several periods, and reverted rows (no Balance
-      // column) are skipped by `hasBalance` below.
-      if (isSeparateAccountSection(line)) {
-        reachedSeparateAccount = true
-        break
+      // A current-account section title ends any separate-account section we were
+      // skipping. Revolut does NOT always put the sub-statements last: a statement
+      // covering a long period is emitted as several blocks, and each block carries
+      // its OWN pockets/vaults section — "Account … 1 Jan → 16 Mar", "Pockets …",
+      // "Account … 16 Mar → 31 Dec", "Pockets …". Treating the first sub-statement
+      // as a permanent stop silently dropped every later period (one real statement
+      // lost 69 of its 94 pages while still reconciling, because the truncated
+      // series is self-consistent). So we SKIP these sections instead of stopping.
+      if (isCurrentAccountSection(line)) {
+        inSeparateAccount = false
+        continue
       }
+      // Enter a separate-account sub-statement (savings/deposits/pockets/vaults/
+      // sub-accounts): its own balance series would corrupt ours, so skip until the
+      // next current-account section. The reverted/refunded tail is NOT one of these
+      // — its rows have no Balance column and are skipped by `hasBalance` below.
+      if (isSeparateAccountSection(line)) {
+        inSeparateAccount = true
+        continue
+      }
+      if (inSeparateAccount) continue
       // Begin extracting only after the transaction-table header. (The header
       // repeats on every page, so this also re-syncs after page breaks.)
       if (isTableHeader(line)) {

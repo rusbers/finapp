@@ -308,7 +308,13 @@ pdfjs-dist`): for the target banks, reading the PDF's text positions (x/y) and
   proven on a real 40-page statement (739 transactions, reconciles to the cent).
   Revolut column grid (PDF points): Date x0≈43, Description x0≈125, money-out/
   debit x0≈335 (left-aligned), money-in/credit x0≈417 (left-aligned), balance
-  x1≈556 (right-aligned), tolerance ±6. Main transaction rows are font size ≥7;
+  x1≈556 (right-aligned), tolerance ±6 — all measured on Revolut's usual ~595pt-wide
+  page. Revolut also issues a **NARROWER 560pt template**: identical layout, every
+  column shifted proportionally left (money-out at x0≈316, well outside the ±6
+  tolerance, so nothing matched and the statement yielded 0 tx). `extractTokens`
+  therefore normalizes each token's X by `595 / pageWidth` — a <0.3pt no-op on the
+  ~595pt statements (all 308 in the corpus) and the whole fix for the narrow one.
+  Main transaction rows are font size ≥7;
   sub-rows (fee/FX-rate/reference, size≈4.5) are skipped so amounts come only
   from the main row. **Money tokens are recognized by a currency symbol prefix
   (€/$/£) OR a 3-letter code suffix (e.g. "140,514.30 RON")**, so RON / other-
@@ -326,17 +332,29 @@ pdfjs-dist`): for the target banks, reading the PDF's text positions (x/y) and
   does **NOT** stop at the reverted/refunded tail ("Înapoiate"/"Reverted"): those
   rows have no Balance column and are skipped on their own, and the next period's
   table header re-syncs extraction (proven on `en/7`: 2 periods, 3170 tx, full year).
-  It **hard-stops only at a SEPARATE-account sub-statement** — savings/deposits
+  It **SKIPS SEPARATE-account sub-statements**, resuming at the next current-account
+  title — savings/deposits
   (EN "Deposit transactions …" / RO "Depuneri de la …" / RU "Операции пополнения …"),
   pockets/vaults (RO "Tranzacții din Buzunare …" / "Tranzacții din Seifuri …" / RU
   "Операции по … сейфам" and pockets "Операции по … кошелькам"), and sub-accounts
   opened for others (RO "Tranzacții din contul pentru <Name> …" / EN "account for
   <Name>" / RU "Операции по счету пользователя <Name> …") — all carry their own
-  balance series and come after all current-account periods (`isSeparateAccountSection`,
-  matched on large ~12.4pt title lines; the size gate keeps the everyday "Пополнение
-  счета" top-up *transactions* from matching the savings-section word). Missing these
-  RU sections previously corrupted the closing balance (their last row, often 0.00,
-  overwrote it) and made several RU statements fail.
+  balance series (`isSeparateAccountSection`, matched on large ~12.4pt title lines;
+  the size gate keeps the everyday "Пополнение счета" top-up *transactions* from
+  matching the savings-section word). Missing these RU sections previously corrupted
+  the closing balance (their last row, often 0.00, overwrote it) and made several RU
+  statements fail. These sections do **NOT** always come last, which is why they are
+  skipped rather than stopped at: a long period is emitted as several blocks, each
+  with its OWN pockets section ("Account … 1 Jan → 16 Mar", "Pockets …", "Account …
+  16 Mar → 31 Dec", "Pockets …"). Treating the first one as a permanent stop silently
+  dropped every later period — one real statement lost 69 of its 94 pages **while
+  still reconciling**, because a truncated balance series is self-consistent (the
+  danger case: a clean ✓ on a quarter of the data). Extraction resumes at the next
+  current-account title (`isCurrentAccountSection` — EN "Account transactions from",
+  RO "… din cont de la", RU "Операции по счету с"), checked BEFORE the separate-account
+  test because each locale's sub-account title shares its prefix and only the
+  continuation differs ("cont de la" vs "contul pentru", "по счету с" vs "по счету
+  пользователя", "Account transactions" vs "Account for <Name>").
   **Glued description+amount tokens**: pdfjs sometimes emits an outgoing transfer row
   ("Перевод SWIFT … 607,00€") as ONE text item that glues the description and its
   trailing amount, with x0 in the description zone but x1 reaching a money column —
@@ -366,7 +384,12 @@ pdfjs-dist`): for the target banks, reading the PDF's text positions (x/y) and
   UI shows a per-account summary plus one detailed, individually-exportable (CSV)
   transaction table per account (0-tx accounts are listed but not detailed). Money values are
   read with a grouping-aware regex (handles `1,000.00` / `1.000,00` / `9 271,00`,
-  € prefix/suffix, and amount+balance merged into one token). Savings/crypto sections
+  € prefix/suffix, and amount+balance merged into one token). **Dates come in BOTH
+  orders**: day-first ("5 Mar 2025", "20 нояб. 2025г.") and month-first ("Mar 5,
+  2025") in Revolut's newer template — `toIsoDate` reads both, and `DATE_ROW_RE`
+  (which decides whether a line IS a transaction row) accepts both shapes. It
+  previously required day-first only, so a month-first consolidated statement matched
+  no rows at all and every account came back with 0 tx. Savings/crypto sections
   are out of scope for now. **A user can hold BOTH a personal and a JOINT current
   account in the same currency** — `ACCOUNT_TITLE` matches "Cont personal"/"Personal
   Account"/"Личный счет" AND "Cont comun"/"Joint Account"/"Совместный счет" (each is a

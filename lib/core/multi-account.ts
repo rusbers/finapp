@@ -34,6 +34,16 @@ export interface MultiAccount {
   reconciliation: ReconciliationResult
   transactions: Transaction[]
   fileNames: string[]
+  /**
+   * Which AccountInput this account came from (set by `extractAccounts`; one input
+   * can yield several accounts when a Revolut bundle is split by currency).
+   *
+   * This is the ONLY safe way back to an account's own uploaded bytes. Resolving them
+   * by FILE NAME is not safe: two accounts of the same client routinely hold
+   * same-named files ("statement.pdf", "1.pdf"), so a name lookup can hand one
+   * account another account's PDF.
+   */
+  sourceIndex?: number
   // Present only when this account was several PDFs chained together:
   perFile?: PerFileResult[]
   gaps?: StatementGap[]

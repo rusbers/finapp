@@ -375,13 +375,14 @@ export default function Page() {
   const { primaryModel, fallbackModel, enableFallback, bank, devMode, categorize } = settings
   const dev = devMode // show full developer detail when on; clean production view when off
 
-  // PTSB is hidden for now: its parser extracts only the numbers, not the
-  // descriptions (see the feature/ptsb-parser branch). To re-enable, drop it
-  // from HIDDEN_BANKS. We keep BankId/BANK_LABELS intact — this is UI-only.
-  const HIDDEN_BANKS: BankId[] = ["ptsb"]
+  // Banks kept out of the dropdown (none right now). PTSB used to sit here while its
+  // parser could read only the numbers; it now also gets its descriptions, from a
+  // vision pass in the route (see lib/core/ptsb-descriptions.ts). UI-only —
+  // BankId/BANK_LABELS are unaffected.
+  const HIDDEN_BANKS: BankId[] = []
   const visibleBanks = (Object.keys(BANK_LABELS) as BankId[]).filter((id) => !HIDDEN_BANKS.includes(id))
-  // A stale "ptsb" persisted in localStorage falls back to "generic" so we never
-  // post a hidden bank to the backend.
+  // A stale hidden bank persisted in localStorage falls back to "generic" so we never
+  // post one to the backend.
   const selectedBank: BankId = visibleBanks.includes(bank) ? bank : "generic"
   // Pro was removed from the model list. A stale "gemini-2.5-pro" persisted in
   // localStorage falls back to a valid model so the selector + the request never

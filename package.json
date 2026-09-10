@@ -13,6 +13,7 @@
     "test:period": "tsx scripts/test-period.mts",
     "test:perf": "tsx scripts/test-perf.mts",
     "test:csv-import": "tsx scripts/test-csv-import.mts",
+    "test:ptsb-descriptions": "tsx scripts/test-ptsb-descriptions.mts",
     "test:report": "start \"\" .reconcile\\report.html"
   },
   "dependencies": {

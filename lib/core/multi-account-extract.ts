@@ -163,7 +163,10 @@ export async function extractAccounts(
     }),
   )
 
-  const accounts = groups.flat()
+  // Stamp each account with the input it came from — groups[i] is inputs[i]'s output.
+  const accounts = groups.flatMap((group, index) =>
+    group.map((account) => ({ ...account, sourceIndex: index })),
+  )
   // Disambiguate the display labels across ALL accounts (after currency splits).
   const labels = dedupeLabels(accounts.map((a) => a.label))
   accounts.forEach((a, i) => (a.label = labels[i]))

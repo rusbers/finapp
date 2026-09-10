@@ -28,6 +28,12 @@ import type { StatementData, Transaction } from "./types"
 import { loadPdfjs } from "./pdf-loader"
 
 const Y_TOL = 2.5
+// The Details text starts well LEFT of its own header label: measured across the
+// corpus, the date cell sits at x0 ~30-35 (header "Date" at ~36) while the details
+// text starts at x0 ~70, with nothing in between. Splitting at the header ("Details"
+// at ~124) therefore swallowed most of each description into the date cell — the
+// dates still decoded, but the descriptions came out as fragments. Split in the gap.
+const DATE_COL_WIDTH = 20
 const MAX_SOLVE_NODES = 8_000_000
 
 // Fixed AllAndNone code→char map (the font subset is constant across PTSB
@@ -44,9 +50,9 @@ const LETTER_BY_CODE: Record<number, string> = {
   234: "r", 235: "s", 237: "u", 238: "v",
 }
 
-interface Tok { text: string; x0: number; x1: number; y: number }
-interface Cell { codes: number[] }
-interface Row { date: Tok[]; details: Tok[]; withdrawn?: Cell; paidIn?: Cell; balance?: Cell }
+interface Tok { text: string; x0: number; x1: number; y: number; page: number }
+interface Cell { codes: number[]; negative?: boolean }
+interface Row { page: number; date: Tok[]; details: Tok[]; withdrawn?: Cell; paidIn?: Cell; balance?: Cell }
 
 async function extractLines(pdfBytes: Uint8Array): Promise<{ lines: Tok[][]; anchors: Anchors } | null> {
   const pdfjs = await loadPdfjs()
@@ -63,7 +69,7 @@ async function extractLines(pdfBytes: Uint8Array): Promise<{ lines: Tok[][]; anc
       const text = it.str || ""
       if (!text.trim()) continue
       const x0 = it.transform[4]
-      toks.push({ text, x0, x1: x0 + it.width, y: vp.height - it.transform[5] })
+      toks.push({ text, x0, x1: x0 + it.width, y: vp.height - it.transform[5], page: p })
     }
     toks.sort((a, b) => a.y - b.y || a.x0 - b.x0)
     let cur: Tok[] = []
@@ -94,18 +100,55 @@ function detectAnchors(lines: Tok[][]): Anchors | null {
 const cc = (s: string) => Array.from(s).map((c) => c.charCodeAt(0))
 const isAsciiAlnum = (n: number) => (n >= 48 && n <= 57) || (n >= 65 && n <= 90) || (n >= 97 && n <= 122)
 
-/** A money cell: no spaces, no ASCII alphanumerics (scrambled font), length >= 4. */
+/**
+ * A money cell: no spaces, no ASCII alphanumerics (scrambled font), length >= 4.
+ *
+ * An OVERDRAWN balance is printed as the amount, a space, then a single marker
+ * glyph ("123.45 <od>") — the same idea as BOI's "6.00 OD" and AIB's glued "dr".
+ * That space made the whole cell fail this test, so an overdrawn row silently lost
+ * its balance. The consequence was subtle and dangerous: the closing balance stalled
+ * at the last POSITIVE balance while the reconstructed running balance carried on, so
+ * the statement failed reconciliation by exactly the movements after that point (and
+ * `findBalanceBreaks` saw nothing, because the parser stores the reconstructed
+ * running balance on each row, not the printed one). We strip the marker here and
+ * carry the sign on the cell; only the Balance column honours it (a withdrawn/paid-in
+ * cell is a magnitude, and its direction comes from its column).
+ *
+ * The head is left to `terms()` to validate — it requires the decimal symbol exactly
+ * 3 from the end and every other glyph in the digit set, which rejects the footer
+ * prose that also happens to end in " <glyph>".
+ */
 function amountCell(t: Tok): Cell | null {
-  const codes = cc(t.text)
+  let codes = cc(t.text)
+  let negative = false
+  if (codes.length >= 6 && codes[codes.length - 2] === 32) {
+    codes = codes.slice(0, -2)
+    negative = true
+  }
   if (codes.length < 4 || codes.some((n) => n === 32 || isAsciiAlnum(n))) return null
-  return { codes }
+  return negative ? { codes, negative } : { codes }
+}
+
+/** Flip every place-value coefficient — an overdrawn balance is a negative amount. */
+function negateTerms(m: Map<number, number> | null): Map<number, number> | null {
+  if (!m) return null
+  const out = new Map<number, number>()
+  for (const [sym, coeff] of m) out.set(sym, -coeff)
+  return out
+}
+
+/** Place-value terms for a BALANCE cell, with the overdraft sign applied. */
+function balanceTerms(cell: Cell | undefined, decimal: number, digitSet: Set<number>): Map<number, number> | null {
+  if (!cell) return null
+  const t = terms(cell.codes, decimal, digitSet)
+  return cell.negative ? negateTerms(t) : t
 }
 
 /** Split a line into Date / Details / money cells using the column anchors. */
 const MONEY_KEYS = ["withdrawn", "paidIn", "balance"] as const
 type MoneyKey = (typeof MONEY_KEYS)[number]
 function splitRow(line: Tok[], a: Anchors): Row {
-  const row: Row = { date: [], details: [] }
+  const row: Row = { page: line[0]?.page ?? 1, date: [], details: [] }
   const colX: Record<MoneyKey, number> = { withdrawn: a.withdrawn, paidIn: a.paidIn, balance: a.balance }
   for (const t of line) {
     const cell = t.x0 >= a.withdrawn - 30 ? amountCell(t) : null
@@ -115,7 +158,7 @@ function splitRow(line: Tok[], a: Anchors): Row {
       row[best] = cell
       continue
     }
-    if (t.x0 < a.details - 15) row.date.push(t)
+    if (t.x0 < a.date + DATE_COL_WIDTH) row.date.push(t)
     else if (t.x0 < a.withdrawn - 30) row.details.push(t)
   }
   return row
@@ -160,7 +203,7 @@ function normalize(rows: Row[], decimal: number, digitSet: Set<number>): Item[] 
     const p = r.paidIn ? terms(r.paidIn.codes, decimal, digitSet) : null
     if (w) items.push({ kind: "move", sign: -1, terms: w })
     else if (p) items.push({ kind: "move", sign: 1, terms: p })
-    const b = r.balance ? terms(r.balance.codes, decimal, digitSet) : null
+    const b = balanceTerms(r.balance, decimal, digitSet)
     if (b) items.push({ kind: "bal", terms: b })
   }
   return items
@@ -239,6 +282,16 @@ function decodeDate(toks: Tok[], digit: Map<number, number>): string {
   return `20${yy}-${String(month).padStart(2, "0")}-${day.padStart(2, "0")}`
 }
 
+/**
+ * The Details cell's raw (still scrambled) glyph codes, joined — an opaque key that
+ * is equal exactly when two rows print the SAME description. The AI description
+ * layer uses it to reuse one confirmed reading across every row that repeats it.
+ */
+function detailsKey(toks: Tok[]): string | undefined {
+  const key = toks.map((t) => cc(t.text).join(",")).join("|")
+  return key || undefined
+}
+
 /** Best-effort description decode with the fixed letter+digit map. */
 function decodeText(toks: Tok[], digit: Map<number, number>): string {
   return toks
@@ -274,6 +327,7 @@ export async function parsePtsb(pdfBytes: Uint8Array): Promise<StatementData> {
   // Second pass: build transactions in order, reconstructing the running balance.
   const transactions: Transaction[] = []
   let opening: number | null = null
+  let openingDate = ""
   let closing = 0
   let running = 0
   let currentDate = ""
@@ -281,17 +335,34 @@ export async function parsePtsb(pdfBytes: Uint8Array): Promise<StatementData> {
     if (r.date.length) { const d = decodeDate(r.date, digit); if (d) currentDate = d }
     const w = r.withdrawn ? terms(r.withdrawn.codes, decimal, digitSet) : null
     const p = r.paidIn ? terms(r.paidIn.codes, decimal, digitSet) : null
-    const bal = r.balance ? terms(r.balance.codes, decimal, digitSet) : null
+    const bal = balanceTerms(r.balance, decimal, digitSet)
 
     if (w || p) {
       const debit = w ? decode(w, digit) / 100 : 0
       const credit = p ? decode(p, digit) / 100 : 0
       if (Number.isNaN(debit) || Number.isNaN(credit)) continue
       running = Math.round((running + credit - debit) * 100) / 100
-      transactions.push({ date: currentDate, description: decodeText(r.details, digit), debit, credit, balance: running })
+      transactions.push({
+        date: currentDate,
+        description: decodeText(r.details, digit),
+        debit,
+        credit,
+        balance: running,
+        page: r.page,
+        descriptionKey: detailsKey(r.details),
+      })
     } else if (bal) {
       const v = decode(bal, digit) / 100
-      if (!Number.isNaN(v)) { if (opening === null) { opening = v; running = v } else closing = v }
+      if (!Number.isNaN(v)) {
+        if (opening === null) {
+          opening = v
+          running = v
+          // The statement's DECLARED period start — the balance-forward row's own
+          // date, which can precede the first posting (see StatementData.openingDate).
+          // Used only for gap detection when several statements are combined.
+          openingDate = currentDate
+        } else closing = v
+      }
     }
     if (bal && (w || p)) { const v = decode(bal, digit) / 100; if (!Number.isNaN(v)) closing = v }
   }
@@ -301,5 +372,6 @@ export async function parsePtsb(pdfBytes: Uint8Array): Promise<StatementData> {
     openingBalance: opening ?? 0,
     closingBalance: closing || (transactions.length ? transactions[transactions.length - 1].balance! : 0),
     transactions,
+    ...(openingDate ? { openingDate } : {}),
   }
 }

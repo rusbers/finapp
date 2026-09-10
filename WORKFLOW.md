@@ -217,8 +217,17 @@ Per-bank status (specifics → `CLAUDE.md`):
   subtotal checkpoints.
 - **PTSB** (`ptsb-parser.ts`) — anti-extraction font ("AllAndNone"): amounts aren't
   text, so the digit cipher is solved from balance arithmetic (unique solution ⇒
-  reconciles). Dates via a fixed month table; descriptions best-effort. Falls back to
-  AI if the solve isn't unique.
+  reconciles). Dates via a fixed month table, read from each row's OWN date cell.
+  Overdrawn balances carry a trailing " <marker>" glyph (stripped, sign kept — as with
+  BOI's "OD" / AIB's "dr"). Rows carry `page`, `descriptionKey` and `openingDate`.
+  Descriptions decode only partially and are completed by the AI layer below. Falls
+  back to AI if the solve isn't unique.
+- **PTSB descriptions** (`ptsb-descriptions.ts`, ROUTE-level) — the hybrid half: a
+  vision pass reads the descriptions off the rendered pages and grafts them onto the
+  parser's rows, accepting a reading ONLY when that row's Withdrawn/Paid In agree to
+  the cent. Numbers, dates, balances and row order are never touched, so
+  reconciliation cannot be affected; a failed chunk or missing key just leaves the
+  partial decode. Always on for PTSB. See the section below.
 
 **Transaction provenance.** Every deterministic parser stamps each row with `page`
 (1-based PDF page); `extractAndReconcileMany` stamps `sourceFile` when combining
@@ -335,6 +344,20 @@ spreads, where the gross crypto value is shown but only the net hits the balance
   AllAndNone code→letter map is constant across statements (month table + best-effort
   descriptions). Lesson: a poisoned font isn't necessarily a dead end — if a numeric
   invariant (running balance) is present, the cipher can be solved deterministically.
+  Two follow-on traps, both found by the harness on new statements:
+  - **The overdraft marker.** An overdrawn balance prints as "123.45 <glyph>". The
+    space made the cell fail the money-cell test, so the row lost its balance, the
+    closing balance stalled at the last positive one, and the statement failed by
+    exactly the movements after it. **`findBalanceBreaks` cannot catch this class of
+    bug in PTSB**: the parser writes the RECONSTRUCTED running balance onto each row,
+    so the series is self-consistent by construction. Compare the PRINTED balance with
+    the running one when diagnosing PTSB, not the rows against themselves.
+  - **The Details column starts left of its own header.** Measured: date cell at
+    x0 ≈ 30-35, details text at x0 ≈ 70, "Details" header at ~124. Splitting on the
+    header swallowed the description into the date cell, which fed digits to
+    `decodeDate`; its month lookup then failed and the row silently INHERITED the
+    previous row's date. Split on the measured gap between the body clusters, never on
+    the header label — the same lesson AIB/BOI teach for the money columns.
 - **AI fallback on empty.** In the app, when a parser returns 0 transactions the
   pipeline falls back to AI vision (`PipelineOptions.allowAiFallback`, default true).
   The harness passes `allowAiFallback: false` → it never makes AI calls and keeps
@@ -505,13 +528,60 @@ client-safe `checkReconciliation` / `mergeAccounts` / `matchExpenses` as a norma
   multi-account split, `#`-reorder robustness, an edited CSV failing reconciliation,
   no-Balance-column, expense matching over reconstructed accounts, rejecting an `expenses.csv`).
 
+## PTSB hybrid descriptions (`ptsb-descriptions.ts`)
+
+PTSB is the one bank where the deterministic parser cannot finish the job on its own.
+The cipher recovers every NUMBER (so the statement reconciles with no AI at all), but
+the font's poisoned ToUnicode means descriptions decode only as fragments —
+"posaleapacard" for "POS SALE APPLE CARD" — and the glyph codes collide, so no
+code→letter map can fix it (investigated to a dead end, June 2026). The glyphs RENDER
+correctly, so a vision model reads the page exactly as a person would.
+
+- **Where it runs.** In `app/api/extract/route.ts`, like `categorization.ts` — NEVER in
+  the pipeline. That is deliberate: the regression harness runs the core, so an AI step
+  there would make the 12 PTSB statements non-deterministic and bill every harness run.
+  The harness therefore keeps testing the deterministic numbers + partial descriptions.
+- **Order matters.** PTSB descriptions → expense matching → categorization. The last
+  two both READ description text (`matchExpenses` needs the supplier name,
+  `categorizeByRules` matches keywords), so they must see the finished text.
+- **The safety rule.** A row is relabelled ONLY when the model's own reading of that
+  row's Withdrawn/Paid In agrees TO THE CENT with what the parser already knows. The
+  amounts are an identity check, never data; the model is trusted for text and nothing
+  else. Both lists are in statement order, walked with one cursor and a small lookahead
+  (`MATCH_LOOKAHEAD`) so a spurious or dropped model row can't cascade. Anything that
+  doesn't match keeps the parser's partial decode.
+- **Provenance, not file names.** In multi-account mode each account's bytes come from
+  `MultiAccount.sourceIndex` (the AccountInput it came from). Resolving them by file
+  NAME is unsafe — same-named files across accounts are common, and feeding the wrong
+  PDF produces wrong descriptions that still reconcile, so nothing flags them.
+  `npm run test:multi` asserts every account carries a sourceIndex pointing at its own
+  input.
+- **Reuse, not re-asking.** A confirmed reading is stored against the row's
+  `descriptionKey` (the Details cell's raw glyph codes), so a row the model skipped can
+  be recovered without another call — identical codes mean identical printed text.
+- **Fail-soft.** A failed chunk, a missing API key or a PDF `pdf-lib` can't split leaves
+  the partial descriptions in place and still returns a reconciled statement.
+- **Model + cost.** Measured on the corpus, flash-lite returns the SAME descriptions as
+  flash but ~2× faster (37s vs 68s on the 38-page/1394-row worst case), which is what
+  keeps the request inside the 60s serverless budget — so flash-lite is the default.
+  Chunks with no transactions on their pages (covers, the summary page) are never sent.
+  Worst-case fill rate: 1389/1394 rows, 0 numbers or dates changed.
+- **Test:** `npm run test:ptsb-descriptions` — pure asserts on the matching rules (no
+  PDF, no AI): exact match, spurious extra row, dropped row, one-cent mismatch refused,
+  wrong direction refused, empty reading ignored, key reuse, repeated amounts, and that
+  numbers/dates/balances are never touched.
+
+---
+
 ## Status snapshot (update as it changes)
 
 - **Revolut**: production-ready across RO/EN, EUR/RON, both number/date formats;
   summary-row and savings-section handling; crypto "soft" verdict.
 - **AIB / BOI / PTSB**: deterministic parsers exist (see `CLAUDE.md`). All four target
   banks (Revolut, AIB, BOI, PTSB) now parse deterministically; AI + reconciliation is
-  the fallback for rare banks / scanned / unsolvable layouts.
+  the fallback for rare banks / scanned / unsolvable layouts. PTSB is HYBRID: numbers
+  deterministic, descriptions read by a route-level vision pass (see section above).
+  It is visible in the bank dropdown again (HIDDEN_BANKS is now empty).
 - **Multi-account** (one client, several banks): combined table + per-account
   reconciliation shipped; NO transfer detection (out of scope). See section above.
 - **Expense reconciliation** (match an `expenses.csv` against statement debits):

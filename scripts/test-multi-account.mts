@@ -147,6 +147,15 @@ async function runClient(name: string, inputs: AccountInput[], expectedLabels: s
   check(`${name}: labels deduped as expected`, eq(accounts.map((a) => a.label), expectedLabels))
   check(`${name}: every account has transactions`, accounts.every((a) => a.transactionCount > 0))
 
+  // Provenance: every account must point back at the INPUT it came from. The route
+  // uses sourceIndex to fetch an account's own PDF bytes for the PTSB description
+  // pass; resolving those by file name instead would hand one account another
+  // account's document whenever two accounts upload same-named files.
+  const provenanceOk = accounts.every(
+    (a) => a.sourceIndex != null && inputs[a.sourceIndex] !== undefined && inputs[a.sourceIndex].bank === a.bank,
+  )
+  check(`${name}: every account carries a sourceIndex pointing at its own input`, provenanceOk)
+
   // The combined table's merge must be chronologically non-decreasing and fully stamped.
   const combined = mergeAccounts(accounts.map((a) => ({ label: a.label, transactions: a.transactions }))).transactions
   const sorted = combined.every((t, i) => i === 0 || (combined[i - 1].date ?? "") <= (t.date ?? ""))

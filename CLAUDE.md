@@ -254,6 +254,8 @@ lib/
 │   ├── boi-parser.ts      → DETERMINISTIC BOI parser (pdfjs; Payments-out/in cols, OD overdraft)
 │   ├── ptsb-parser.ts     → DETERMINISTIC PTSB parser (anti-extraction font; digit cipher
 │   │                        solved from balance arithmetic)
+│   ├── ptsb-descriptions.ts → SERVER: PTSB descriptions read off the rendered pages by
+│   │                        AI (route-level; numbers/reconciliation never touched)
 │   ├── parsers.ts         → registry mapping banks → deterministic parsers
 │   ├── combine.ts         → chains multiple statements by balance, detects gaps
 │   ├── multi-account.ts   → PURE, client-safe: dedupeLabels + mergeAccounts (combined table)
@@ -507,8 +509,62 @@ pdfjs-dist`): for the target banks, reading the PDF's text positions (x/y) and
   triples spell the 12 months). Descriptions are best-effort with the same fixed
   letter map (limited — the font's uppercase/other glyphs aren't all mapped). If the
   solver can't find a UNIQUE map, the parser returns 0 transactions → AI fallback.
-  Validated on the regression harness: 9 real PTSB statements (current accounts,
+  Validated on the regression harness: 12 real PTSB statements (current accounts,
   including a 38-page combined file, 1394 tx) reconcile to the cent.
+  **Overdrawn balances** are printed as the amount, a space, then a single marker
+  glyph ("123.45 <od>") — the same idea as BOI's "OD" and AIB's glued "dr". The space
+  made `amountCell` reject the whole cell, so an overdrawn row silently lost its
+  balance: the closing balance then stalled at the last POSITIVE one while the
+  reconstructed running balance carried on, and the statement failed by exactly the
+  movements after that point. `findBalanceBreaks` could not see it, because the parser
+  stores the RECONSTRUCTED running balance on each row, not the printed one — so the
+  series is self-consistent by construction. The marker is now stripped and the sign
+  carried on the cell; only the Balance column honours it (withdrawn/paid-in are
+  magnitudes whose direction comes from their column).
+  **Column split**: the Details text starts well LEFT of its own header label —
+  measured across the corpus, the date cell sits at x0 ≈ 30-35 (header "Date" at ~36)
+  and the details text at x0 ≈ 70, with nothing in between, while the "Details" header
+  sits at ~124. Splitting at the header therefore swallowed most of each description
+  into the date cell, which also made `decodeDate` read digits out of the description:
+  its month lookup then failed and the row INHERITED the previous row's date (17
+  distinct dates instead of 30 on one statement). Splitting in the measured gap
+  (`DATE_COL_WIDTH`) fixed both — dates now come from each row's own date cell
+  (verified by decoding the raw glyphs: the balance-forward row reads 24DEC24 and the
+  first posting 30DEC24, and the balances chain exactly to the previous statement).
+  Rows carry `page` (Source column + the AI layer's page alignment), `descriptionKey`
+  (the Details cell's raw glyph codes) and `openingDate` (the balance-forward row's
+  date, for multi-PDF gap detection, as AIB/BOI do).
+- **PTSB descriptions — the hybrid layer** (`ptsb-descriptions.ts`): the cipher
+  recovers every NUMBER, but the font's poisoned ToUnicode means descriptions decode
+  only as fragments ("posaleapacard" for "POS SALE APPLE CARD") — the glyph codes
+  collide, so no code→letter map can fix it (see the June 2026 investigation). The
+  glyphs RENDER correctly, though, so a vision model reads the page as a person does.
+  `fillPtsbDescriptions` splits the PDF with the existing `splitPdfIntoChunks`, skips
+  chunks whose pages carry no transactions, reads them in parallel via
+  `describeWithGemini`, and grafts each reading onto the row the parser already
+  produced. **A row is relabelled ONLY when the model's own reading of that row's
+  Withdrawn/Paid In agrees TO THE CENT** — the amounts are an identity check, never
+  data — so a misread page degrades to the partial decode instead of mislabelling a
+  transaction. Rows the model skipped are recovered via `descriptionKey` (identical
+  glyph codes ⇒ identical printed text). It runs in the ROUTE, like `categorization.ts`
+  — never in the pipeline — so the regression harness keeps testing the deterministic
+  core with no AI calls, and it runs BEFORE expense matching and categorization, which
+  both read description text. Always on for PTSB (nothing else can read those
+  descriptions) and fail-soft: a failed chunk, a missing API key or an unsplittable PDF
+  leaves the partial descriptions and still returns a reconciled statement. Model:
+  **flash-lite** — measured to return the SAME descriptions as flash but roughly twice
+  as fast (37s vs 68s on the 38-page/1394-row worst case), which is what keeps the
+  request inside the 60s serverless budget. Measured fill rate: 1389/1394 rows on that
+  worst case, 0 numbers/dates changed. **In multi-account mode an account's PDF bytes
+  are resolved through `MultiAccount.sourceIndex` — the input it came from — never by
+  file name.** Two accounts of one client routinely upload same-named files
+  ("statement.pdf", "1.pdf"); a name lookup handed one account the OTHER account's
+  document, and because the amount check only compares cents, any coincidental amount
+  match (a €10 fee, a recurring direct debit) wrote the wrong merchant onto a row —
+  silently, since the numbers still reconciled. Caught by an adversarial review that
+  reproduced it on the real corpus (14 of 15 document pairs mislabelled rows). Tests:
+  `npm run test:ptsb-descriptions` (pure matching rules — no PDF, no AI) and a
+  provenance assert in `npm run test:multi`.
 - **Multi-PDF upload** (`combine.ts` + `extractAndReconcileMany` in pipeline.ts):
   banks like AIB only generate periodic statements (you can't pick a date range),
   so a user wanting a custom period has several PDFs. The app accepts multiple

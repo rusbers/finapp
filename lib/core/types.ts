@@ -15,6 +15,12 @@ export interface Transaction {
   category?: string // assigned by the categorization step (rules + AI); never affects reconciliation
   categoryByAi?: boolean // true when the AI layer (not a keyword rule) assigned the category
   accountLabel?: string // which account this row belongs to (set only in the multi-account combined view); display-only, never fingerprinted
+  // PTSB only. The Details cell's raw (scrambled) glyph codes — an opaque key that is
+  // equal exactly when two rows print the same description. PTSB's anti-extraction
+  // font means the description can't be read as text, so the AI description layer
+  // uses this to reuse one confirmed reading across every row repeating it. Internal:
+  // never fingerprinted, never exported to CSV, never affects reconciliation.
+  descriptionKey?: string
 }
 
 export interface StatementData {

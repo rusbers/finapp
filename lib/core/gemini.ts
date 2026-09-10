@@ -328,3 +328,90 @@ export async function categorizeWithGemini(
   }
   return out
 }
+
+/** One transaction row as READ FROM THE RENDERED PAGE by the vision model. */
+export interface DescribedRow {
+  /** The date exactly as printed (e.g. "30DEC24") — diagnostics only. */
+  date: string
+  /** The Withdrawn column value, or null when the row has none. */
+  withdrawn: number | null
+  /** The Paid In column value, or null when the row has none. */
+  paidIn: number | null
+  /** The full Details text — the only field we actually keep. */
+  description: string
+}
+
+/**
+ * Read the DESCRIPTIONS off a permanent tsb (PTSB) statement page with Gemini.
+ *
+ * PTSB's body font ("AllAndNone") is deliberately unreadable in the text layer, so
+ * `ptsb-parser.ts` recovers the numbers by solving a cipher against the balance
+ * arithmetic but can only decode descriptions partially. The glyphs RENDER
+ * correctly, though, so a vision model reads the page as a human would.
+ *
+ * The amounts come back only so each returned row can be matched to the row the
+ * deterministic parser already produced — they are never used as data. The caller
+ * accepts a description only when the amounts agree to the cent, so a misread page
+ * degrades to the partial description instead of mislabelling a transaction.
+ */
+export async function describeWithGemini(pdfBase64: string, model: string): Promise<DescribedRow[]> {
+  const prompt =
+    `This is a permanent tsb (PTSB) bank statement. Its table columns are: ` +
+    `Date | Details | Withdrawn | Paid In | Balance.\n\n` +
+    `Read EVERY transaction row, in the exact order printed, top to bottom, and for each return:\n` +
+    `  "date"        - the date exactly as printed (e.g. "30DEC24"), or "" if the row shows none\n` +
+    `  "withdrawn"   - the Withdrawn amount as a number, or null if that column is empty\n` +
+    `  "paidIn"      - the Paid In amount as a number, or null if that column is empty\n` +
+    `  "description" - the COMPLETE Details text for the row, verbatim, including any\n` +
+    `                  reference/card/location text that belongs to it\n\n` +
+    `Rules:\n` +
+    `- Copy the amounts EXACTLY as printed. Never infer, correct, round or compute a value.\n` +
+    `- Skip the balance-forward row, page headers/footers, and any summary or marketing text.\n` +
+    `- A row with neither a Withdrawn nor a Paid In amount is not a transaction - skip it.\n` +
+    `- Do not merge two rows, and do not split one row into two.\n\n` +
+    `Return ONLY JSON: {"rows": [{"date": "...", "withdrawn": 12.34, "paidIn": null, "description": "..."}]}`
+
+  const payload = {
+    contents: [
+      {
+        parts: [
+          { text: prompt },
+          { inline_data: { mime_type: "application/pdf", data: pdfBase64 } },
+        ],
+      },
+    ],
+    generationConfig: jsonGenerationConfig(model),
+  }
+  const text = await callGeminiWithRetries(model, payload)
+
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(text)
+  } catch {
+    try {
+      parsed = JSON.parse(text.replace(/```json|```/g, "").trim())
+    } catch {
+      return []
+    }
+  }
+
+  const rows = (parsed as { rows?: unknown })?.rows
+  if (!Array.isArray(rows)) return []
+  const num = (v: unknown): number | null => {
+    if (typeof v === "number") return Number.isFinite(v) ? v : null
+    if (typeof v === "string") {
+      const n = Number(v.replace(/[^0-9.-]/g, ""))
+      return Number.isFinite(n) ? n : null
+    }
+    return null
+  }
+  return rows.map((r) => {
+    const o = (r ?? {}) as Record<string, unknown>
+    return {
+      date: typeof o.date === "string" ? o.date : "",
+      withdrawn: num(o.withdrawn),
+      paidIn: num(o.paidIn),
+      description: typeof o.description === "string" ? o.description.replace(/\s+/g, " ").trim() : "",
+    }
+  })
+}

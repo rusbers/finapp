@@ -558,14 +558,43 @@ correctly, so a vision model reads the page exactly as a person would.
   input.
 - **Reuse, not re-asking.** A confirmed reading is stored against the row's
   `descriptionKey` (the Details cell's raw glyph codes), so a row the model skipped can
-  be recovered without another call — identical codes mean identical printed text.
-- **Fail-soft.** A failed chunk, a missing API key or a PDF `pdf-lib` can't split leaves
+  be recovered without another call — identical codes mean identical printed text. The
+  map is kept PER DOCUMENT: the font is subsetted per PDF, so the same codes in another
+  file are not guaranteed to print the same text.
+- **Fail-soft.** A failed slice, a missing API key or a PDF `pdf-lib` can't split leaves
   the partial descriptions in place and still returns a reconciled statement.
-- **Model + cost.** Measured on the corpus, flash-lite returns the SAME descriptions as
-  flash but ~2× faster (37s vs 68s on the 38-page/1394-row worst case), which is what
-  keeps the request inside the 60s serverless budget — so flash-lite is the default.
-  Chunks with no transactions on their pages (covers, the summary page) are never sent.
-  Worst-case fill rate: 1389/1394 rows, 0 numbers or dates changed.
+- **One pass for the whole request.** `fillPtsbDescriptions` takes ALL the documents at
+  once (several statements of one account, or several PTSB accounts) so every page
+  competes for one concurrency budget. Reading them file by file was quick per file and
+  still added up: five statements of one client took ~40s that way, ~18s in one pass.
+- **Model + cost + the cascade.** This is the only AI step that is always on, so its
+  wall time is what decides whether a big statement fits the 60s serverless budget.
+  - **One page per call** (`DESCRIBE_PAGES_PER_CHUNK = 1`), **24 in flight**
+    (`DESCRIBE_CONCURRENCY`). A page is the smallest slice that still shows the model a
+    whole table; small slices parallelize better AND contain a misreading. Slices with
+    no transactions on them (covers, the summary page) are never sent.
+  - **flash-lite first.** It returns the same descriptions as flash at ~2× the speed,
+    for a fraction of the cost.
+  - **Poor slices are escalated to flash** — under `DESCRIBE_RETRY_MIN_FILL` (90%) of
+    the slice's rows matched. This is NOT a plain retry, because the failure is not
+    random: flash-lite occasionally reads a wrapped line as an EXTRA row and from there
+    runs one row out of step with the parser, so the rest of the slice matches nothing.
+    Measured on a real 3-page block it returned 116 rows for 106 and matched 24 —
+    identically on a repeat — while flash returned 106 and matched all of them. A
+    multi-page slice is also broken down page by page for the retry.
+  - **The retry wave is skipped past `DESCRIBE_RETRY_DEADLINE_MS` (30s)** into the pass:
+    partial descriptions on a reconciled statement are the fail-soft outcome, a
+    serverless timeout is not.
+  - Measured on the 38-page/1394-row worst case: ~29s → **~20s**, fill 1393/1394 (was
+    1389, and one bad slice used to cost ~80 rows). The remaining ceiling is the API
+    key's throughput — roughly 80 rows/s — so a few thousand rows is the practical limit
+    of one request; past that the fix is structural (read descriptions from a SECOND
+    request, or raise the route's `maxDuration`), not a bigger concurrency number.
+  - The response format is deliberately NOT minimal: dropping the unused `date` field
+    was free, but going all the way to positional triples (`[withdrawn, paidIn, text]`)
+    was ~26% faster and desynchronised more often — named fields make the model state
+    which column an amount came from, which is exactly the mistake this layer must not
+    make.
 - **Test:** `npm run test:ptsb-descriptions` — pure asserts on the matching rules (no
   PDF, no AI): exact match, spurious extra row, dropped row, one-cent mismatch refused,
   wrong direction refused, empty reading ignored, key reuse, repeated amounts, and that

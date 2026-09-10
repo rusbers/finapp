@@ -14,7 +14,11 @@ import { isAllowedModel } from "@/lib/core/config"
 import { BANK_LABELS, SHORT_BANK_LABELS, type BankId } from "@/lib/core/prompts"
 import { categorizeTransactions } from "@/lib/core/categorization"
 import { parseExpensesCsv, matchExpenses, type MatchEntry } from "@/lib/core/expenses"
-import { fillPtsbDescriptions, type PtsbDescriptionStats } from "@/lib/core/ptsb-descriptions"
+import {
+  fillPtsbDescriptions,
+  type PtsbDocument,
+  type PtsbDescriptionStats,
+} from "@/lib/core/ptsb-descriptions"
 import type { Transaction } from "@/lib/core/types"
 import { strings } from "@/lib/strings"
 
@@ -76,39 +80,45 @@ export async function POST(req: NextRequest) {
     // is relabelled solely when the model's own reading of that row's amounts agrees
     // to the cent — reconciliation cannot be affected. Runs BEFORE expense matching
     // and categorization, both of which read description text.
-    const describePtsb = async (
+    //
+    // `ptsbDocs` pairs each PTSB PDF with the rows that came from it (empty for any
+    // other bank, so a caller can hand its files over unconditionally); `describePtsb`
+    // then reads them all.
+    const ptsbDocs = (
       forBank: BankId,
       files: { name: string; bytes: Uint8Array }[],
       transactions: Transaction[],
-    ): Promise<PtsbDescriptionStats | null> => {
-      if (forBank !== "ptsb") return null
+    ): PtsbDocument[] => {
+      if (forBank !== "ptsb" || transactions.length === 0 || files.length === 0) return []
+      const byFile = new Map<string, Transaction[]>()
+      for (const t of transactions) {
+        const key = t.sourceFile ?? files[0].name
+        const list = byFile.get(key)
+        if (list) list.push(t)
+        else byFile.set(key, [t])
+      }
+      return [...byFile].map(([name, rows]) => ({
+        bytes: (files.find((f) => f.name === name) ?? files[0]).bytes,
+        transactions: rows,
+      }))
+    }
+
+    // Read EVERY PTSB document of the request in one pass, so all their pages share a
+    // single concurrency budget. Done one file (or one account) at a time, each read
+    // is quick but they add up, and a client with a year of statements would blow the
+    // serverless limit that a single big statement fits inside.
+    const describePtsb = async (docs: PtsbDocument[]): Promise<PtsbDescriptionStats | null> => {
+      if (docs.length === 0) return null
       try {
-        if (transactions.length === 0 || files.length === 0) return null
-        const byFile = new Map<string, Transaction[]>()
-        for (const t of transactions) {
-          const key = t.sourceFile ?? files[0].name
-          const list = byFile.get(key)
-          if (list) list.push(t)
-          else byFile.set(key, [t])
-        }
-        const total: PtsbDescriptionStats = { rows: 0, filled: 0, reused: 0, chunksSent: 0, chunksFailed: 0 }
-        for (const [name, rows] of byFile) {
-          const file = files.find((f) => f.name === name) ?? files[0]
-          const s = await fillPtsbDescriptions(file.bytes, rows, {})
-          total.rows += s.rows
-          total.filled += s.filled
-          total.reused += s.reused
-          total.chunksSent += s.chunksSent
-          total.chunksFailed += s.chunksFailed
-        }
-        return total
+        return await fillPtsbDescriptions(docs, {})
       } finally {
         // `descriptionKey` is the row's raw scrambled glyph codes — an internal handle
         // for this layer only. Drop it on every exit so it never reaches the client
         // (it is pure noise there, and on a 1400-row statement it is a lot of it).
-        for (const t of transactions) delete t.descriptionKey
+        for (const doc of docs) for (const t of doc.transactions) delete t.descriptionKey
       }
     }
+
     // Optional expense reconciliation — when an `expenses.csv` is attached, match each
     // expense against a statement debit (exact cents + date window) and tag matched rows
     // `category = "Expense"`. Runs AFTER categorization (called later in each branch) so a
@@ -176,27 +186,19 @@ export async function POST(req: NextRequest) {
       }
 
       const multi = await extractAccounts(inputs, { primaryModel, fallbackModel, enableFallback })
-      // Any PTSB account gets its descriptions read from the rendered pages first.
+      // Any PTSB account gets its descriptions read from the rendered pages first —
+      // every such account's files in ONE pass, so they share the concurrency budget.
       // Resolve each account's PDFs through its OWN input (`sourceIndex`), never by
       // file name: two accounts of one client often upload same-named files, and a
       // name lookup would read one account's descriptions off the other's document —
       // silently, because the numbers still reconcile.
-      let ptsbDescriptions: PtsbDescriptionStats | null = null
-      for (const account of multi.accounts) {
-        if (account.bank !== "ptsb") continue
-        const source = account.sourceIndex != null ? inputs[account.sourceIndex] : undefined
-        if (!source) continue // no provenance ⇒ skip rather than risk the wrong PDF
-        const s = await describePtsb("ptsb", source.files, account.transactions)
-        if (!s) continue
-        if (!ptsbDescriptions) ptsbDescriptions = s
-        else {
-          ptsbDescriptions.rows += s.rows
-          ptsbDescriptions.filled += s.filled
-          ptsbDescriptions.reused += s.reused
-          ptsbDescriptions.chunksSent += s.chunksSent
-          ptsbDescriptions.chunksFailed += s.chunksFailed
-        }
-      }
+      const ptsbDescriptions = await describePtsb(
+        multi.accounts.flatMap((account) => {
+          const source = account.sourceIndex != null ? inputs[account.sourceIndex] : undefined
+          if (!source) return [] // no provenance ⇒ skip rather than risk the wrong PDF
+          return ptsbDocs(account.bank, source.files, account.transactions)
+        }),
+      )
       const expenses = maybeExpenses(
         multi.accounts.flatMap((a) => a.transactions.map((tx) => ({ tx, account: a.label }))),
       )
@@ -274,9 +276,7 @@ export async function POST(req: NextRequest) {
       }
       const result = await extractAndReconcile(pdfBytes, options)
       const ptsbDescriptions = await describePtsb(
-        bank,
-        [{ name: uploaded[0].name, bytes: pdfBytes }],
-        result.data.transactions,
+        ptsbDocs(bank, [{ name: uploaded[0].name, bytes: pdfBytes }], result.data.transactions),
       )
       const expenses = maybeExpenses(result.data.transactions.map((tx) => ({ tx })))
       const categorization = await maybeCategorize([result.data.transactions])
@@ -292,7 +292,9 @@ export async function POST(req: NextRequest) {
       })),
     )
     const multiResult = await extractAndReconcileMany(filesWithBytes, options)
-    const ptsbDescriptions = await describePtsb(bank, filesWithBytes, multiResult.result.data.transactions)
+    const ptsbDescriptions = await describePtsb(
+      ptsbDocs(bank, filesWithBytes, multiResult.result.data.transactions),
+    )
     const expenses = maybeExpenses(multiResult.result.data.transactions.map((tx) => ({ tx })))
     const categorization = await maybeCategorize([multiResult.result.data.transactions])
     stampBank(multiResult.result.data.transactions, bank)

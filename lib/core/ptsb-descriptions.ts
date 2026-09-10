@@ -31,7 +31,14 @@
 import type { Transaction } from "./types"
 import { splitPdfIntoChunks } from "./pdf"
 import { describeWithGemini, type DescribedRow } from "./gemini"
-import { PAGES_PER_CHUNK, MAX_CONCURRENT_CHUNKS, DEFAULT_PRIMARY_MODEL } from "./config"
+import {
+  DESCRIBE_PAGES_PER_CHUNK,
+  DESCRIBE_CONCURRENCY,
+  DESCRIBE_RETRY_MIN_FILL,
+  DESCRIBE_RETRY_DEADLINE_MS,
+  DEFAULT_PRIMARY_MODEL,
+  DEFAULT_FALLBACK_MODEL,
+} from "./config"
 
 export interface PtsbDescriptionStats {
   /** Rows the layer could work on (those carrying a page number). */
@@ -42,6 +49,8 @@ export interface PtsbDescriptionStats {
   reused: number
   chunksSent: number
   chunksFailed: number
+  /** Chunks re-read by the stronger model because the fast one read them poorly. */
+  chunksRetried: number
 }
 
 /** Compare money as integer cents — the project's rule, and exact for matching. */
@@ -112,63 +121,100 @@ export function graftChunk(
   }
 }
 
+/** One PDF plus the rows the deterministic parser produced from it. */
+export interface PtsbDocument {
+  bytes: Uint8Array
+  transactions: Transaction[]
+}
+
 /**
  * Replace PTSB descriptions with the model's reading of the rendered pages.
- * Mutates `transactions` in place and returns what it managed to do.
+ * Mutates the transactions in place and returns what it managed to do.
+ *
+ * Takes ALL the documents of a request at once (a user often uploads a year as
+ * several PDFs, and a client can hold more than one PTSB account) so that every page
+ * of every file competes for ONE concurrency budget. Reading each file in turn would
+ * finish each one quickly and still add up past the serverless limit.
  */
 export async function fillPtsbDescriptions(
-  pdfBytes: Uint8Array,
-  transactions: Transaction[],
+  docs: PtsbDocument[],
   opts: { model?: string } = {},
 ): Promise<PtsbDescriptionStats> {
-  const stats: PtsbDescriptionStats = { rows: 0, filled: 0, reused: 0, chunksSent: 0, chunksFailed: 0 }
-
-  // Only rows we can locate on a page can be matched to a rendered chunk.
-  const rows = transactions.filter((t) => typeof t.page === "number")
-  stats.rows = rows.length
-  if (rows.length === 0) return stats
+  const startedAt = Date.now()
+  const stats: PtsbDescriptionStats = {
+    rows: 0,
+    filled: 0,
+    reused: 0,
+    chunksSent: 0,
+    chunksFailed: 0,
+    chunksRetried: 0,
+  }
 
   // Measured on the corpus: flash-lite and flash return the SAME descriptions here
   // (reading rendered text is not where the stronger model earns its cost), but
-  // flash-lite is roughly twice as fast — 37s vs 68s on the 38-page/1394-row worst
-  // case. That difference decides whether the request fits the 60s serverless budget,
-  // so the fast model is the default.
+  // flash-lite is roughly twice as fast — which is what decides whether the request
+  // fits the 60s serverless budget. So the fast model is the default, and the chunks
+  // it gets wrong are escalated below.
   const model = opts.model ?? DEFAULT_PRIMARY_MODEL
 
-  let chunks: string[]
-  try {
-    chunks = await splitPdfIntoChunks(pdfBytes, PAGES_PER_CHUNK)
-  } catch {
-    return stats // encrypted or unreadable by pdf-lib — keep the partial descriptions
+  /** A slice of pages to read, and the rows it should explain. */
+  interface Job {
+    doc: number
+    /** First page of the slice, 1-based — used to re-read it page by page on a retry. */
+    firstPage: number
+    pages: number
+    pdfBase64: string
+    chunkRows: Transaction[]
   }
+  const jobs: Job[] = []
+  // Per document: its rows in statement order, and those rows grouped by page. Both
+  // are needed again after the first pass (the retry and the reuse walk them).
+  const docRows: Transaction[][] = []
+  const docPages: Map<number, Transaction[]>[] = []
 
-  const byPage = new Map<number, Transaction[]>()
-  for (const t of rows) {
-    const page = t.page as number
-    const list = byPage.get(page)
-    if (list) list.push(t)
-    else byPage.set(page, [t])
-  }
+  for (let d = 0; d < docs.length; d++) {
+    // Only rows we can locate on a page can be matched to a rendered chunk.
+    const rows = docs[d].transactions.filter((t) => typeof t.page === "number")
+    const byPage = new Map<number, Transaction[]>()
+    docRows.push(rows)
+    docPages.push(byPage)
+    stats.rows += rows.length
+    if (rows.length === 0) continue
 
-  // `splitPdfIntoChunks` keeps page order, so chunk i holds pages
-  // [i*PAGES_PER_CHUNK+1 .. +PAGES_PER_CHUNK]. Chunks with no transactions on them
-  // (covers, marketing pages, the summary page) are never sent.
-  const jobs = chunks
-    .map((pdfBase64, i) => {
-      const firstPage = i * PAGES_PER_CHUNK + 1
+    let chunks: string[]
+    try {
+      chunks = await splitPdfIntoChunks(docs[d].bytes, DESCRIBE_PAGES_PER_CHUNK)
+    } catch {
+      continue // encrypted or unreadable by pdf-lib — keep this file's partial descriptions
+    }
+
+    for (const t of rows) {
+      const page = t.page as number
+      const list = byPage.get(page)
+      if (list) list.push(t)
+      else byPage.set(page, [t])
+    }
+
+    // `splitPdfIntoChunks` keeps page order, so chunk i holds pages
+    // [i*N+1 .. i*N+N]. Chunks with no transactions on them (covers, marketing
+    // pages, the summary page) are never sent.
+    for (let i = 0; i < chunks.length; i++) {
+      const firstPage = i * DESCRIBE_PAGES_PER_CHUNK + 1
       const chunkRows: Transaction[] = []
-      for (let p = firstPage; p < firstPage + PAGES_PER_CHUNK; p++) {
+      for (let p = firstPage; p < firstPage + DESCRIBE_PAGES_PER_CHUNK; p++) {
         const list = byPage.get(p)
         if (list) chunkRows.push(...list)
       }
-      return { pdfBase64, chunkRows }
-    })
-    .filter((job) => job.chunkRows.length > 0)
+      if (chunkRows.length > 0) {
+        jobs.push({ doc: d, firstPage, pages: DESCRIBE_PAGES_PER_CHUNK, pdfBase64: chunks[i], chunkRows })
+      }
+    }
+  }
 
   stats.chunksSent = jobs.length
   if (jobs.length === 0) return stats
 
-  const readings = await mapWithLimit(jobs, MAX_CONCURRENT_CHUNKS, async (job) => {
+  const readings = await mapWithLimit(jobs, DESCRIBE_CONCURRENCY, async (job) => {
     try {
       return await describeWithGemini(job.pdfBase64, model)
     } catch {
@@ -176,25 +222,110 @@ export async function fillPtsbDescriptions(
     }
   })
 
-  const confirmed = new Map<string, string>()
+  // `confirmed` is kept PER DOCUMENT: the key is the row's raw glyph codes, and the
+  // font is subsetted per PDF, so the same codes in another file are not guaranteed
+  // to print the same text. Reuse stays inside the document that proved it.
+  const confirmed = docs.map(() => new Map<string, string>())
   const filled = new Set<Transaction>()
   readings.forEach((aiRows, i) => {
     if (!aiRows) {
       stats.chunksFailed++
       return
     }
-    graftChunk(jobs[i].chunkRows, aiRows, confirmed, filled, stats)
+    graftChunk(jobs[i].chunkRows, aiRows, confirmed[jobs[i].doc], filled, stats)
   })
+
+  await retryPoorChunks(docs, jobs, readings, docPages, confirmed, filled, stats, startedAt)
+
+  // Rows can be grafted twice (first pass, then a retry), so take the count from the
+  // set of rows actually relabelled rather than from the number of grafts.
+  stats.filled = filled.size
 
   // A row the model skipped can still be recovered when the SAME description was
   // confirmed on another row: identical glyph codes mean identical printed text.
-  for (const t of rows) {
-    if (filled.has(t) || !t.descriptionKey) continue
-    const known = confirmed.get(t.descriptionKey)
-    if (!known) continue
-    t.description = known
-    stats.reused++
+  for (let d = 0; d < docRows.length; d++) {
+    for (const t of docRows[d]) {
+      if (filled.has(t) || !t.descriptionKey) continue
+      const known = confirmed[d].get(t.descriptionKey)
+      if (!known) continue
+      t.description = known
+      stats.reused++
+    }
   }
 
   return stats
+}
+
+/**
+ * Second pass: re-read the slices the fast model got wrong, with the stronger model.
+ *
+ * The failure is not random, so simply repeating the same call is pointless: flash-lite
+ * occasionally reads a wrapped line as an extra row, and from there its reading runs
+ * out of step with the parser's rows, so the rest of the slice matches nothing.
+ * Measured on a real 3-page block, it returned 116 rows for 106 and matched only 24 —
+ * identically on a repeat, while flash returned 106 and matched all of them.
+ *
+ * Two things fix it and the retry uses both: the stronger model, and a smaller slice.
+ * With the default of one page per call the slice is already minimal, so the retry
+ * re-sends it as it is; a larger DESCRIBE_PAGES_PER_CHUNK is broken down page by page,
+ * which both bounds the drift and keeps the calls short enough to run together (that
+ * same 3-page block: 106/106 in ~9s page-by-page, against ~20s as one call).
+ *
+ * Only the slices that came back poor pay for this, and the pass is skipped once the
+ * request is too far along to afford it — partial descriptions on a reconciled
+ * statement are the fail-soft outcome; a serverless timeout is not.
+ */
+async function retryPoorChunks(
+  docs: PtsbDocument[],
+  jobs: { doc: number; firstPage: number; pages: number; pdfBase64: string; chunkRows: Transaction[] }[],
+  readings: (DescribedRow[] | null)[],
+  docPages: Map<number, Transaction[]>[],
+  confirmed: Map<string, string>[],
+  filled: Set<Transaction>,
+  stats: PtsbDescriptionStats,
+  startedAt: number,
+): Promise<void> {
+  const poor = jobs.filter((job, i) => {
+    if (!readings[i]) return true // transport failure — nothing was read at all
+    const hits = job.chunkRows.filter((t) => filled.has(t)).length
+    return hits < job.chunkRows.length * DESCRIBE_RETRY_MIN_FILL
+  })
+  if (poor.length === 0 || Date.now() - startedAt >= DESCRIBE_RETRY_DEADLINE_MS) return
+
+  const retryJobs: { doc: number; pdfBase64: string; rows: Transaction[] }[] = []
+  // Only needed when a slice covers several pages; split each such document once.
+  const singlePages = new Map<number, string[]>()
+  for (const job of poor) {
+    if (job.pages === 1) {
+      retryJobs.push({ doc: job.doc, pdfBase64: job.pdfBase64, rows: job.chunkRows })
+      continue
+    }
+    let pages = singlePages.get(job.doc)
+    if (!pages) {
+      try {
+        pages = await splitPdfIntoChunks(docs[job.doc].bytes, 1)
+      } catch {
+        continue // it split once already; if it fails now, keep what we have
+      }
+      singlePages.set(job.doc, pages)
+    }
+    for (let p = job.firstPage; p < job.firstPage + job.pages; p++) {
+      const rows = docPages[job.doc].get(p)
+      if (rows && pages[p - 1]) retryJobs.push({ doc: job.doc, pdfBase64: pages[p - 1], rows })
+    }
+  }
+  if (retryJobs.length === 0) return
+
+  stats.chunksRetried = retryJobs.length
+  const retries = await mapWithLimit(retryJobs, DESCRIBE_CONCURRENCY, async (job) => {
+    try {
+      return await describeWithGemini(job.pdfBase64, DEFAULT_FALLBACK_MODEL)
+    } catch {
+      return null
+    }
+  })
+  retries.forEach((aiRows, k) => {
+    if (!aiRows) return
+    graftChunk(retryJobs[k].rows, aiRows, confirmed[retryJobs[k].doc], filled, stats)
+  })
 }

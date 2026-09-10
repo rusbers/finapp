@@ -539,23 +539,39 @@ pdfjs-dist`): for the target banks, reading the PDF's text positions (x/y) and
   only as fragments ("posaleapacard" for "POS SALE APPLE CARD") — the glyph codes
   collide, so no code→letter map can fix it (see the June 2026 investigation). The
   glyphs RENDER correctly, though, so a vision model reads the page as a person does.
-  `fillPtsbDescriptions` splits the PDF with the existing `splitPdfIntoChunks`, skips
-  chunks whose pages carry no transactions, reads them in parallel via
-  `describeWithGemini`, and grafts each reading onto the row the parser already
-  produced. **A row is relabelled ONLY when the model's own reading of that row's
-  Withdrawn/Paid In agrees TO THE CENT** — the amounts are an identity check, never
-  data — so a misread page degrades to the partial decode instead of mislabelling a
-  transaction. Rows the model skipped are recovered via `descriptionKey` (identical
-  glyph codes ⇒ identical printed text). It runs in the ROUTE, like `categorization.ts`
-  — never in the pipeline — so the regression harness keeps testing the deterministic
-  core with no AI calls, and it runs BEFORE expense matching and categorization, which
-  both read description text. Always on for PTSB (nothing else can read those
-  descriptions) and fail-soft: a failed chunk, a missing API key or an unsplittable PDF
-  leaves the partial descriptions and still returns a reconciled statement. Model:
-  **flash-lite** — measured to return the SAME descriptions as flash but roughly twice
-  as fast (37s vs 68s on the 38-page/1394-row worst case), which is what keeps the
-  request inside the 60s serverless budget. Measured fill rate: 1389/1394 rows on that
-  worst case, 0 numbers/dates changed. **In multi-account mode an account's PDF bytes
+  `fillPtsbDescriptions` takes **all the PDFs of a request at once** (several
+  statements of one account, or several PTSB accounts), splits each with the existing
+  `splitPdfIntoChunks`, skips slices whose pages carry no transactions, reads them all
+  in parallel via `describeWithGemini` under ONE concurrency budget, and grafts each
+  reading onto the row the parser already produced. **A row is relabelled ONLY when the
+  model's own reading of that row's Withdrawn/Paid In agrees TO THE CENT** — the
+  amounts are an identity check, never data — so a misread page degrades to the partial
+  decode instead of mislabelling a transaction. Rows the model skipped are recovered via
+  `descriptionKey` (identical glyph codes ⇒ identical printed text; the map is kept PER
+  DOCUMENT, since the font is subsetted per PDF). It runs in the ROUTE, like
+  `categorization.ts` — never in the pipeline — so the regression harness keeps testing
+  the deterministic core with no AI calls, and it runs BEFORE expense matching and
+  categorization, which both read description text. Always on for PTSB (nothing else
+  can read those descriptions) and fail-soft: a failed slice, a missing API key or an
+  unsplittable PDF leaves the partial descriptions and still returns a reconciled
+  statement.
+  **Speed + the two-model cascade** (config: `DESCRIBE_PAGES_PER_CHUNK`,
+  `DESCRIBE_CONCURRENCY`, `DESCRIBE_RETRY_MIN_FILL`, `DESCRIBE_RETRY_DEADLINE_MS`):
+  this is the one AI step that is always on, so its wall time decides whether a big
+  statement fits the 60s serverless limit. It reads **ONE page per call** on
+  **flash-lite** with **24 in flight**; a page is the smallest slice that still shows a
+  whole table, and small slices both parallelize better and contain a misreading. Then
+  any slice whose rows came back **less than 90% matched is re-read by flash** — the
+  fast model occasionally reads a wrapped line as an EXTRA row and from there runs one
+  row out of step with the parser, losing the rest of the slice; that is systematic
+  (repeating the same call reproduced 24/106 matched, flash got 106/106), so the retry
+  escalates the model instead of repeating. Only bad slices pay for it, and the retry
+  wave is skipped once the pass is already 30s in (fail-soft beats a timeout).
+  Measured on the 38-page/1394-row worst case: **~29s → ~20s** and 1393/1394 rows
+  filled (was 1389); five statements of one client, 920 rows: **~40s sequential → ~18s**,
+  917 filled. Remaining ceiling is the key's throughput (~80 rows/s), i.e. a few
+  thousand rows per request; past that the fix is structural (descriptions from a
+  second request, or a higher `maxDuration`), not a bigger concurrency number. **In multi-account mode an account's PDF bytes
   are resolved through `MultiAccount.sourceIndex` — the input it came from — never by
   file name.** Two accounts of one client routinely upload same-named files
   ("statement.pdf", "1.pdf"); a name lookup handed one account the OTHER account's

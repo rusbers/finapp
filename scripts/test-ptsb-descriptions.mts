@@ -31,13 +31,19 @@ const tx = (debit: number, credit: number, description: string, descriptionKey?:
   ...(descriptionKey ? { descriptionKey } : {}),
 })
 const ai = (withdrawn: number | null, paidIn: number | null, description: string): DescribedRow => ({
-  date: "01JAN25",
   withdrawn,
   paidIn,
   description,
 })
 const run = (rows: Transaction[], aiRows: DescribedRow[]) => {
-  const stats: PtsbDescriptionStats = { rows: rows.length, filled: 0, reused: 0, chunksSent: 1, chunksFailed: 0 }
+  const stats: PtsbDescriptionStats = {
+    rows: rows.length,
+    filled: 0,
+    reused: 0,
+    chunksSent: 1,
+    chunksFailed: 0,
+    chunksRetried: 0,
+  }
   const confirmed = new Map<string, string>()
   const filled = new Set<Transaction>()
   graftChunk(rows, aiRows, confirmed, filled, stats)

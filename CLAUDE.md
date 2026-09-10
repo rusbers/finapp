@@ -399,13 +399,30 @@ pdfjs-dist`): for the target banks, reading the PDF's text positions (x/y) and
   Account"/"Личный счет" AND "Cont comun"/"Joint Account"/"Совместный счет" (each is a
   SEPARATE account + balance series, so both must start a new account; missing "Cont
   comun" merged its rows into the personal account and broke reconciliation).
+  **The section TITLE varies between RO templates**: "Conturi curente **Extrasuri de
+  tranzacționare**" and, in the `ro-md` template, "Conturi curente **Extrase pentru
+  tranzacții**" — both the noun and the preposition differ, so `SECTION_START` matches
+  `extras(uri|e)\s+(de|pentru)\s+tranzac` (still narrow enough that the SUMMARY title
+  "Conturi curente Rezumate" does not match). Knowing only the first wording meant the
+  transaction section was never entered on an ro-md statement: 0 accounts and
+  `currentAccountsSection: false`, which the rule below then reported as a clean
+  "nothing in scope" **PASS** — on a PDF holding a full year of transactions. That is
+  the same danger class as a truncated-but-reconciling balance series: a green verdict
+  over missing data. `SECTION_STOP` now also matches **"criptomonede"** (RO does not
+  spell the crypto section "crypto"): its rows carry a date + amount + balance, so
+  without the stop they would be appended to the LAST current account and corrupt its
+  balance series — currently masked only because the "Informații despre …" page happens
+  to precede the crypto section in these files.
   **No current accounts in scope ≠ failure**: a consolidated PDF with NO
   "Current Accounts transaction statements" section (savings/crypto-only, or an empty
   period) has nothing to reconcile in MVP scope — the parser reports
   `currentAccountsSection: false` and the pipeline returns `allReconciled: true` (0
   accounts), NOT a fail. Verified: all current accounts across real EN/RO/RU
-  consolidated statements reconcile to the cent; savings/crypto-only and empty
-  consolidated statements pass as "nothing in scope".
+  consolidated statements reconcile to the cent (incl. the `ro-md` 2022 + 2023
+  statements: EUR/GBP/USD to the cent, empty RON correctly `no-tx`, and each account's
+  opening/closing cross-checked against the statement's own printed "Sold inițial /
+  Sold final" summary and against the other year's statement, which they chain to);
+  savings/crypto-only and empty consolidated statements pass as "nothing in scope".
   **See `WORKFLOW.md` for the full Revolut template reference + diagnostic recipe.**
   Plan: same approach for AIB, BOI, PTSB; AI + reconciliation remains the
   fallback for rare banks / scanned PDFs.

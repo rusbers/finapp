@@ -210,7 +210,15 @@ Per-bank status (specifics → `CLAUDE.md`):
   false` → `allReconciled: true` (nothing in scope), NOT a fail. Transaction rows are
   detected by a date cell in EITHER order — day-first ("5 Mar 2025") or month-first
   ("Mar 5, 2025", the newer template); requiring day-first yielded 0 rows on a whole
-  real statement.
+  real statement. The **section title itself varies by RO template**: "Conturi curente
+  Extrasuri de tranzacționare" AND (the `ro-md` template) "Conturi curente Extrase
+  pentru tranzacții" — `SECTION_START` matches "extras(uri|e) (de|pentru) tranzac", so
+  the SUMMARY title ("Conturi curente Rezumate") still doesn't. Matching only the first
+  wording meant the section was never entered: 0 accounts + `currentAccountsSection:
+  false`, reported as a silent "nothing in scope" **pass** on a PDF holding a full year
+  of transactions — the same danger class as a truncated-but-reconciling series.
+  `SECTION_STOP` also matches "criptomonede" (RO doesn't spell it "crypto"); crypto rows
+  carry date+amount+balance, so otherwise they would append to the LAST current account.
 - **AIB** (`aib-parser.ts`) — per-page anchors detected from the header (columns
   scale with page width), glued `dr` overdraft, balance-forward per page.
 - **BOI** (`boi-parser.ts`) — Payments-out / Payments-in columns, `OD` overdraft,

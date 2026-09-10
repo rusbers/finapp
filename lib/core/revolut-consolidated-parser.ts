@@ -69,10 +69,21 @@ const DATE_ROW_RE = /^(?:\d{1,2}\s+\S|[a-zA-ZăâîЀ-ӿ]{3,}\.?\s+\d{1,2}\b)/
 const VALUE_RE = /-?\s*[€$£]?\s*\d{1,3}(?:[ .,  ]\d{3})*[.,]\d{2}/g
 
 // Section boundaries (size ≈12.4 titles), localized EN / RO / RU.
+// RO prints this section title in TWO wordings — "Conturi curente Extrasuri de
+// tranzacționare" and (the ro-md template) "Conturi curente Extrase pentru
+// tranzacții" — so both the noun and the preposition vary. Matching only the first
+// meant the section was never entered on an ro-md statement: zero accounts and
+// `currentAccountsSection: false`, i.e. a silent "nothing in scope" PASS on a PDF
+// holding a full year of transactions. The SUMMARY title ("Conturi curente
+// Rezumate") must still NOT match, hence "extras… <prep> tranzac…", not "conturi
+// curente" alone.
 const SECTION_START =
-  /current accounts transaction statements|conturi curente extrasuri de tranzac|текущие счета выписки по операциям/i
+  /current accounts transaction statements|conturi curente extras(?:uri|e)\s+(?:de|pentru)\s+tranzac|текущие счета выписки по операциям/i
+// "Criptomonede" is a stop as well — RO does not spell the crypto section "crypto",
+// and its rows carry a date + amount + balance, so without this they would be
+// appended to the LAST current account and corrupt its balance series.
 const SECTION_STOP =
-  /information about|informații despre|informaţii despre|информация о выписке|savings accounts|crypto|conturi de economii|economii|сбережени|крипто/i
+  /information about|informații despre|informaţii despre|информация о выписке|savings accounts|crypto|criptomonede|conturi de economii|economii|сбережени|крипто/i
 // Per-account title (size ≈9.6), currency in parentheses. A user can hold both a
 // PERSONAL and a JOINT current account in the same currency ("Cont comun (EUR)" /
 // "Joint Account (EUR)" / "Совместный счет (EUR)") — each is its own account with

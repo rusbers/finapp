@@ -4,8 +4,8 @@
  *
  * For each expense we look for a debit whose amount matches to the cent within a
  * small date window (card postings can lag the receipt date by a few days). A
- * matched transaction is tagged `category = "Expense"`; the returned report lists
- * every expense with a found / not-found flag (and where it matched), so an
+ * matched transaction is tagged `category = EXPENSE_CATEGORY`; the returned report
+ * lists every expense with a found / not-found flag (and where it matched), so an
  * accountant can see which expenses are missing from the bank.
  *
  * Pure + client-safe (no pdfjs/Gemini): the route parses/matches server-side; the
@@ -18,6 +18,12 @@ import { csvCell } from "./verification"
 
 /** A day window (either side) within which a debit may match an expense's date. */
 export const DEFAULT_WINDOW_DAYS = 5
+
+/** Marker category stamped on a debit matched to an expense. Deliberately NOT a member of
+ * `CATEGORIES` (categorization.ts) — it marks provenance, not a kind of spending. Exported
+ * because the route filters on it too (matched rows are excluded from the AI categorization
+ * pass); a bare literal in two files would eventually drift. */
+export const EXPENSE_CATEGORY = "Expenses"
 
 export interface Expense {
   supplier: string
@@ -37,6 +43,7 @@ export interface ExpenseMatch {
   matchedDate?: string
   matchedAccount?: string
   matchedDescription?: string
+  matchedDayGap?: number // SIGNED days from the expense date to the statement date (see `dayOffset`)
   matchedSourceFile?: string // the PDF the matched debit came from (when several were combined)
   matchedPage?: number // 1-based page of that PDF (deterministic parsers)
 }
@@ -174,6 +181,22 @@ function withinWindow(a: string, b: string, windowDays: number): boolean {
   return Math.abs(db - da) <= windowDays * 86_400_000
 }
 
+/**
+ * SIGNED day offset from the expense date to the statement date: positive when the bank
+ * posted AFTER the invoice (the usual card lag), negative when it posted before.
+ * `undefined` if either date is unparseable.
+ *
+ * Deliberately separate from `daysBetween`, which is ABSOLUTE: `pickBest` wants the
+ * distance (which candidate is closest), the report wants the direction (a debit dated
+ * before its invoice is worth a second look). Rounded because only whole days are shown.
+ */
+function dayOffset(expenseDate: string, txDate: string): number | undefined {
+  const a = Date.parse(expenseDate)
+  const b = Date.parse(txDate)
+  if (Number.isNaN(a) || Number.isNaN(b)) return undefined
+  return Math.round((b - a) / 86_400_000)
+}
+
 /** Supplier words (>=4 chars) used as a tie-breaker against the bank description. */
 function supplierTokens(supplier: string): string[] {
   return (supplier || "")
@@ -277,7 +300,7 @@ function pickBest(expense: Expense, candidates: MatchEntry[]): MatchEntry {
  * Match each expense to a statement debit. A match requires ALL THREE: the **exact**
  * cent amount, the **supplier name** present in the bank description (fuzzy `nameMatches`),
  * and a date **within ±windowDays** (default ±5). One-to-one; MUTATES the matched
- * transaction's `category` to "Expense". Requiring the name removes coincidental
+ * transaction's `category` to `EXPENSE_CATEGORY`. Requiring the name removes coincidental
  * same-amount matches to a different merchant (e.g. a €X expense won't match an unrelated
  * €X transfer/ATM withdrawal); an expense with no name-confirmed debit is left "not found"
  * for the accountant to review.
@@ -314,7 +337,7 @@ export function matchExpenses(
       if (candidates.length > 0) {
         const best = pickBest(expense, candidates)
         used.add(best)
-        best.tx.category = "Expense"
+        best.tx.category = EXPENSE_CATEGORY
         best.tx.categoryByAi = false
         match = {
           expense,
@@ -322,6 +345,7 @@ export function matchExpenses(
           matchedDate: best.tx.date,
           matchedAccount: best.account,
           matchedDescription: best.tx.description,
+          matchedDayGap: dayOffset(expense.date, best.tx.date),
           matchedSourceFile: best.tx.sourceFile,
           matchedPage: best.tx.page,
         }
@@ -338,14 +362,26 @@ export function matchExpenses(
 
 /**
  * Export the ORIGINAL expenses.csv verbatim (every column, incl. VAT and the link column
- * under its own original name) with four columns appended: Found, Matched account, Matched
- * date, Source (file + page of the matched debit). The source rows/columns are never mutated
- * — only these are added at the end. (The single "Matched" cell is a UI-only presentation; the
+ * under its own original name) with six columns appended: Found, Matched account, Matched
+ * date, Matched description (the bank line it matched), Days (signed gap to the posting),
+ * Source (file + page of the matched debit). The source rows/columns are never mutated —
+ * only these are added at the end. (The single "Matched" cell is a UI-only presentation; the
  * export keeps account and date as separate columns for spreadsheet use.)
+ *
+ * "Days" is written as a PLAIN signed integer (1, 0, -4) — no "+" prefix, ASCII hyphen — so a
+ * spreadsheet reads the cell as a number. The UI's "+1" is presentation only.
  */
 export function expensesReportToCsv(report: ExpenseReport): string {
   const originalHeader = report.matches[0]?.expense.rawHeader ?? []
-  const header = [...originalHeader, "Found", "Matched account", "Matched date", "Source"]
+  const header = [
+    ...originalHeader,
+    "Found",
+    "Matched account",
+    "Matched date",
+    "Matched description",
+    "Days",
+    "Source",
+  ]
   const rows = report.matches.map((m) => {
     const source =
       m.found && m.matchedSourceFile
@@ -362,6 +398,8 @@ export function expensesReportToCsv(report: ExpenseReport): string {
       m.found ? "found" : "not found",
       m.matchedAccount ?? "",
       m.matchedDate ?? "",
+      m.matchedDescription ?? "",
+      m.matchedDayGap != null ? String(m.matchedDayGap) : "",
       source,
     ]
   })

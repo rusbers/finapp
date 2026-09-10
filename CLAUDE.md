@@ -765,11 +765,18 @@ pdfjs-dist`): for the target banks, reading the PDF's text positions (x/y) and
   different merchant "… ARTAN" at the same amount+date) — place names are structurally
   indistinguishable from a distinctive brand token (cf. the correct "Richard J Gough"→"R J GOUGH"
   abbreviation), so this is accepted, not special-cased. A matched transaction is tagged `category =
-  "Expense"` (marker — NOT the expense's own category); the returned `ExpenseMatch` records where it
-  matched (date · account · **source file+page**). Wired in `app/api/extract/route.ts`
+  EXPENSE_CATEGORY` — the string **"Expenses"**, a marker, NOT the expense's own category and
+  deliberately NOT a member of `CATEGORIES`. It is an exported constant rather than a literal
+  because the route filters on the same value; two bare literals in two files would drift. The
+  returned `ExpenseMatch` records where it matched (date · account · **bank description** ·
+  **signed day gap** · **source file+page**). Wired in `app/api/extract/route.ts`
   parallel to `maybeCategorize`: expense matching runs **BEFORE** categorization, and
-  `maybeCategorize` then **skips rows already tagged `"Expense"`** (`.filter(t => t.category !==
-  "Expense")`) — so the marker is never overwritten AND no AI is spent on matched rows. Added to
+  `maybeCategorize` then **skips rows already tagged `EXPENSE_CATEGORY`** (`.filter(t => t.category
+  !== EXPENSE_CATEGORY)`) — so the marker is never overwritten AND no AI is spent on matched rows.
+  The **day gap** (`ExpenseMatch.matchedDayGap`) is the SIGNED difference statement-date minus
+  expense-date, from the private `dayOffset` helper — kept separate from `daysBetween`, which stays
+  ABSOLUTE because `pickBest` needs a distance while the report needs a direction (a debit dated
+  BEFORE its invoice is the case worth reviewing). Added to
   every branch's response as `expenses`; the entries carry the account label
   (`{ tx, account }`) so the report says which account paid, WITHOUT setting `accountLabel` on
   the rows (that would wrongly add an "Account" column to the per-account CSV). UI: an **"+ Add
@@ -777,16 +784,23 @@ pdfjs-dist`): for the target banks, reading the PDF's text positions (x/y) and
   uploader; the button carries a green **"New"** badge (dropped once opened — `expensesSeen`
   state) and an **info tooltip** (reused `.info-tip`) with a one-line description. The **Expense
   reconciliation** result section shows a summary "X of Y found" + a
-  per-expense table (**Supplier · Category · Date · Amount · Found · Matched** — the expense
-  Description is dropped; **Matched shows the account/label FIRST, then the date**). The table is
-  `table-layout: fixed` with proportional column widths, so long Supplier/Category values
-  **truncate with an ellipsis** (full text on the cell's `title`, hover) instead of wrapping. The
-  matched debit's **Source (file + page) is NOT shown on screen** — it lives only in the CSV
+  per-expense table (**Supplier · Category · Date · Amount · Found · Matched · Days · Bank
+  description** — the expense's OWN Description is dropped; **Matched shows the account/label
+  FIRST, then the date**). **Days** and **Bank description** exist to make a match reviewable
+  WITHOUT opening the PDF: the table used to show only *that* something matched, so a coincidental
+  same-amount debit at a different merchant was invisible. Days is signed and rendered with an
+  explicit `+` on positives (`+2` = the bank posted two days after the invoice, the normal card
+  lag); its header carries a native `title` hint — NOT the `.info-tip` bubble, which the cell's
+  `overflow: hidden` would clip. The table is
+  `table-layout: fixed` with proportional column widths, so long Supplier/Category/Bank-description
+  values **truncate with an ellipsis** (full text on the cell's `title`, hover) instead of wrapping.
+  The matched debit's **Source (file + page) is NOT shown on screen** — it lives only in the CSV
   export. **CSV export (`expensesReportToCsv`) reproduces the ORIGINAL `expenses.csv` verbatim**
   — every source column in its own order, incl. all VAT columns and the link column under its
-  OWN original name — and appends **Found · Matched account · Matched date · Source** (account and
-  date stay SEPARATE columns in the export, for spreadsheet use; the single "Matched" cell is
-  UI-only). Nothing in the source is mutated. To do this,
+  OWN original name — and appends **Found · Matched account · Matched date · Matched description ·
+  Days · Source** (account and date stay SEPARATE columns in the export, for spreadsheet use; the
+  single "Matched" cell is UI-only, and **Days is written as a plain signed integer** — no `+`
+  prefix, ASCII hyphen — so a spreadsheet reads it as a number). Nothing in the source is mutated. To do this,
   `parseExpensesCsv` stores each row's original cells on `Expense.raw` and the original header on
   `Expense.rawHeader`, which travel to the client in the report; the export re-quotes cells via
   `csvCell` (so unnecessary quotes may drop, but values/columns are identical). **Optional "Link"

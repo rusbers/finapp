@@ -13,7 +13,12 @@ import { extractAccounts, type AccountInput } from "@/lib/core/multi-account-ext
 import { isAllowedModel } from "@/lib/core/config"
 import { BANK_LABELS, SHORT_BANK_LABELS, type BankId } from "@/lib/core/prompts"
 import { categorizeTransactions } from "@/lib/core/categorization"
-import { parseExpensesCsv, matchExpenses, type MatchEntry } from "@/lib/core/expenses"
+import {
+  parseExpensesCsv,
+  matchExpenses,
+  EXPENSE_CATEGORY,
+  type MatchEntry,
+} from "@/lib/core/expenses"
 import {
   fillPtsbDescriptions,
   type PtsbDocument,
@@ -61,14 +66,14 @@ export async function POST(req: NextRequest) {
     // toggle is on (it costs AI). Rules catch most rows for free; AI handles the
     // rest (unique descriptions, in parallel). It mutates `category` in place and
     // NEVER affects reconciliation.
-    // Categorization skips rows already tagged "Expense" (matched by the expense step,
-    // which runs FIRST in each branch) — so an expense's marker is never overwritten and
-    // no AI is spent on it.
+    // Categorization skips rows already tagged EXPENSE_CATEGORY (matched by the expense
+    // step, which runs FIRST in each branch) — so an expense's marker is never overwritten
+    // and no AI is spent on it.
     const categorize = formData.get("categorize") === "true"
     const maybeCategorize = async (txArrays: Transaction[][]) =>
       categorize
         ? await categorizeTransactions(
-            txArrays.flat().filter((t) => t.category !== "Expense"),
+            txArrays.flat().filter((t) => t.category !== EXPENSE_CATEGORY),
             { useAi: true, model: primaryModel },
           )
         : null
@@ -121,7 +126,7 @@ export async function POST(req: NextRequest) {
 
     // Optional expense reconciliation — when an `expenses.csv` is attached, match each
     // expense against a statement debit (exact cents + date window) and tag matched rows
-    // `category = "Expense"`. Runs AFTER categorization (called later in each branch) so a
+    // `category = EXPENSE_CATEGORY`. Runs AFTER categorization (called later in each branch) so a
     // match wins the cell. Pure, deterministic, never affects reconciliation.
     const expensesFile = formData.get("expenses")
     const parsedExpenses =

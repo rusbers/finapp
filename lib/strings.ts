@@ -81,15 +81,19 @@ export const strings = {
     `${found} of ${total} expenses found in the statement`,
   expensesColumns: {
     supplier: "Supplier",
-    description: "Description",
+    description: "Description", // the EXPENSE's own description (export only — not shown on screen)
     category: "Category",
     date: "Date",
     amount: "Amount",
     found: "Found",
     matched: "Matched",
+    days: "Days", // signed gap between the expense date and the bank posting
+    matchedDescription: "Bank description", // the statement line the expense matched, verbatim
     source: "Source",
     link: "Links", // optional column HEADER (short label in the UI; export keeps the CSV's own name)
   },
+  // Hover hint on the Days header — a native title, so it isn't clipped by the cell's overflow.
+  expensesDaysHint: "Days from the expense date to the bank posting (+ = the bank posted later)",
   expenseFound: "found",
   expenseNotFound: "not found",
   expenseLinkText: "Link", // the hyperlink text inside each cell (the URL itself stays hidden)

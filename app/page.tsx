@@ -1311,6 +1311,10 @@ export default function Page() {
                   <th className="num">{s.expensesColumns.amount}</th>
                   <th>{s.expensesColumns.found}</th>
                   <th>{s.expensesColumns.matched}</th>
+                  <th className="num" title={s.expensesDaysHint}>
+                    {s.expensesColumns.days}
+                  </th>
+                  <th>{s.expensesColumns.matchedDescription}</th>
                   {hasExpenseLinks && <th>{s.expensesColumns.link}</th>}
                 </tr>
               </thead>
@@ -1322,6 +1326,11 @@ export default function Page() {
                   const matched = m.found
                     ? `${m.matchedAccount ? `${m.matchedAccount} · ` : ""}${m.matchedDate ?? ""}`
                     : ""
+                  // Days: signed, so the direction is visible at a glance (+2 = the bank posted
+                  // two days after the invoice, the normal card lag; a negative is worth a look).
+                  // The "+" is UI-only — the CSV export writes a plain number.
+                  const gap = m.matchedDayGap
+                  const gapText = gap == null ? "" : gap > 0 ? `+${gap}` : String(gap)
                   const href = expenseHref(m.expense.link)
                   return (
                     <tr key={i} className={m.found ? "" : "expense-missing"}>
@@ -1335,6 +1344,8 @@ export default function Page() {
                       <td className="date" title={matched}>
                         {matched}
                       </td>
+                      <td className="num">{gapText}</td>
+                      <td title={m.matchedDescription}>{m.matchedDescription}</td>
                       {hasExpenseLinks && (
                         <td>
                           {href && (

@@ -15,6 +15,7 @@ import {
   matchExpenses,
   expensesReportToCsv,
   nameMatches,
+  EXPENSE_CATEGORY,
   type MatchEntry,
 } from "../lib/core/expenses"
 import { extractAccounts, type AccountInput } from "../lib/core/multi-account-extract"
@@ -82,9 +83,14 @@ check("parse: no link column -> link undefined", parsed[0].link === undefined)
   ]
   const r = matchExpenses(parsed, entries)
   check("match: 2 of 3 found (zero-amount not matchable)", r.foundCount === 2 && r.total === 3)
-  check("match: matched rows tagged Expense", entries.every((e) => e.tx.category === "Expense"))
+  // Compared against the exported constant, not a literal, so the marker and the route's
+  // filter (route.ts) can never drift apart again.
+  check("match: matched rows tagged with the marker", entries.every((e) => e.tx.category === EXPENSE_CATEGORY))
+  check("match: the marker is plural", EXPENSE_CATEGORY === "Expenses")
   check("match: zero-amount expense not found", r.matches[2].found === false)
   check("match: records matched date", r.matches[0].matchedDate === "2025-12-31")
+  check("match: day gap is signed (+1, bank posted after the invoice)", r.matches[0].matchedDayGap === 1)
+  check("match: a not-found row has no day gap", r.matches[2].matchedDayGap === undefined)
 }
 // Date window edge: +5 matches, +6 doesn't (name present in both).
 {
@@ -93,6 +99,19 @@ check("parse: no link column -> link undefined", parsed[0].link === undefined)
   const e6 = matchExpenses([ck], [{ tx: tx("2026-01-05", 30.03, "POS CIRCLE K CLONTARF") }]) // +6 days
   check("match: +5 days within window", e5.foundCount === 1)
   check("match: +6 days outside window", e6.foundCount === 0)
+  check("match: day gap at the window edge is +5", e5.matches[0].matchedDayGap === 5)
+}
+// Day gap sign + zero. A debit dated BEFORE its invoice yields a NEGATIVE gap — the whole
+// point of reporting it signed, since that direction is the one worth a second look.
+{
+  const [exp] = parseExpensesCsv(
+    `"Supplier","Description","Category","Date","Amount"
+"Woodies","paint","X","2025-06-12","20.00"`,
+  )
+  const before = matchExpenses([exp], [{ tx: tx("2025-06-08", 20.0, "POS WOODIES CORK") }]) // -4 days
+  check("match: debit before the invoice -> negative day gap", before.matches[0].matchedDayGap === -4)
+  const same = matchExpenses([exp], [{ tx: tx("2025-06-12", 20.0, "POS WOODIES CORK") }])
+  check("match: same-day match -> day gap 0", same.matches[0].matchedDayGap === 0)
 }
 // One-to-one: two same-amount, same-name expenses, one debit -> one found, one not.
 {
@@ -118,15 +137,22 @@ check("parse: no link column -> link undefined", parsed[0].link === undefined)
     r.matches[0].matchedSourceFile === "june.pdf" && r.matches[0].matchedPage === 3,
   )
 }
-// Export shape: original CSV preserved verbatim (incl. VAT) + exactly 4 appended columns.
+// Export shape: original CSV preserved verbatim (incl. VAT) + exactly 6 appended columns.
 {
   const r = matchExpenses(parsed, [{ tx: tx("2025-12-30", 30.03, "POS CIRCLE K CLONTARF") }])
   const csv = expensesReportToCsv(r)
   const head = csv.split("\n")[0]
   check("export: preserves original VAT column", head.includes("VAT Total"))
-  check("export: appends Found + separate Matched account/date + Source", head.endsWith("Found,Matched account,Matched date,Source"))
+  check(
+    "export: appends Found + Matched account/date/description + Days + Source",
+    head.endsWith("Found,Matched account,Matched date,Matched description,Days,Source"),
+  )
   check("export: preserves a VAT value in a data row", csv.includes(",5.62,") && csv.includes(",10.38,"))
   check("export: found/not found rows", csv.includes(",found,") && csv.includes(",not found,"))
+  check("export: carries the matched bank description", csv.includes("POS CIRCLE K CLONTARF"))
+  // A PLAIN signed integer (no "+" prefix) so a spreadsheet reads the cell as a number —
+  // the "+1" form is UI-only. This match is same-day, so the cell is "0".
+  check("export: Days is a plain number", csv.includes("POS CIRCLE K CLONTARF,0,"))
 }
 // Export: the link column keeps its ORIGINAL name + value (only Found/Matched/Source are added).
 {
@@ -138,7 +164,8 @@ check("parse: no link column -> link undefined", parsed[0].link === undefined)
   const head = csv.split("\n")[0]
   check(
     "export: link column keeps its original name",
-    head === "Supplier,Amount,Receipt URL,Found,Matched account,Matched date,Source",
+    head ===
+      "Supplier,Amount,Receipt URL,Found,Matched account,Matched date,Matched description,Days,Source",
   )
   check("export: original link URL preserved", csv.includes("https://receipts.example/1"))
 }

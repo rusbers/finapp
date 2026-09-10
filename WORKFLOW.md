@@ -464,21 +464,33 @@ service, **station**, **ireland**, insurance, motor…). **Known limit:** a supp
 can rarely still collide ("Centra Artane" vs a different merchant "…ARTAN" at the same amount+date) —
 place names are structurally indistinguishable from a distinctive brand token (cf. the correct
 "Richard J Gough"→"R J GOUGH"), so it's accepted, not special-cased. A match tags the row
-`category = "Expense"` (a marker — the user chose this over the expense's own category) and records
-where it matched (date · account · source file+page). Wired in `route.ts`: expense matching runs
+`category = EXPENSE_CATEGORY` — the string **"Expenses"**, a marker (the user chose this over the
+expense's own category), exported as a constant because `route.ts` filters on the same value and two
+bare literals would drift. It records
+where it matched (date · account · bank description · signed day gap · source file+page). Wired in
+`route.ts`: expense matching runs
 **BEFORE** categorization, and `maybeCategorize`
-then **skips rows already tagged `"Expense"`** — so the marker isn't overwritten and no AI is
+then **skips rows already tagged `EXPENSE_CATEGORY`** — so the marker isn't overwritten and no AI is
 spent on matched rows. Added to every branch's response as `expenses`; entries carry
 `{ tx, account }` so the report names the paying account WITHOUT setting `accountLabel` on
 rows (that would add a spurious "Account" column to the per-account CSV). UI: an "+ Add
 expenses" button (green "New" badge, dropped after first open; `.info-tip` tooltip) reveals the
 CSV uploader; the report table is Supplier · Category · Date ·
-Amount · Found · Matched (no expense Description; Matched = account/label first, then date).
-It's `table-layout: fixed`, so long Supplier/Category cells truncate with an ellipsis (full text
-on hover-`title`); the matched Source (file + page) is CSV-export-only, not shown on screen.
+Amount · Found · Matched · Days · Bank description (no expense Description; Matched = account/label
+first, then date). **Days + Bank description make a match reviewable without opening the PDF** —
+before them the table showed only *that* a match happened, so a coincidental same-amount debit at
+another merchant was invisible. `matchedDayGap` is SIGNED (statement date − expense date) from the
+private `dayOffset`; `daysBetween` stays ABSOLUTE because `pickBest` needs a distance while the
+report needs a direction. The UI prints `+2` / `0` / `-4`; the Days header's hint is a native
+`title`, not `.info-tip` (the cell's `overflow: hidden` would clip an absolute bubble).
+It's `table-layout: fixed`, so long Supplier/Category/Bank-description cells truncate with an
+ellipsis (full text on hover-`title`); the matched Source (file + page) is CSV-export-only, not
+shown on screen.
 **CSV export (`expensesReportToCsv`) reproduces the original expenses.csv verbatim** (all columns
 incl. VAT + the link column under its own name) and appends Found · Matched account · Matched date ·
-Source — account/date stay separate columns in the export (the single "Matched" cell is UI-only);
+Matched description · Days · Source — account/date stay separate columns in the export (the single
+"Matched" cell is UI-only) and Days is a plain signed integer (no `+`, ASCII hyphen) so a spreadsheet
+reads it as a number;
 nothing in the source is mutated (`Expense.raw`/`Expense.rawHeader` carry the original cells/header
 to the client). An optional **"Links"** column (short UI header) appears ON SCREEN only when the
 CSV has usable links: `parseExpensesCsv` reads a header containing "link"/"url" (substring) into
@@ -614,7 +626,8 @@ correctly, so a vision model reads the page exactly as a person would.
 - **Multi-account** (one client, several banks): combined table + per-account
   reconciliation shipped; NO transfer detection (out of scope). See section above.
 - **Expense reconciliation** (match an `expenses.csv` against statement debits):
-  shipped; exact cents + supplier name (fuzzy) + ±5-day match, "Expense" tag, found/not-found. See above.
+  shipped; exact cents + supplier name (fuzzy) + ±5-day match, "Expenses" tag, found/not-found,
+  with the matched bank description + signed day gap shown for review. See above.
 - **Reconciled-CSV re-import** (re-load an exported transactions CSV → rebuild + reconcile
   client-side → match expenses): shipped; own-export format, one file. See section above.
 - Next candidates: automatic bank identification; DB/auth (Phasing).

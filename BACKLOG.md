@@ -147,6 +147,42 @@ These are the features generic tools don't have — real competitive edge.
   review"), never an accusation. In the spirit of "flag, don't auto-correct."
 - Defer; possibly never as "fraud detection."
 
+### 4.4 — Carry the PTSB description-layer lessons over to the AI extraction path
+
+- **Type:** Reconciliation + cost/speed · **Effort:** M · **Value:** ★★
+- **Status: REVIEW LATER — nothing here is being built now.** Recorded on
+  2026-09-10, after the PTSB description layer was made ~2× faster (see
+  `WORKFLOW.md` → "PTSB hybrid descriptions"). These are the parts of that work
+  that could apply to the OTHER banks' AI path, not to their deterministic
+  parsers (AIB/BOI/Revolut read their text layer directly — nothing to gain).
+- **Escalate a CHUNK, not the whole document.** Today `pipeline.ts` retries the
+  ENTIRE statement with the stronger model when reconciliation fails. The signal
+  for a targeted retry already exists: `findBalanceBreaks` says WHERE the running
+  balance stops chaining, which points at the chunk that was misread. Re-extract
+  only that chunk. Cheaper, faster, and a 40-page statement no longer pays for a
+  second full extraction because of one bad page.
+- **Deadline before the expensive wave.** The model fallback starts regardless of
+  how much time the first attempt already spent. The PTSB layer skips its retry
+  wave past a deadline (`DESCRIBE_RETRY_DEADLINE_MS`); the same guard on the
+  pipeline turns a guaranteed timeout into an honest partial result.
+- **One pass for all files of a request.** Reading documents one after another was
+  worth ~40s → ~18s on five PTSB statements. Worth CHECKING whether
+  `extractAndReconcileMany` has the same shape on the AI path (it does not matter
+  on the deterministic path — that is sub-second).
+- **Chunk size / concurrency are NOT copy-pasteable.** 1 page per call with 24 in
+  flight is calibrated for a task that writes little text per page. Extraction
+  writes whole rows, so per-call latency and the best slice differ, and a
+  one-page slice cuts the context for descriptions that wrap across a page break
+  — which would corrupt data, not just speed. Measure before changing.
+- **Do NOT compact the response format.** Measured negative on PTSB: positional
+  triples were 26% faster but desynchronised more often. On extraction the
+  amounts ARE the data, so named fields stay.
+- **The transferable principle:** let the AI produce only what can be verified
+  deterministically. PTSB grafts model text onto a row solely when the model's
+  own reading of that row's amounts agrees to the cent. The same anchor (the
+  running balance) is what any future OCR path for scanned statements should be
+  held to.
+
 ---
 
 ## Key decisions (recorded)

@@ -267,7 +267,8 @@ lib/
 │   ├── categorization.ts  → category per transaction: keyword RULES first, AI only for the rest
 │   ├── expenses.ts        → PURE: parse expenses.csv + match each expense to a statement debit
 │   ├── csv-import.ts      → PURE: parse a previously-EXPORTED transactions CSV back into accounts (inverse of toCsv)
-│   └── verification.ts    → CSV export + row-by-row running-balance check
+│   ├── verification.ts    → CSV export + row-by-row running-balance check
+│   └── excel.ts           → PURE: Excel (.xlsx) sheet builders (transactions / summary / expenses)
 └── strings.ts             → all UI copy in one place (ready for future i18n)
 ```
 
@@ -911,16 +912,46 @@ pdfjs-dist`): for the target banks, reading the PDF's text positions (x/y) and
   the file elsewhere (the running balance is only valid in statement order; also handy for a
   future re-import of the app's own CSV). UI-export-only: the harness calls `toCsv` WITHOUT
   the flag, so its snapshots stay byte-identical.
-- **CSV export opens a Save As dialog** (`app/save-file.ts`): every "Download CSV" button
-  (transaction tables, per-account/consolidated tables, expenses report) goes through ONE
-  helper, `saveTextFile`. Where the browser has the File System Access API
-  (`window.showSaveFilePicker` — Chrome/Edge desktop) it opens a native **Save As** dialog
-  so the user picks the FOLDER and name; the dialog is keyed by `id: "csv-export"`, so the
-  browser reopens it in the LAST folder chosen for our exports (several CSVs of one client
-  land together). Cancel saves nothing and is not an error (`AbortError` swallowed).
-  Firefox/Safari, or an API that refuses (`SecurityError`/`NotAllowedError`), fall back to
-  the classic hidden `<a download>` click into the browser's default folder. Browser-only
-  code, so it lives in `app/`, not `lib/core/` (`toCsv` stays pure; no DOM in the core).
+- **Exports open a Save As dialog** (`app/save-file.ts`): every "Download CSV" / "Download
+  Excel" button (transaction tables, per-account/consolidated tables, expenses report,
+  workbook) goes through ONE helper, `saveFile(fileName, kind, produce)`. Where the browser
+  has the File System Access API (`window.showSaveFilePicker` — Chrome/Edge desktop) it
+  opens a native **Save As** dialog so the user picks the FOLDER and name; the dialog is
+  keyed by `id: "statement-exports"`, so the browser reopens it in the LAST folder chosen
+  for our exports (CSV and Excel share it — several files of one client land together).
+  **The picker opens FIRST and `produce()` builds the bytes only after the user confirms**:
+  the dialog must open inside the click's user activation (a few seconds), and building a
+  big workbook must never eat into that window (`NotAllowedError`). Cancel saves nothing
+  and is not an error (`AbortError` swallowed). Firefox/Safari, or an API that refuses
+  (`SecurityError`/`NotAllowedError`), fall back to the classic hidden `<a download>` click
+  into the browser's default folder. Browser-only code, so it lives in `app/`, not
+  `lib/core/` (`toCsv` stays pure; no DOM in the core).
+- **Excel export** (`lib/core/excel.ts` PURE + `app/excel-export.ts` browser wiring): a
+  **"Download Excel"** button next to the main table's "Download CSV", and one on the
+  consolidated (Revolut Custom) summary card. Why, when CSV exists: Excel mangles our CSV for
+  EU users — no BOM → Romanian/Cyrillic descriptions become mojibake, and on a Windows whose
+  list separator is `;` (RO/DE/FR locales) every row lands in ONE column. The `.xlsx` opens
+  identically everywhere, **dates and amounts are real values** (sortable, summable — Date
+  cells at UTC midnight with format `dd/mm/yyyy`, money `#,##0.00`, blank where the CSV is
+  blank), the header is bold and frozen, and it holds several sheets, so the whole result is
+  **ONE workbook**: single statement → one sheet (the bank); multi-account → `Summary`
+  (account · bank · currency · tx · opening · closing · ✓/✗) + `Combined` + one sheet per
+  account with transactions, all sliced to the selected financial period like the CSVs;
+  consolidated → `Summary` + one sheet per currency account; plus an `Expenses` sheet
+  whenever an expenses.csv was reconciled. Columns mirror `toCsv(..., { rowNumbers: true })`
+  exactly (Account only when rows carry `accountLabel`, `#`, Date … Source) so the two
+  exports never disagree; the Expenses sheet is built from the SAME rows as the CSV
+  (`expensesReportRows` in `expenses.ts`, now the single source for `expensesReportToCsv`),
+  original columns verbatim as text, only `Days` typed as a number. Sheet names go through
+  `sheetName` (Excel rules: no `[]:*?/\`, ≤31 chars, unique). Categories are the EDITED ones,
+  as in the CSV. Library: `write-excel-file` (~100 KB, dep `fflate`, ships types) loaded by
+  dynamic `import()` on the first click; the core module never imports it — it only emits
+  `XlsxSheet` objects whose cell shape (`{ value, type, format, fontWeight }`) the library
+  accepts as-is. The per-account CSV buttons are untouched (one table each). Test:
+  `npm run test:excel` — pure asserts on the builders + a Node smoke test that the library
+  turns them into a ZIP/xlsx buffer; verified on a real BOI statement that the XML carries
+  numeric `<v>` cells with the money style, the date as an Excel serial matching the ISO day
+  (no timezone drift), and a frozen pane.
 - **Per-column sort + filter (BACKLOG 1.3)**: the main single/combined transaction table
   has an Excel/Sheets-style dropdown on each header (**#**, Date, Description, Debit, Credit,
   Balance, Category) — a `<ColumnFilter>` (`app/column-filter.tsx`) whose panel is portalled

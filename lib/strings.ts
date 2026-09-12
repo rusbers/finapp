@@ -219,10 +219,10 @@ export const strings = {
 
   metaBank: "Bank",
   metaTransactions: "Transactions",
-  metaFile: "File",
   metaDuration: "Took",
 
   downloadCsv: "Download CSV",
+  downloadExcel: "Download Excel",
 
   // Extraction trace / model stats
   extractionHeading: "Extraction",

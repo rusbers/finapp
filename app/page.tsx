@@ -34,6 +34,8 @@ import CategoryCombobox from "./category-combobox"
 import ColumnFilter from "./column-filter"
 import FilePicker from "./file-picker"
 import { saveCsv, saveTextFile } from "./save-file"
+import { saveWorkbook } from "./excel-export"
+import { expensesSheet, sheetName, summarySheet, transactionSheet, type XlsxSheet } from "@/lib/core/excel"
 import { applyView, anyFilterActive, isColumnActive } from "./table-view"
 import type { ColumnKey, Filters, SortState } from "./table-view"
 import { strings as s } from "@/lib/strings"
@@ -751,6 +753,69 @@ export default function Page() {
     setCatOverrides((prev) => ({ ...prev, [catKey(t)]: value }))
   const withEditedCategories = (txs: Transaction[]) =>
     txs.map((t) => ({ ...t, category: exportCategory(t) }))
+
+  // --- Excel export ---
+  // ONE workbook for the whole result (the CSV buttons export one table each):
+  //   single statement → one sheet (the bank);
+  //   multi-account    → Summary + Combined + one sheet per account with transactions,
+  //                      all sliced to the selected financial period like the CSVs;
+  //   + an Expenses sheet whenever an expenses.csv was reconciled.
+  // Categories are the EDITED ones, exactly as in the CSV export.
+  const buildMainWorkbook = (): XlsxSheet[] => {
+    if (!result) return []
+    const used = new Set<string>()
+    const sheets: XlsxSheet[] = []
+    if (displayMulti && merged) {
+      sheets.push(
+        summarySheet(
+          displayMulti.accounts.map((a) => ({
+            label: a.label,
+            bank: BANK_LABELS[a.bank],
+            currency: a.currency,
+            transactionCount: a.transactionCount,
+            openingBalance: a.openingBalance,
+            closingBalance: a.closingBalance,
+            passed: a.reconciliation.passed,
+          })),
+          sheetName("Summary", used),
+        ),
+      )
+      sheets.push(
+        transactionSheet(sheetName("Combined", used), {
+          bank: "combined",
+          openingBalance: 0,
+          closingBalance: 0,
+          transactions: withEditedCategories(merged.transactions),
+        }),
+      )
+      for (const a of displayMulti.accounts) {
+        if (a.transactionCount === 0) continue
+        sheets.push(
+          transactionSheet(
+            sheetName(a.label, used),
+            { ...a, transactions: withEditedCategories(a.transactions) },
+            { defaultSource: a.fileNames[0] },
+          ),
+        )
+      }
+    } else if (viewData) {
+      sheets.push(
+        transactionSheet(
+          sheetName(viewData.bank || "Transactions", used),
+          { ...viewData, transactions: withEditedCategories(viewData.transactions) },
+          { defaultSource: result.fileName },
+        ),
+      )
+    }
+    if (result.expenses) sheets.push(expensesSheet(result.expenses, sheetName("Expenses", used)))
+    return sheets
+  }
+  const mainWorkbookName = result
+    ? isMulti
+      ? `combined-accounts${periodSuffix}.xlsx`
+      : result.fileName.replace(/\.pdf$/i, "") + periodSuffix + ".xlsx"
+    : ""
+
   // Suggestions for the edit combobox: the fixed list plus any custom categories
   // the user already typed this session (so a new one is reusable on other rows).
   const catSuggestions = [
@@ -1437,9 +1502,51 @@ export default function Page() {
             </div>
           </div>
           <div className="per-file" id="accounts-summary">
-            <span className="per-file-title">
-              {s.consolidatedHeading(result.consolidated.accounts.length)}
-            </span>
+            <div className="files-head">
+              <span className="per-file-title">
+                {s.consolidatedHeading(result.consolidated.accounts.length)}
+              </span>
+              {/* Every currency account in ONE workbook: Summary + one sheet per account
+                  with transactions (the per-account CSV buttons below stay one-table-each). */}
+              <button
+                className="link-button"
+                onClick={() => {
+                  const c = result.consolidated!
+                  const used = new Set<string>()
+                  const sheets: XlsxSheet[] = [
+                    summarySheet(
+                      c.accounts.map((a) => ({
+                        label: a.label,
+                        bank: c.bank,
+                        currency: a.currency,
+                        transactionCount: a.transactionCount,
+                        openingBalance: a.openingBalance,
+                        closingBalance: a.closingBalance,
+                        passed: a.reconciliation.passed,
+                      })),
+                      sheetName("Summary", used),
+                    ),
+                    ...c.accounts
+                      .filter((a) => a.transactionCount > 0)
+                      .map((a) =>
+                        transactionSheet(
+                          sheetName(a.label, used),
+                          {
+                            bank: a.label,
+                            openingBalance: a.openingBalance,
+                            closingBalance: a.closingBalance,
+                            transactions: withEditedCategories(a.transactions),
+                          },
+                          { defaultSource: result.fileName },
+                        ),
+                      ),
+                  ]
+                  void saveWorkbook(result.fileName.replace(/\.pdf$/i, "") + ".xlsx", sheets)
+                }}
+              >
+                {s.downloadExcel}
+              </button>
+            </div>
             <table>
               <thead>
                 <tr>
@@ -2021,9 +2128,6 @@ export default function Page() {
                 <b>{s.verifiedCount(verified.size, transactions.length)}</b>
               </span>
             )}
-            <span>
-              {s.metaFile}: <b>{result.fileName}</b>
-            </span>
             {(filterActive || sort) && (
               <button className="link-button" onClick={clearView}>
                 {s.clearAllFilters}
@@ -2052,6 +2156,13 @@ export default function Page() {
               }
             >
               {s.downloadCsv}
+            </button>
+            {/* The whole result as ONE Excel workbook (see buildMainWorkbook). */}
+            <button
+              className="link-button"
+              onClick={() => void saveWorkbook(mainWorkbookName, buildMainWorkbook())}
+            >
+              {s.downloadExcel}
             </button>
           </div>
 

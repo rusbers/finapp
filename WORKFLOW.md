@@ -459,12 +459,25 @@ larger attempt with transfer matching + badges was reverted by the user.)
   statement-order index, so order can be restored after sorting the file (running balance is
   only valid in that order). Harness calls `toCsv` without the flag → snapshots unchanged.
   Forward-compatible with a future CSV re-import.
-- **CSV export = Save As dialog**: all "Download CSV" buttons (tables + expenses report) call
-  `saveTextFile` (`app/save-file.ts`). With the File System Access API (Chrome/Edge) it opens
-  a native Save As dialog — the user picks the folder/name, and `id: "csv-export"` makes the
-  browser reopen in the last folder used. Cancel = nothing saved, no error. No API
-  (Firefox/Safari) or a refused call → the old hidden `<a download>` click. Browser-only, so
-  it lives in `app/`; `lib/core/verification.ts` keeps only the pure `toCsv`.
+- **Exports = Save As dialog**: all "Download CSV" / "Download Excel" buttons call
+  `saveFile(fileName, kind, produce)` (`app/save-file.ts`). With the File System Access API
+  (Chrome/Edge) it opens a native Save As dialog — the user picks the folder/name, and
+  `id: "statement-exports"` makes the browser reopen in the last folder used (CSV and Excel
+  share it). The picker opens FIRST, `produce()` builds the bytes only after the user
+  confirms (a big workbook must not outlive the click's activation window). Cancel = nothing
+  saved, no error. No API (Firefox/Safari) or a refused call → the old hidden `<a download>`
+  click. Browser-only, so it lives in `app/`; `lib/core/verification.ts` keeps only the pure
+  `toCsv`.
+- **Excel export**: `lib/core/excel.ts` (PURE builders: `transactionSheet`, `summarySheet`,
+  `expensesSheet`, `sheetName`) + `app/excel-export.ts` (`saveWorkbook` — dynamic-imports
+  `write-excel-file/browser`, maps our `XlsxSheet` to the library's `{ data, sheet, columns,
+  stickyRowsCount }`). ONE workbook per result: single → one sheet; multi → Summary + Combined
+  + one sheet per account (period-sliced like the CSVs); consolidated → Summary + one sheet per
+  currency; + Expenses when present. Columns = `toCsv` columns, typed (Date cells at UTC
+  midnight `dd/mm/yyyy`, money `#,##0.00`, blank where CSV is blank; `#` numeric), bold frozen
+  header. The Expenses sheet uses `expensesReportRows` (shared with `expensesReportToCsv`).
+  Test: `npm run test:excel` (pure asserts + a Node `toBuffer()` smoke test). The CSV export,
+  re-import and the harness fingerprint are untouched.
 - **Test**: `npm run test:multi` — synthetic asserts (dedupe, merge order + stamping) +
   real clients under `statements/interbank/<n>/`. **Each numbered folder = ONE separate
   client; never mix folders.** Runs with `allowAiFallback: false` (deterministic, no API).

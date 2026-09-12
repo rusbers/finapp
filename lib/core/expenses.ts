@@ -372,6 +372,17 @@ export function matchExpenses(
  * spreadsheet reads the cell as a number. The UI's "+1" is presentation only.
  */
 export function expensesReportToCsv(report: ExpenseReport): string {
+  const { header, rows } = expensesReportRows(report)
+  return [header, ...rows].map((r) => r.map(csvCell).join(",")).join("\n")
+}
+
+/**
+ * The report as plain rows (header + one row per expense, every cell a string) — the
+ * single source for BOTH exports: `expensesReportToCsv` quotes and joins them, the Excel
+ * export (`lib/core/excel.ts`) types them into cells. Kept separate so the two files can
+ * never drift in columns or order.
+ */
+export function expensesReportRows(report: ExpenseReport): { header: string[]; rows: string[][] } {
   const originalHeader = report.matches[0]?.expense.rawHeader ?? []
   const header = [
     ...originalHeader,
@@ -403,5 +414,5 @@ export function expensesReportToCsv(report: ExpenseReport): string {
       source,
     ]
   })
-  return [header, ...rows].map((r) => r.map(csvCell).join(",")).join("\n")
+  return { header, rows }
 }

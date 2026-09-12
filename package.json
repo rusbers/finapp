@@ -13,6 +13,7 @@
     "test:period": "tsx scripts/test-period.mts",
     "test:perf": "tsx scripts/test-perf.mts",
     "test:csv-import": "tsx scripts/test-csv-import.mts",
+    "test:excel": "tsx scripts/test-excel.mts",
     "test:ptsb-descriptions": "tsx scripts/test-ptsb-descriptions.mts",
     "test:report": "start \"\" .reconcile\\report.html"
   },
@@ -21,7 +22,8 @@
     "pdf-lib": "^1.17.1",
     "pdfjs-dist": "^6.0.227",
     "react": "19.2.4",
-    "react-dom": "19.2.4"
+    "react-dom": "19.2.4",
+    "write-excel-file": "^4.1.1"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",

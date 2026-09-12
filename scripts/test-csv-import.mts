@@ -217,7 +217,9 @@ const sameImport = (a: ImportedStatement[], b: ImportedStatement[]) =>
 
 console.log("\n# 9. Excel-saved CSV (BOM, day-first dates, dropped zeros)")
 const excelCsvText = readFileSync(fixture("excel-saved-export-utf8.csv"), "utf8")
-check("fixture starts with a BOM and day-first dates", excelCsvText.charCodeAt(0) === 0xfeff && /\r\n[^\n]*,05\/01\/2025,/.test(excelCsvText))
+// (Line-ending tolerant: git normalises the fixture to LF in the index, so a checkout
+// without autocrlf reads LF — the parser is indifferent, the assert must be too.)
+check("fixture starts with a BOM and day-first dates", excelCsvText.charCodeAt(0) === 0xfeff && /\r?\n[^\n]*,05\/01\/2025,/.test(excelCsvText))
 const imp9 = parseTransactionsCsv(excelCsvText)
 check("two accounts recovered (BOM did not hide the Account column)", imp9.length === 2 && imp9[0].label === "BOI" && imp9[1].label === "Revolut")
 check("identical to importing our own CSV (dates, cents, categories, source+page)", sameImport(imp9, expectedSix))

@@ -76,8 +76,6 @@ export const strings = {
   // Expense reconciliation (match an expenses.csv against the statement debits)
   expensesLabel: "Expenses (CSV)",
   addExpensesButton: "+ Add expenses",
-  newBadge: "New", // green badge on the Add-expenses button until it's opened once
-  expensesInfo: "Checks which of your listed expenses appear in the bank statement.",
   removeExpenses: "Remove expenses",
   expensesHeading: "Expense reconciliation",
   expensesSummary: (found: number, total: number) =>

@@ -828,8 +828,8 @@ pdfjs-dist`): for the target banks, reading the PDF's text positions (x/y) and
   (`{ tx, account }`) so the report says which account paid, WITHOUT setting `accountLabel` on
   the rows (that would wrongly add an "Account" column to the per-account CSV). UI: an **"+ Add
   expenses"** button (after "+ Add another bank statement") reveals the **"Expenses (CSV)"**
-  uploader; the button carries a green **"New"** badge (dropped once opened — `expensesSeen`
-  state) and an **info tooltip** (reused `.info-tip`) with a one-line description. The **Expense
+  uploader (a plain link-button, same as "+ Add another bank statement" — the "New" badge and
+  info tooltip it once carried were removed). The **Expense
   reconciliation** result section shows a summary "X of Y found" + a
   per-expense table (**Supplier · Category · Date · Amount · Found · Matched · Days · Bank
   description** — the expense's OWN Description is dropped; **Matched shows the account/label

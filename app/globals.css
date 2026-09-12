@@ -542,42 +542,6 @@ input[type="file"]::file-selector-button {
   padding-top: 0;
   border-top: 0;
 }
-/* Add-expenses button row: the button sizes to its content so the "New" badge and the
-   info tooltip sit right after it (the button's own .add-account rule is flex:1 1 100%). */
-.add-expenses-row {
-  flex: 1 1 100%;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.add-expenses-row .add-account {
-  flex: 0 0 auto;
-}
-/* Small green "New" pill — signals the feature is new; dropped after the first open.
-   inline-block so the button's underline doesn't propagate onto the pill. */
-.badge-new {
-  display: inline-block;
-  vertical-align: middle;
-  margin-left: 8px;
-  padding: 1px 7px;
-  border-radius: 999px;
-  background: var(--ledger-green);
-  color: #fff;
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-  user-select: none;
-}
-/* Info tooltip variant anchored to its LEFT edge (the button is left-aligned), wrapping a
-   short sentence instead of the default centered nowrap bubble. */
-.info-tip--start .info-tip-bubble {
-  left: 0;
-  transform: none;
-  white-space: normal;
-  width: max-content;
-  max-width: 260px;
-}
 /* Expenses CSV upload (client-level, optional) — full-width labelled file input. */
 .expenses-input {
   flex: 1 1 100%;

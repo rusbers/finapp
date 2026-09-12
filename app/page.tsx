@@ -292,8 +292,6 @@ export default function Page() {
   // Revealed by an "Add expenses" button (like adding another account).
   const [expensesFile, setExpensesFile] = useState<File | null>(null)
   const [expensesOpen, setExpensesOpen] = useState(false)
-  // "New" badge on the Add-expenses button — dropped once the user has opened it once.
-  const [expensesSeen, setExpensesSeen] = useState(false)
   // Input source: extract from PDFs (default) or re-import a previously-exported
   // transactions CSV (rebuilt + reconciled entirely client-side; no PDF/AI). See
   // lib/core/csv-import.ts.
@@ -1179,26 +1177,16 @@ export default function Page() {
         )}
 
         {/* Add expenses — reveals the expenses.csv uploader (matched against the debits).
-            Carries a green "New" badge (dropped after the first open) + an info tooltip.
             Shown in BOTH modes: alongside PDFs, or the reconciled-CSV import. */}
         {(importMode === "pdf" ? files.length > 0 : !!csvFile) && !expensesOpen && (
-          <div className="add-expenses-row">
-            <button
-              type="button"
-              className="link-button add-account"
-              onClick={() => {
-                setExpensesOpen(true)
-                setExpensesSeen(true)
-              }}
-              disabled={isLoading}
-            >
-              {s.addExpensesButton}
-              {!expensesSeen && <span className="badge-new">{s.newBadge}</span>}
-            </button>
-            <span className="info-tip info-tip--start" tabIndex={0} aria-label={s.expensesInfo}>
-              i<span className="info-tip-bubble">{s.expensesInfo}</span>
-            </span>
-          </div>
+          <button
+            type="button"
+            className="link-button add-account"
+            onClick={() => setExpensesOpen(true)}
+            disabled={isLoading}
+          >
+            {s.addExpensesButton}
+          </button>
         )}
         {expensesOpen && (
           <div className="expenses-input">

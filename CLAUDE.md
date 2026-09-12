@@ -740,6 +740,25 @@ pdfjs-dist`): for the target banks, reading the PDF's text positions (x/y) and
   `isExplainedByCryptoFees` in `verification.ts`), so it's visually distinct from a
   genuine reconciliation failure. Extraction stays faithful; only the verdict's
   presentation softens.
+  **Clear + Cancel** (`app/page.tsx`): the Reconcile row has ONE secondary slot beside
+  the primary button — empty when nothing is attached, **Clear** whenever there is
+  something to clear (files attached, a result or an error), **Cancel** while a run is in
+  flight (swapped in place, same style, so the row never jumps). **Clear** starts over
+  without a refresh — drops the attached PDFs, extra accounts, labels, expenses/CSV
+  files, the period and the result; bank/model settings and the PDF/CSV mode persist.
+  File inputs are uncontrolled, so the upload card is keyed by a `formKey` that Clear
+  bumps (a remount is the only way to empty a native file input). **Cancel** aborts the
+  in-flight reconciliation: an `AbortController` per run → `xhr.abort()`; the catch
+  branch turns the `AbortError` into a muted "Reconciliation cancelled." note (no red
+  error), the files stay attached, Reconcile is re-enabled. **The cancel reaches the
+  server**: the route passes `req.signal` (fires when the browser disconnects) as an
+  optional `signal` through `PipelineOptions` → `extractStatement` → `extractWithGemini`,
+  and to `categorizeTransactions` / `fillPtsbDescriptions`; in `gemini.ts` the signal
+  aborts the in-flight `fetch` and a `RequestCancelledError` (a `FatalGeminiError`, so
+  never retried, no backoff sleep) ends the retry loop, so an abandoned request stops
+  spending on AI. `signal` is optional everywhere — the harness/tests never set it — and
+  the deterministic parsers are not interruptible (seconds, no network). The CSV
+  re-import is client-side and instant, so it has no Cancel.
 - **Transaction categorization** (`categorization.ts`, BACKLOG 1.1): assigns each
   transaction a single `category` from a FIXED list (`CATEGORIES`, "Other" fallback),
   using AI as little as possible. **Layer 1 — keyword RULES** (zero AI, deterministic,

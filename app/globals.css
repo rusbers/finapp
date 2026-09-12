@@ -187,6 +187,24 @@ input[type="file"]::file-selector-button {
   opacity: 0.55;
   cursor: default;
 }
+/* Secondary (outlined) button — "Clear" next to Reconcile; quiet, never competes. */
+.button--secondary {
+  background: transparent;
+  color: var(--ink-soft);
+  border: 1px solid var(--line);
+}
+.button--secondary:hover:not(:disabled) {
+  background: transparent;
+  color: var(--ink);
+  border-color: var(--ink-soft);
+}
+/* Reconcile + Clear side by side, on their own row of the upload card. */
+.actions-row {
+  flex: 1 1 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
 
 /* Error message — direct, no apology, says what happened */
 .error {
@@ -1315,6 +1333,12 @@ td.source {
   color: var(--action);
   font-weight: 600;
   opacity: 1;
+}
+/* Quiet confirmation after a cancel — the user's own action, so no error styling. */
+.cancel-note {
+  margin: 8px 0 0;
+  font-size: 13px;
+  color: var(--ink-soft);
 }
 @media (prefers-reduced-motion: reduce) {
   .progress-indet {

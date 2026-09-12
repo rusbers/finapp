@@ -15,6 +15,9 @@ export const strings = {
   fileLabel: "Bank statement (PDF)",
   checkButton: (n: number) => `Reconcile ${n === 1 ? "statement" : "statements"}`,
   checkingButton: "Reconciling…",
+  clearButton: "Clear", // start over: drops the attached files, accounts and the result
+  cancelButton: "Cancel", // stop the in-flight reconciliation (files stay attached)
+  cancelledNote: "Reconciliation cancelled.",
   filesSelected: (n: number) => `${n} file${n === 1 ? "" : "s"} selected`,
   removeFile: "Remove",
 

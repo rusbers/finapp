@@ -49,6 +49,10 @@ function stampBank(txs: Transaction[], bank: BankId): void {
 
 export async function POST(req: NextRequest) {
   try {
+    // Fires when the browser disconnects — i.e. the user pressed Cancel (or closed the
+    // tab). Threaded down to every Gemini call so an abandoned request stops spending
+    // on AI instead of running to a result nobody will read.
+    const signal = req.signal
     const formData = await req.formData()
 
     // Read options from the request (sent by the UI). These are independent of the
@@ -74,7 +78,7 @@ export async function POST(req: NextRequest) {
       categorize
         ? await categorizeTransactions(
             txArrays.flat().filter((t) => t.category !== EXPENSE_CATEGORY),
-            { useAi: true, model: primaryModel },
+            { useAi: true, model: primaryModel, signal },
           )
         : null
 
@@ -115,7 +119,7 @@ export async function POST(req: NextRequest) {
     const describePtsb = async (docs: PtsbDocument[]): Promise<PtsbDescriptionStats | null> => {
       if (docs.length === 0) return null
       try {
-        return await fillPtsbDescriptions(docs, {})
+        return await fillPtsbDescriptions(docs, { signal })
       } finally {
         // `descriptionKey` is the row's raw scrambled glyph codes — an internal handle
         // for this layer only. Drop it on every exit so it never reaches the client
@@ -190,7 +194,7 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: strings.errorTooManyFiles }, { status: 413 })
       }
 
-      const multi = await extractAccounts(inputs, { primaryModel, fallbackModel, enableFallback })
+      const multi = await extractAccounts(inputs, { primaryModel, fallbackModel, enableFallback, signal })
       // Any PTSB account gets its descriptions read from the rendered pages first —
       // every such account's files in ONE pass, so they share the concurrency budget.
       // Resolve each account's PDFs through its OWN input (`sourceIndex`), never by
@@ -246,7 +250,7 @@ export async function POST(req: NextRequest) {
     const bank: BankId =
       typeof rawBank === "string" && rawBank in BANK_LABELS ? (rawBank as BankId) : "generic"
 
-    const options = { primaryModel, fallbackModel, enableFallback, bank }
+    const options = { primaryModel, fallbackModel, enableFallback, bank, signal }
 
     // Revolut consolidated ("Custom") statement → one PDF with several current
     // accounts, each reconciled separately. Its own parser/shape.

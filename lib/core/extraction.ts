@@ -94,10 +94,11 @@ export async function extractStatement(
   pdfBytes: Uint8Array,
   model: string,
   prompt: string,
+  signal?: AbortSignal, // optional cancellation, forwarded to every chunk's AI call
 ): Promise<StatementData> {
   const chunks = await splitPdfIntoChunks(pdfBytes, PAGES_PER_CHUNK)
   const extracted = await mapWithLimit(chunks, MAX_CONCURRENT_CHUNKS, (chunkBase64) =>
-    extractWithGemini(chunkBase64, model, prompt),
+    extractWithGemini(chunkBase64, model, prompt, signal),
   )
   return mergeChunks(extracted)
 }

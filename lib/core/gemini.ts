@@ -158,16 +158,32 @@ function normalizeChunk(raw: unknown): ExtractedChunk {
 /** A non-retryable error: failing again won't help (bad request, auth, etc.). */
 class FatalGeminiError extends Error {}
 
-/** One attempt: send the request, return the raw response text, or throw. */
+/** The caller cancelled the whole request (the user pressed Cancel and the browser
+ * disconnected). Fatal on purpose: retrying or backing off would only keep a
+ * serverless function alive for a result nobody will read. */
+export class RequestCancelledError extends FatalGeminiError {
+  constructor() {
+    super("Request cancelled")
+    this.name = "RequestCancelledError"
+  }
+}
+
+/** One attempt: send the request, return the raw response text, or throw.
+ * `signal` is the caller's cancellation (optional); it aborts the in-flight fetch. */
 async function attemptGeminiCall(
   url: string,
   apiKey: string,
   payload: unknown,
+  signal?: AbortSignal,
 ): Promise<string> {
   // Abort the request if Gemini takes too long, so it fails cleanly
-  // instead of hanging the user's request indefinitely.
+  // instead of hanging the user's request indefinitely. The caller's own signal is
+  // forwarded onto the same controller, so a cancel aborts the fetch the same way.
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS)
+  const onCancel = () => controller.abort()
+  if (signal?.aborted) throw new RequestCancelledError()
+  signal?.addEventListener("abort", onCancel, { once: true })
 
   let res: Response
   try {
@@ -181,13 +197,16 @@ async function attemptGeminiCall(
       signal: controller.signal,
     })
   } catch (e) {
-    // Timeouts and network errors are transient → let the retry loop handle them.
+    // A cancel is final; timeouts and network errors are transient → let the retry
+    // loop handle them.
+    if (signal?.aborted) throw new RequestCancelledError()
     if (e instanceof Error && e.name === "AbortError") {
       throw new Error("Gemini request timed out")
     }
     throw e
   } finally {
     clearTimeout(timeout)
+    signal?.removeEventListener("abort", onCancel)
   }
 
   if (!res.ok) {
@@ -233,18 +252,24 @@ function jsonGenerationConfig(model: string): Record<string, unknown> {
   return cfg
 }
 
-/** POST a payload to Gemini with retries/backoff; returns the raw response text. */
-async function callGeminiWithRetries(model: string, payload: unknown): Promise<string> {
+/** POST a payload to Gemini with retries/backoff; returns the raw response text.
+ * A cancelled `signal` ends the loop at once — no further attempt, no backoff. */
+async function callGeminiWithRetries(
+  model: string,
+  payload: unknown,
+  signal?: AbortSignal,
+): Promise<string> {
   const apiKey = process.env.GEMINI_API_KEY
   if (!apiKey) throw new Error("Missing GEMINI_API_KEY environment variable")
   const url = geminiUrl(model)
 
   let lastError: unknown
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    if (signal?.aborted) throw new RequestCancelledError()
     try {
-      return await attemptGeminiCall(url, apiKey, payload)
+      return await attemptGeminiCall(url, apiKey, payload, signal)
     } catch (e) {
-      // Don't retry errors that won't fix themselves (auth, bad request).
+      // Don't retry errors that won't fix themselves (auth, bad request, cancel).
       if (e instanceof FatalGeminiError) throw e
       lastError = e
       // If we have attempts left, wait (1s, 2s, 4s…) then try again.
@@ -257,11 +282,13 @@ async function callGeminiWithRetries(model: string, payload: unknown): Promise<s
   throw lastError instanceof Error ? lastError : new Error("Gemini request failed after retries")
 }
 
-/** Send the PDF (as base64) to Gemini and return structured data, with retries. */
+/** Send the PDF (as base64) to Gemini and return structured data, with retries.
+ * `signal` (optional) cancels the call — see `RequestCancelledError`. */
 export async function extractWithGemini(
   pdfBase64: string,
   model: string,
   prompt: string,
+  signal?: AbortSignal,
 ): Promise<ExtractedChunk> {
   const payload = {
     contents: [
@@ -274,7 +301,7 @@ export async function extractWithGemini(
     ],
     generationConfig: jsonGenerationConfig(model),
   }
-  const text = await callGeminiWithRetries(model, payload)
+  const text = await callGeminiWithRetries(model, payload, signal)
   return safeParseJson(text)
 }
 
@@ -288,6 +315,7 @@ export async function categorizeWithGemini(
   descriptions: string[],
   categories: readonly string[],
   model: string,
+  signal?: AbortSignal,
 ): Promise<Record<string, string>> {
   if (descriptions.length === 0) return {}
 
@@ -304,7 +332,7 @@ export async function categorizeWithGemini(
     contents: [{ parts: [{ text: prompt }] }],
     generationConfig: jsonGenerationConfig(model),
   }
-  const text = await callGeminiWithRetries(model, payload)
+  const text = await callGeminiWithRetries(model, payload, signal)
 
   let parsed: unknown
   try {
@@ -363,7 +391,11 @@ export interface DescribedRow {
  * exactly the mistake this layer must not make. Speed comes from parallelism and the
  * two-model cascade instead (see `fillPtsbDescriptions`).
  */
-export async function describeWithGemini(pdfBase64: string, model: string): Promise<DescribedRow[]> {
+export async function describeWithGemini(
+  pdfBase64: string,
+  model: string,
+  signal?: AbortSignal,
+): Promise<DescribedRow[]> {
   const prompt =
     `This is a permanent tsb (PTSB) bank statement. Its table columns are: ` +
     `Date | Details | Withdrawn | Paid In | Balance.\n\n` +
@@ -390,7 +422,7 @@ export async function describeWithGemini(pdfBase64: string, model: string): Prom
     ],
     generationConfig: jsonGenerationConfig(model),
   }
-  const text = await callGeminiWithRetries(model, payload)
+  const text = await callGeminiWithRetries(model, payload, signal)
 
   let parsed: unknown
   try {

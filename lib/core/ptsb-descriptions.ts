@@ -138,7 +138,7 @@ export interface PtsbDocument {
  */
 export async function fillPtsbDescriptions(
   docs: PtsbDocument[],
-  opts: { model?: string } = {},
+  opts: { model?: string; signal?: AbortSignal } = {},
 ): Promise<PtsbDescriptionStats> {
   const startedAt = Date.now()
   const stats: PtsbDescriptionStats = {
@@ -216,11 +216,14 @@ export async function fillPtsbDescriptions(
 
   const readings = await mapWithLimit(jobs, DESCRIBE_CONCURRENCY, async (job) => {
     try {
-      return await describeWithGemini(job.pdfBase64, model)
+      return await describeWithGemini(job.pdfBase64, model, opts.signal)
     } catch {
       return null // one bad chunk must not lose the whole statement's descriptions
     }
   })
+  // The user cancelled: every reading above failed fast, and the retry wave would only
+  // do the same. Return what we have (nothing reads it anyway).
+  if (opts.signal?.aborted) return stats
 
   // `confirmed` is kept PER DOCUMENT: the key is the row's raw glyph codes, and the
   // font is subsetted per PDF, so the same codes in another file are not guaranteed
@@ -235,7 +238,7 @@ export async function fillPtsbDescriptions(
     graftChunk(jobs[i].chunkRows, aiRows, confirmed[jobs[i].doc], filled, stats)
   })
 
-  await retryPoorChunks(docs, jobs, readings, docPages, confirmed, filled, stats, startedAt)
+  await retryPoorChunks(docs, jobs, readings, docPages, confirmed, filled, stats, startedAt, opts.signal)
 
   // Rows can be grafted twice (first pass, then a retry), so take the count from the
   // set of rows actually relabelled rather than from the number of grafts.
@@ -284,6 +287,7 @@ async function retryPoorChunks(
   filled: Set<Transaction>,
   stats: PtsbDescriptionStats,
   startedAt: number,
+  signal?: AbortSignal,
 ): Promise<void> {
   const poor = jobs.filter((job, i) => {
     if (!readings[i]) return true // transport failure — nothing was read at all
@@ -319,7 +323,7 @@ async function retryPoorChunks(
   stats.chunksRetried = retryJobs.length
   const retries = await mapWithLimit(retryJobs, DESCRIBE_CONCURRENCY, async (job) => {
     try {
-      return await describeWithGemini(job.pdfBase64, DEFAULT_FALLBACK_MODEL)
+      return await describeWithGemini(job.pdfBase64, DEFAULT_FALLBACK_MODEL, signal)
     } catch {
       return null
     }

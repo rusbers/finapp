@@ -396,6 +396,18 @@ spreads, where the gross crypto value is shown but only the net hits the balance
   BOI **no-activity months** (only BALANCE FORWARD → 0 tx, opening == closing →
   `pass`), and BOI **permission-encrypted** PDFs (pdfjs decrypts them).
   AIB credit-card layouts and scanned PDFs stay `no-tx` (no parser / no text layer).
+- **Cancelling a run.** The UI's Cancel aborts the XHR; the route forwards `req.signal`
+  as an optional `signal` down to every Gemini call (`PipelineOptions.signal`,
+  `CategorizeOptions.signal`, `fillPtsbDescriptions` opts). In `gemini.ts` a cancelled
+  signal aborts the in-flight `fetch` and throws `RequestCancelledError` — a
+  `FatalGeminiError`, so the retry loop neither retries nor sleeps. Everything that
+  makes AI calls should keep threading `signal` through (a new AI step that ignores it
+  keeps running after the user has gone). `signal` is optional and the harness/tests
+  never set it, so nothing deterministic changes. On a serverless host the signal only
+  fires if the platform forwards the client disconnect; if it doesn't, behaviour is
+  simply today's (the function runs to completion, result discarded) — fail-soft.
+  Verified headless: a pre-aborted signal makes 0 fetches; a mid-flight abort cuts the
+  fetch and makes no retry.
 
 ---
 

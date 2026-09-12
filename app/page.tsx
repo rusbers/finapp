@@ -198,7 +198,7 @@ function saveSettings(next: Settings): void {
  */
 function postExtract(
   fd: FormData,
-  cb: { onUploadProgress: (pct: number) => void; onUploaded: () => void },
+  cb: { onUploadProgress: (pct: number) => void; onUploaded: () => void; signal: AbortSignal },
 ): Promise<{ ok: boolean; data: unknown }> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest()
@@ -211,6 +211,11 @@ function postExtract(
     xhr.onload = () => resolve({ ok: xhr.status >= 200 && xhr.status < 300, data: xhr.response })
     xhr.onerror = () => reject(new Error("Network error"))
     xhr.ontimeout = () => reject(new Error("Request timed out"))
+    // Cancel: dropping the connection is also what tells the server to stop its AI
+    // calls (the route watches its request signal). Rejects with an AbortError so the
+    // caller can tell a cancel from a failure.
+    xhr.onabort = () => reject(new DOMException("Cancelled", "AbortError"))
+    cb.signal.addEventListener("abort", () => xhr.abort(), { once: true })
     xhr.send(fd)
   })
 }
@@ -294,7 +299,14 @@ export default function Page() {
   // lib/core/csv-import.ts.
   const [importMode, setImportMode] = useState<"pdf" | "csv">("pdf")
   const [csvFile, setCsvFile] = useState<File | null>(null)
+  // Bumped by "Clear" to remount the upload card: file inputs are uncontrolled, so the
+  // only way to empty them (and their native "N files" label) is a fresh element.
+  const [formKey, setFormKey] = useState(0)
   const [isLoading, setIsLoading] = useState(false)
+  // The in-flight reconciliation, so Cancel can abort it; null when idle. `cancelled`
+  // shows a short note after a cancel (cleared by the next action, like an error).
+  const abortRef = useRef<AbortController | null>(null)
+  const [cancelled, setCancelled] = useState(false)
   const [result, setResult] = useState<ApiResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [durationMs, setDurationMs] = useState<number | null>(null)
@@ -400,7 +412,24 @@ export default function Page() {
   const resetResult = () => {
     setResult(null)
     setError(null)
+    setCancelled(false)
     setDurationMs(null)
+  }
+  // Cancel the in-flight reconciliation (no-op when idle).
+  const cancelCheck = () => abortRef.current?.abort()
+  // "Clear" — start over without a page refresh: drop every attached file, extra
+  // account, label and expenses CSV, plus the result. The bank/model settings persist
+  // (localStorage) and the input mode stays as chosen.
+  const clearAll = () => {
+    setFiles([])
+    setExtraAccounts([])
+    setPrimaryLabel("")
+    setExpensesFile(null)
+    setExpensesOpen(false)
+    setCsvFile(null)
+    setPeriod({ kind: "all" })
+    resetResult()
+    setFormKey((k) => k + 1)
   }
   const addAccount = () => {
     setExtraAccounts((prev) => [
@@ -473,17 +502,23 @@ export default function Page() {
   // Total statements attached (primary + every extra account) — drives the button's
   // singular/plural label.
   const totalStatements = files.length + extraAccounts.reduce((n, a) => n + a.files.length, 0)
+  // The Clear button appears once there is anything to clear (an input or a result).
+  const canClear =
+    !!result || !!error || totalStatements > 0 || extraAccounts.length > 0 || !!csvFile || !!expensesFile
 
   async function handleCheck() {
     if (!canCheck) return
     setIsLoading(true)
     setError(null)
+    setCancelled(false)
     setResult(null)
     setDurationMs(null)
     setPeriod({ kind: "all" })
     setPhase("uploading")
     setUploadPct(0)
     setStep(0)
+    const controller = new AbortController()
+    abortRef.current = controller
     const startedAt = performance.now()
     try {
       const fd = new FormData()
@@ -514,12 +549,16 @@ export default function Page() {
       const { ok, data } = await postExtract(fd, {
         onUploadProgress: (pct) => setUploadPct(pct),
         onUploaded: () => setPhase("processing"),
+        signal: controller.signal,
       })
       if (!ok) throw new Error((data as { error?: string })?.error ?? s.errorGeneric)
       setResult(data as ApiResponse)
     } catch (e) {
-      setError(e instanceof Error ? e.message : s.errorUnknown)
+      // A cancel is the user's own action, not a failure: a quiet note, no red error.
+      if (e instanceof DOMException && e.name === "AbortError") setCancelled(true)
+      else setError(e instanceof Error ? e.message : s.errorUnknown)
     } finally {
+      abortRef.current = null
       setDurationMs(performance.now() - startedAt)
       setIsLoading(false)
       setPhase("idle")
@@ -898,7 +937,7 @@ export default function Page() {
         </button>
       </header>
 
-      <section className="upload">
+      <section className="upload" key={formKey}>
         {/* Input source: reconcile PDFs, or re-import a CSV this app exported earlier. */}
         <div className="source-toggle-row">
           <div className="source-toggle" role="tablist">
@@ -1204,9 +1243,24 @@ export default function Page() {
               {s.categorizeLabel}
             </label>
 
-            <button className="button" onClick={handleCheck} disabled={!canCheck || isLoading}>
-              {isLoading ? s.checkingButton : s.checkButton(totalStatements)}
-            </button>
+            {/* One secondary slot beside Reconcile: Cancel while a run is in flight,
+                Clear whenever there is something to clear, nothing otherwise. Same
+                style either way, so the row never jumps as a run starts and ends. */}
+            <div className="actions-row">
+              <button className="button" onClick={handleCheck} disabled={!canCheck || isLoading}>
+                {isLoading ? s.checkingButton : s.checkButton(totalStatements)}
+              </button>
+              {isLoading ? (
+                <button type="button" className="button button--secondary" onClick={cancelCheck}>
+                  {s.cancelButton}
+                </button>
+              ) : canClear ? (
+                <button type="button" className="button button--secondary" onClick={clearAll}>
+                  {s.clearButton}
+                </button>
+              ) : null}
+            </div>
+            {cancelled && <p className="cancel-note">{s.cancelledNote}</p>}
           </>
         )}
 
@@ -1218,6 +1272,12 @@ export default function Page() {
             <span className="info-tip" tabIndex={0} aria-label={s.importCsvInfo}>
               i<span className="info-tip-bubble">{s.importCsvInfo}</span>
             </span>
+            {/* Same slot rule, minus Cancel: the CSV import is client-side and instant. */}
+            {!isLoading && canClear && (
+              <button type="button" className="button button--secondary" onClick={clearAll}>
+                {s.clearButton}
+              </button>
+            )}
           </div>
         )}
 

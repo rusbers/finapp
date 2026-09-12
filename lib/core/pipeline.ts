@@ -41,6 +41,14 @@ export interface PipelineOptions {
    * harness passes false so it stays deterministic and makes no AI calls.
    */
   allowAiFallback?: boolean
+  /**
+   * Cancellation from the caller (the route passes the request's own signal, which
+   * fires when the browser disconnects — e.g. the user pressed Cancel). Forwarded to
+   * every AI call so an abandoned request stops spending on Gemini. Optional: the
+   * harness and tests never set it. Deterministic parsers are not interruptible —
+   * they finish in seconds and make no network calls.
+   */
+  signal?: AbortSignal
 }
 
 export async function extractAndReconcile(
@@ -160,7 +168,7 @@ export async function extractAndReconcile(
 
   for (const model of models) {
     const startedAt = Date.now()
-    const extracted = await extractStatement(pdfBytes, model, prompt)
+    const extracted = await extractStatement(pdfBytes, model, prompt, options.signal)
 
     // Auto-correct debit/credit using the running balance (only where certain),
     // BEFORE reconciling — so corrected data is what we reconcile and return.

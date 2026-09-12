@@ -371,6 +371,8 @@ const AI_BATCH_SIZE = 80 // unique descriptions per Gemini call
 export interface CategorizeOptions {
   useAi: boolean
   model?: string
+  /** Optional cancellation (the request's signal); forwarded to every AI batch. */
+  signal?: AbortSignal
 }
 
 export interface CategorizeStats {
@@ -419,7 +421,7 @@ export async function categorizeTransactions(
     for (let i = 0; i < keys.length; i += AI_BATCH_SIZE)
       batches.push(keys.slice(i, i + AI_BATCH_SIZE))
     const maps = await mapWithLimit(batches, MAX_CONCURRENT_CHUNKS, (b) =>
-      categorizeWithGemini(b, CATEGORIES, model),
+      categorizeWithGemini(b, CATEGORIES, model, opts.signal),
     )
     aiMap = Object.assign({}, ...maps)
   }

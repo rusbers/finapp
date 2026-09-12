@@ -37,7 +37,7 @@ export function transactionSource(t: Transaction, fallbackFile?: string): string
  * ones. The deterministic core never sets `accountLabel`, so statements exported straight
  * from it (the regression harness) get NO column and stay byte-for-byte identical.
  *
- * With `opts.rowNumbers` (set by the UI export via `downloadCsv`), a "#" column — the
+ * With `opts.rowNumbers` (set by the UI export via `saveCsv` in `app/save-file.ts`), a "#" column — the
  * 1-based position in statement order — is inserted after Account. It lets the user
  * restore statement order after sorting/filtering the CSV elsewhere (the running balance
  * is only valid in that order). The harness calls `toCsv` WITHOUT the flag, so its
@@ -72,19 +72,6 @@ export function toCsv(
     csvCell(transactionSource(t, opts.defaultSource)),
   ])
   return [header, ...rows].map((r) => r.join(",")).join("\n")
-}
-
-/** Trigger a CSV download in the browser. The UI export always includes the "#"
- * (statement-order) column so the order can be restored after editing the file. */
-export function downloadCsv(data: StatementData, fileName: string, defaultSource?: string): void {
-  const csv = toCsv(data, { defaultSource, rowNumbers: true })
-  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement("a")
-  a.href = url
-  a.download = fileName
-  a.click()
-  URL.revokeObjectURL(url)
 }
 
 export interface BalanceBreak {

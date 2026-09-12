@@ -14,7 +14,7 @@
 
 import { useState, useEffect, useMemo, useRef, useSyncExternalStore } from "react"
 import { fromCents, checkReconciliation } from "@/lib/core/reconciliation"
-import { downloadCsv, findBalanceBreaks, isExplainedByCryptoFees, transactionSource } from "@/lib/core/verification"
+import { findBalanceBreaks, isExplainedByCryptoFees, transactionSource } from "@/lib/core/verification"
 import type {
   StatementData,
   ReconciliationResult,
@@ -33,6 +33,7 @@ import { CATEGORIES, normalizeDescription } from "@/lib/core/categorization"
 import CategoryCombobox from "./category-combobox"
 import ColumnFilter from "./column-filter"
 import FilePicker from "./file-picker"
+import { saveCsv, saveTextFile } from "./save-file"
 import { applyView, anyFilterActive, isColumnActive } from "./table-view"
 import type { ColumnKey, Filters, SortState } from "./table-view"
 import { strings as s } from "@/lib/strings"
@@ -249,17 +250,6 @@ function formatSize(bytes: number): string {
   if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
   if (bytes >= 1024) return `${Math.round(bytes / 1024)} KB`
   return `${bytes} B`
-}
-
-/** Trigger a client-side download of a text file (e.g. the expenses report CSV). */
-function downloadTextFile(text: string, fileName: string): void {
-  const blob = new Blob([text], { type: "text/csv;charset=utf-8;" })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement("a")
-  a.href = url
-  a.download = fileName
-  a.click()
-  URL.revokeObjectURL(url)
 }
 
 /** The individual statements (PDFs) that make up one account, for the per-account
@@ -1365,7 +1355,7 @@ export default function Page() {
               <button
                 className="link-button"
                 onClick={() =>
-                  downloadTextFile(expensesReportToCsv(result.expenses!), "expenses-reconciled.csv")
+                  void saveTextFile(expensesReportToCsv(result.expenses!), "expenses-reconciled.csv")
                 }
               >
                 {s.downloadCsv}
@@ -1523,7 +1513,7 @@ export default function Page() {
                   <button
                     className="link-button"
                     onClick={() =>
-                      downloadCsv(
+                      void saveCsv(
                         {
                           bank: a.label,
                           openingBalance: a.openingBalance,
@@ -1698,7 +1688,7 @@ export default function Page() {
                     type="button"
                     className="link-button"
                     onClick={() =>
-                      downloadCsv(
+                      void saveCsv(
                         {
                           bank: a.label,
                           openingBalance: a.openingBalance,
@@ -2042,7 +2032,7 @@ export default function Page() {
             <button
               className="link-button"
               onClick={() =>
-                downloadCsv(
+                void saveCsv(
                   isMulti && merged
                     ? {
                         bank: "combined",

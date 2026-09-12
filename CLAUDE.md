@@ -905,12 +905,22 @@ pdfjs-dist`): for the target banks, reading the PDF's text positions (x/y) and
   The AI/vision path does NOT set `page` (it works on multi-page chunks), so those rows
   show the file only. These fields are NOT part of the reconciliation or the regression
   fingerprint (which hashes only date/description/debit/credit/balance).
-- **CSV "#" (row-order) column**: the UI CSV export (`downloadCsv` → `toCsv` with
-  `rowNumbers: true`) prepends a **"#"** column after Account — the 1-based position in
-  statement order — so the user can restore that order after sorting/filtering the file
-  elsewhere (the running balance is only valid in statement order; also handy for a future
-  re-import of the app's own CSV). UI-export-only: the harness calls `toCsv` WITHOUT the
-  flag, so its snapshots stay byte-identical.
+- **CSV "#" (row-order) column**: the UI CSV export (`saveCsv` in `app/save-file.ts` →
+  `toCsv` with `rowNumbers: true`) prepends a **"#"** column after Account — the 1-based
+  position in statement order — so the user can restore that order after sorting/filtering
+  the file elsewhere (the running balance is only valid in statement order; also handy for a
+  future re-import of the app's own CSV). UI-export-only: the harness calls `toCsv` WITHOUT
+  the flag, so its snapshots stay byte-identical.
+- **CSV export opens a Save As dialog** (`app/save-file.ts`): every "Download CSV" button
+  (transaction tables, per-account/consolidated tables, expenses report) goes through ONE
+  helper, `saveTextFile`. Where the browser has the File System Access API
+  (`window.showSaveFilePicker` — Chrome/Edge desktop) it opens a native **Save As** dialog
+  so the user picks the FOLDER and name; the dialog is keyed by `id: "csv-export"`, so the
+  browser reopens it in the LAST folder chosen for our exports (several CSVs of one client
+  land together). Cancel saves nothing and is not an error (`AbortError` swallowed).
+  Firefox/Safari, or an API that refuses (`SecurityError`/`NotAllowedError`), fall back to
+  the classic hidden `<a download>` click into the browser's default folder. Browser-only
+  code, so it lives in `app/`, not `lib/core/` (`toCsv` stays pure; no DOM in the core).
 - **Per-column sort + filter (BACKLOG 1.3)**: the main single/combined transaction table
   has an Excel/Sheets-style dropdown on each header (**#**, Date, Description, Debit, Credit,
   Balance, Category) — a `<ColumnFilter>` (`app/column-filter.tsx`) whose panel is portalled

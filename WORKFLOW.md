@@ -454,10 +454,17 @@ larger attempt with transfer matching + badges was reverted by the user.)
   harness CSV (taken from the core, not the route) has no column and stays byte-identical.
   `Transaction.accountLabel` is display-only and NOT part of the reconciliation fingerprint.
   In the UI the column shows whenever any row has a label (`showAccountCol` in `page.tsx`).
-- **CSV "#" column**: the UI export (`downloadCsv` → `toCsv({ rowNumbers: true })`) adds a
-  **"#"** column after Account = the 1-based statement-order index, so order can be restored
-  after sorting the file (running balance is only valid in that order). Harness calls `toCsv`
-  without the flag → snapshots unchanged. Forward-compatible with a future CSV re-import.
+- **CSV "#" column**: the UI export (`saveCsv` in `app/save-file.ts` →
+  `toCsv({ rowNumbers: true })`) adds a **"#"** column after Account = the 1-based
+  statement-order index, so order can be restored after sorting the file (running balance is
+  only valid in that order). Harness calls `toCsv` without the flag → snapshots unchanged.
+  Forward-compatible with a future CSV re-import.
+- **CSV export = Save As dialog**: all "Download CSV" buttons (tables + expenses report) call
+  `saveTextFile` (`app/save-file.ts`). With the File System Access API (Chrome/Edge) it opens
+  a native Save As dialog — the user picks the folder/name, and `id: "csv-export"` makes the
+  browser reopen in the last folder used. Cancel = nothing saved, no error. No API
+  (Firefox/Safari) or a refused call → the old hidden `<a download>` click. Browser-only, so
+  it lives in `app/`; `lib/core/verification.ts` keeps only the pure `toCsv`.
 - **Test**: `npm run test:multi` — synthetic asserts (dedupe, merge order + stamping) +
   real clients under `statements/interbank/<n>/`. **Each numbered folder = ONE separate
   client; never mix folders.** Runs with `allowAiFallback: false` (deterministic, no API).

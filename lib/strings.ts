@@ -19,6 +19,11 @@ export const strings = {
   cancelButton: "Cancel", // stop the in-flight reconciliation (files stay attached)
   cancelledNote: "Reconciliation cancelled.",
   filesSelected: (n: number) => `${n} file${n === 1 ? "" : "s"} selected`,
+  // File picker (app/file-picker.tsx): the button + status text next to it.
+  chooseFiles: "Choose files",
+  chooseFile: "Choose file",
+  filesUploaded: (n: number) => `Uploaded ${n} file${n === 1 ? "" : "s"}`,
+  noFileSelected: "No file selected",
   removeFile: "Remove",
 
   // Input source: extract from PDFs, or re-import a previously-exported transactions CSV.

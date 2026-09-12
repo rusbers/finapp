@@ -150,24 +150,41 @@ body {
   flex: 1 1 100%;
   margin-bottom: 4px;
 }
-input[type="file"] {
-  flex: 1 1 240px;
-  font-size: 14px;
-  color: var(--ink);
+/* File picker (app/file-picker.tsx): a button + our own "Uploaded N files" status in
+   the box a native file input used to draw; the real input is hidden. `width: 100%`
+   rather than a flex-basis so it fills its row in the wrapping .upload card AND keeps
+   its natural height inside the column-flex account/expenses blocks. */
+.file-picker {
+  flex: 0 0 auto;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 12px;
   padding: 10px 12px;
   border: 1px solid var(--line);
   border-radius: 10px;
   background: var(--paper);
 }
-input[type="file"]::file-selector-button {
-  margin-right: 12px;
+.file-picker-button {
   padding: 8px 14px;
   border: 0;
   border-radius: 8px;
   background: #eef1f5;
   color: var(--ink);
+  font-size: 14px;
   font-weight: 500;
   cursor: pointer;
+}
+.file-picker-button:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+.file-picker-status {
+  font-size: 14px;
+  color: var(--ink-soft);
+}
+.file-picker-status.has-files {
+  color: var(--ink);
 }
 .button {
   padding: 11px 22px;
@@ -549,10 +566,6 @@ input[type="file"]::file-selector-button {
   flex-direction: column;
   gap: 5px;
 }
-.expenses-input input[type="file"] {
-  /* column layout: the global file-input `flex: 1 1 240px` would read as a height */
-  flex: 0 0 auto;
-}
 /* Expenses report table: fixed layout so the 8 columns get predictable widths and long
    Supplier / Category / Bank description values TRUNCATE with an ellipsis (auto layout can't
    ellipsis a cell) instead of wrapping onto a second line; full text is on each cell's title
@@ -634,11 +647,6 @@ input[type="file"]::file-selector-button {
   margin-top: 0;
   padding-top: 0;
   border-top: 0;
-}
-/* The account block is a flex COLUMN, so the global file-input `flex: 1 1 240px` would
-   read as a 240px HEIGHT — reset it to natural height. */
-.account-block input[type="file"] {
-  flex: 0 0 auto;
 }
 .account-block-head {
   display: flex;

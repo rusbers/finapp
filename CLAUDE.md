@@ -746,8 +746,12 @@ pdfjs-dist`): for the target banks, reading the PDF's text positions (x/y) and
   flight (swapped in place, same style, so the row never jumps). **Clear** starts over
   without a refresh — drops the attached PDFs, extra accounts, labels, expenses/CSV
   files, the period and the result; bank/model settings and the PDF/CSV mode persist.
-  File inputs are uncontrolled, so the upload card is keyed by a `formKey` that Clear
-  bumps (a remount is the only way to empty a native file input). **Cancel** aborts the
+  Every file input is rendered by **`app/file-picker.tsx`** — a hidden native input
+  behind a "Choose files" button and an **"Uploaded N files"** status driven by the
+  parent's state (the browser's own text can't be changed and goes stale when a file is
+  ✕-removed from the list), so Clear/removal keep the text in sync with no DOM reset;
+  the hidden input's value is cleared after each pick so the same file can be re-picked
+  after a removal. **Cancel** aborts the
   in-flight reconciliation: an `AbortController` per run → `xhr.abort()`; the catch
   branch turns the `AbortError` into a muted "Reconciliation cancelled." note (no red
   error), the files stay attached, Reconcile is re-enabled. **The cancel reaches the

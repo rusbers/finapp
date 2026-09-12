@@ -32,6 +32,7 @@ import { parseTransactionsCsv, CSV_IMPORT_BAD_FORMAT, CSV_IMPORT_EMPTY } from "@
 import { CATEGORIES, normalizeDescription } from "@/lib/core/categorization"
 import CategoryCombobox from "./category-combobox"
 import ColumnFilter from "./column-filter"
+import FilePicker from "./file-picker"
 import { applyView, anyFilterActive, isColumnActive } from "./table-view"
 import type { ColumnKey, Filters, SortState } from "./table-view"
 import { strings as s } from "@/lib/strings"
@@ -297,9 +298,6 @@ export default function Page() {
   // lib/core/csv-import.ts.
   const [importMode, setImportMode] = useState<"pdf" | "csv">("pdf")
   const [csvFile, setCsvFile] = useState<File | null>(null)
-  // Bumped by "Clear" to remount the upload card: file inputs are uncontrolled, so the
-  // only way to empty them (and their native "N files" label) is a fresh element.
-  const [formKey, setFormKey] = useState(0)
   const [isLoading, setIsLoading] = useState(false)
   // The in-flight reconciliation, so Cancel can abort it; null when idle. `cancelled`
   // shows a short note after a cancel (cleared by the next action, like an error).
@@ -417,7 +415,8 @@ export default function Page() {
   const cancelCheck = () => abortRef.current?.abort()
   // "Clear" — start over without a page refresh: drop every attached file, extra
   // account, label and expenses CSV, plus the result. The bank/model settings persist
-  // (localStorage) and the input mode stays as chosen.
+  // (localStorage) and the input mode stays as chosen. The file pickers read their
+  // status from this state, so emptying it is enough — nothing to reset in the DOM.
   const clearAll = () => {
     setFiles([])
     setExtraAccounts([])
@@ -427,7 +426,6 @@ export default function Page() {
     setCsvFile(null)
     setPeriod({ kind: "all" })
     resetResult()
-    setFormKey((k) => k + 1)
   }
   const addAccount = () => {
     setExtraAccounts((prev) => [
@@ -935,7 +933,7 @@ export default function Page() {
         </button>
       </header>
 
-      <section className="upload" key={formKey}>
+      <section className="upload">
         {/* Input source: reconcile PDFs, or re-import a CSV this app exported earlier. */}
         <div className="source-toggle-row">
           <div className="source-toggle" role="tablist">
@@ -1005,15 +1003,14 @@ export default function Page() {
 
         {/* Step 2 — upload its statements. */}
         <label>{s.fileLabel}</label>
-        <input
-          type="file"
+        <FilePicker
           accept="application/pdf"
           multiple
-          onChange={(e) => {
-            setFiles(e.target.files ? Array.from(e.target.files) : [])
-            setResult(null)
-            setError(null)
-            setDurationMs(null)
+          disabled={isLoading}
+          count={files.length}
+          onChange={(fs) => {
+            setFiles(fs)
+            resetResult()
           }}
         />
         {files.length > 0 && (
@@ -1096,14 +1093,12 @@ export default function Page() {
                 />
               </div>
             </div>
-            <input
-              type="file"
+            <FilePicker
               accept="application/pdf"
               multiple
               disabled={isLoading}
-              onChange={(e) =>
-                updateAccount(acc.id, { files: e.target.files ? Array.from(e.target.files) : [] })
-              }
+              count={acc.files.length}
+              onChange={(fs) => updateAccount(acc.id, { files: fs })}
             />
             {acc.files.length > 0 && (
               <ul className="account-files">
@@ -1142,12 +1137,12 @@ export default function Page() {
         {importMode === "csv" && (
           <>
             <label>{s.csvFileLabel}</label>
-            <input
-              type="file"
+            <FilePicker
               accept=".csv,text/csv"
               disabled={isLoading}
-              onChange={(e) => {
-                setCsvFile(e.target.files?.[0] ?? null)
+              count={csvFile ? 1 : 0}
+              onChange={(fs) => {
+                setCsvFile(fs[0] ?? null)
                 resetResult()
               }}
             />
@@ -1206,12 +1201,12 @@ export default function Page() {
                 ✕
               </button>
             </div>
-            <input
-              type="file"
+            <FilePicker
               accept=".csv,text/csv"
               disabled={isLoading}
-              onChange={(e) => {
-                setExpensesFile(e.target.files?.[0] ?? null)
+              count={expensesFile ? 1 : 0}
+              onChange={(fs) => {
+                setExpensesFile(fs[0] ?? null)
                 resetResult()
               }}
             />

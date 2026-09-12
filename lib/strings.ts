@@ -181,6 +181,8 @@ export const strings = {
     range: "Opening → Closing",
     status: "Reconciled",
   },
+  jumpToAccount: (label: string) => `Jump to ${label} transactions`,
+  backToAccounts: "Back to accounts", // the way back, from an account's table to the summary
 
   // Multi-account: several bank accounts of one client, each reconciled on its own,
   // shown in one combined table (the "add another bank account" flow).

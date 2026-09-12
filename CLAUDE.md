@@ -386,7 +386,18 @@ pdfjs-dist`): for the target banks, reading the PDF's text positions (x/y) and
   each reconciled SEPARATELY (own currency + balance series); the pipeline returns
   `ConsolidatedPipelineResult` (each account carries its own `transactions[]`) and the
   UI shows a per-account summary plus one detailed, individually-exportable (CSV)
-  transaction table per account (0-tx accounts are listed but not detailed). Money values are
+  transaction table per account (0-tx accounts are listed but not detailed). **Each
+  summary row's account name is a JUMP LINK to that account's detail table**
+  (`jumpToAccount` in `page.tsx`, the block-level twin of `jumpToRow`: an `id` on the
+  `.account-detail` block, smooth scroll respecting prefers-reduced-motion, brief
+  flash) — the tables run to thousands of rows, so the summary is the page's index.
+  The anchor id uses the UNFILTERED account index (the detail loop filters out 0-tx
+  accounts, which would otherwise shift every later index). Navigation is TWO-WAY: each
+  account block carries a "↑ Back to accounts" link (`jumpToSummary`, targeting the
+  summary card's `accounts-summary` id) in its header row — except the FIRST block,
+  which sits directly under the still-visible summary; at the END of a table the next
+  account's header follows immediately with its own link — the floating
+  back-to-top button is not a substitute, it lands above the summary on the upload card. Money values are
   read with a grouping-aware regex (handles `1,000.00` / `1.000,00` / `9 271,00`,
   € prefix/suffix, and amount+balance merged into one token). **Dates come in BOTH
   orders**: day-first ("5 Mar 2025", "20 нояб. 2025г.") and month-first ("Mar 5,

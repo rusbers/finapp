@@ -304,6 +304,7 @@ export default function Page() {
   const [uploadPct, setUploadPct] = useState(0)
   const [step, setStep] = useState(0) // cycling Reading→Extracting→Reconciling indicator
   const [flashRow, setFlashRow] = useState<number | null>(null) // row briefly highlighted after a jump
+  const [flashAccount, setFlashAccount] = useState<number | null>(null) // consolidated account block briefly highlighted after a jump
   const [breakCursor, setBreakCursor] = useState(-1) // index of the balance error currently jumped to (-1 = none yet)
   // Category edits: normalized-description → chosen category (propagates to all rows
   // with the same description). `editingCell` = the one cell currently in edit mode.
@@ -438,6 +439,31 @@ export default function Page() {
     } else {
       scroll()
     }
+  }
+
+  // Scroll to one account's detail table from its row in the consolidated summary. A
+  // consolidated statement can hold thousands of rows across several accounts, so the
+  // summary row is the natural index into the page. Mirrors jumpToRow (reduced-motion
+  // aware + a brief flash); no view guard is needed — the consolidated per-account
+  // tables are never filtered or sorted. `index` is the UNFILTERED account index.
+  function jumpToAccount(index: number) {
+    const el = document.getElementById(`account-${index}`)
+    if (!el) return
+    const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches
+    el.scrollIntoView({ behavior: reduce ? "auto" : "smooth", block: "start" })
+    setFlashAccount(index)
+    window.setTimeout(() => setFlashAccount((cur) => (cur === index ? null : cur)), 1500)
+  }
+
+  // The way back: from an account's table to the accounts list. The floating
+  // back-to-top button lands ABOVE the summary (on the upload card), and scrolling
+  // back by hand through hundreds of rows is the problem jumpToAccount just solved in
+  // the other direction. No flash — the summary is a bordered card, already distinct.
+  function jumpToSummary() {
+    const el = document.getElementById("accounts-summary")
+    if (!el) return
+    const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches
+    el.scrollIntoView({ behavior: reduce ? "auto" : "smooth", block: "start" })
   }
 
   // Ready to check when the primary account has files and (in multi mode) every extra
@@ -1377,7 +1403,7 @@ export default function Page() {
               {result.consolidated.allReconciled ? s.consolidatedPass : s.consolidatedFail}
             </div>
           </div>
-          <div className="per-file">
+          <div className="per-file" id="accounts-summary">
             <span className="per-file-title">
               {s.consolidatedHeading(result.consolidated.accounts.length)}
             </span>
@@ -1393,7 +1419,22 @@ export default function Page() {
               <tbody>
                 {result.consolidated.accounts.map((a, i) => (
                   <tr key={i}>
-                    <td>{a.label}</td>
+                    {/* The label links to this account's detail table below (see
+                        jumpToAccount). An account with no transactions has no detail
+                        block, so it stays plain text. */}
+                    <td>
+                      {a.transactionCount > 0 ? (
+                        <button
+                          className="link-button"
+                          onClick={() => jumpToAccount(i)}
+                          title={s.jumpToAccount(a.label)}
+                        >
+                          {a.label}
+                        </button>
+                      ) : (
+                        a.label
+                      )}
+                    </td>
                     <td>{a.transactionCount}</td>
                     <td>
                       {a.openingBalance.toFixed(2)} → {a.closingBalance.toFixed(2)} {a.currency}
@@ -1411,11 +1452,19 @@ export default function Page() {
             </table>
           </div>
 
-          {/* Per-account detail: one table per current account, each exportable */}
+          {/* Per-account detail: one table per current account, each exportable.
+              The UNFILTERED index is carried through the filter so the anchor id
+              matches the summary row (0-tx accounts render no block, which would
+              otherwise shift every later index). */}
           {result.consolidated.accounts
-            .filter((a) => a.transactionCount > 0)
-            .map((a, ai) => (
-              <div key={ai} className="account-detail">
+            .map((a, index) => ({ a, index }))
+            .filter(({ a }) => a.transactionCount > 0)
+            .map(({ a, index }, ai) => (
+              <div
+                key={ai}
+                id={`account-${index}`}
+                className={`account-detail${flashAccount === index ? " flash-block" : ""}`}
+              >
                 <div className="meta">
                   <span>
                     {s.metaBank}: <b>{a.label}</b>
@@ -1445,6 +1494,16 @@ export default function Page() {
                   >
                     {s.downloadCsv}
                   </button>
+                  {/* Back to the accounts list. Only in the block header: at the END
+                      of a table the next account's header follows immediately with its
+                      own link, and the floating back-to-top button covers the last one.
+                      SKIPPED on the FIRST block, which sits directly under the summary
+                      — the link would be noise there. */}
+                  {ai > 0 && (
+                    <button className="link-button" onClick={jumpToSummary}>
+                      ↑ {s.backToAccounts}
+                    </button>
+                  )}
                 </div>
                 <table>
                   <thead>

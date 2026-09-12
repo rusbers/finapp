@@ -203,7 +203,9 @@ Per-bank status (specifics → `CLAUDE.md`):
   SEPARATE parser (bank `revolut-consolidated`): one PDF with many accounts and a
   different layout (signed amount column + Balance, no debit/credit). MVP = current
   accounts only (EN/RO/RU), each reconciled per-account and shown as its own
-  detailed, separately-exportable (CSV) table; savings/crypto deferred. Recognizes
+  detailed, separately-exportable (CSV) table (the summary table's account name links
+  down to it — `jumpToAccount` — and each account links back up to the summary from its
+  header, except the first, which sits under the summary — `jumpToSummary`); savings/crypto deferred. Recognizes
   BOTH personal and JOINT current accounts ("Cont comun"/"Joint Account"/"Совместный
   счет") — a user can hold both in one currency. A PDF with NO current-accounts
   section (savings/crypto-only or empty period) reports `currentAccountsSection:

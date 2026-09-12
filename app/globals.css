@@ -755,6 +755,8 @@ input[type="file"]::file-selector-button {
 /* Per-file breakdown when several statements are combined */
 .per-file {
   margin-top: 18px;
+  /* Offset for the "Back to accounts" jump, like the one on tbody tr. */
+  scroll-margin-top: 24px;
   background: var(--card);
   border: 1px solid var(--line);
   border-radius: 12px;
@@ -803,9 +805,30 @@ input[type="file"]::file-selector-button {
   margin-top: 40px;
   padding-top: 20px;
   border-top: 2px solid var(--line);
+  /* Offset so a block jumped to from the summary isn't flush against the viewport
+     edge (the divider above it stays visible). Cf. the 24px on tbody tr. */
+  scroll-margin-top: 32px;
 }
 .account-detail .meta {
   margin-top: 0;
+}
+/* Briefly flash the account block jumped to from the consolidated summary — the
+   block-level twin of rowflash. */
+@keyframes blockflash {
+  0% {
+    background: var(--discrepancy-bg);
+  }
+  100% {
+    background: transparent;
+  }
+}
+.account-detail.flash-block {
+  animation: blockflash 1.2s ease-out;
+}
+@media (prefers-reduced-motion: reduce) {
+  .account-detail.flash-block {
+    animation: none;
+  }
 }
 
 /* Transactions table */

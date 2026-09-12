@@ -129,9 +129,10 @@ export async function POST(req: NextRequest) {
     }
 
     // Optional expense reconciliation — when an `expenses.csv` is attached, match each
-    // expense against a statement debit (exact cents + date window) and tag matched rows
-    // `category = EXPENSE_CATEGORY`. Runs AFTER categorization (called later in each branch) so a
-    // match wins the cell. Pure, deterministic, never affects reconciliation.
+    // expense against a statement debit (exact cents + supplier name + date window) and
+    // tag matched rows `category = EXPENSE_CATEGORY` (only rows with no category yet —
+    // here that is every row). Runs BEFORE categorization in each branch, which then
+    // skips the tagged rows. Pure, deterministic, never affects reconciliation.
     const expensesFile = formData.get("expenses")
     const parsedExpenses =
       expensesFile instanceof File ? parseExpensesCsv(await expensesFile.text()) : null

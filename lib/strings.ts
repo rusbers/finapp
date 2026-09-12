@@ -26,16 +26,17 @@ export const strings = {
   noFileSelected: "No file selected",
   removeFile: "Remove",
 
-  // Input source: extract from PDFs, or re-import a previously-exported transactions CSV.
+  // Input source: extract from PDFs, or re-import a previously-exported transactions
+  // file (the app's CSV or Excel export).
   sourcePdf: "PDF statements",
-  sourceCsv: "Reconciled CSV",
-  csvFileLabel: "Transactions CSV (a previous export)",
-  importCsvButton: "Reconcile CSV",
+  sourceCsv: "Reconciled CSV / Excel",
+  csvFileLabel: "Transactions file (CSV or Excel from a previous export)",
+  importCsvButton: "Reconcile file",
   importCsvInfo:
-    "Re-load accounts you already reconciled from a CSV this app exported — no PDF re-parse — then match them against expenses.",
+    "Re-load accounts you already reconciled from a CSV or Excel file this app exported — no PDF re-parse — then match them against expenses. Categories you typed in the spreadsheet are kept. A multi-account workbook is read from its Combined sheet.",
   csvImportBadFormat:
-    "Not a recognized transactions CSV. Expected the Date, Debit, Credit and Balance columns from a previous export.",
-  csvImportEmpty: "This CSV has no transaction rows.",
+    "Not a recognized transactions export. Expected the Date, Debit, Credit and Balance columns of a previous CSV or Excel export (a workbook needs its Combined or transactions sheet).",
+  csvImportEmpty: "This file has no transaction rows.",
 
   // Processing feedback
   uploading: (pct: number) => `Uploading… ${pct}%`,

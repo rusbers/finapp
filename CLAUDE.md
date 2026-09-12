@@ -266,7 +266,8 @@ lib/
 │   ├── sign-correction.ts → balance-based debit/credit auto-correction
 │   ├── categorization.ts  → category per transaction: keyword RULES first, AI only for the rest
 │   ├── expenses.ts        → PURE: parse expenses.csv + match each expense to a statement debit
-│   ├── csv-import.ts      → PURE: parse a previously-EXPORTED transactions CSV back into accounts (inverse of toCsv)
+│   ├── csv-import.ts      → PURE: parse a previously-EXPORTED transactions CSV or Excel workbook back
+│   │                        into accounts (inverse of toCsv / transactionSheet); browser reads in app/import-file.ts
 │   ├── verification.ts    → CSV export + row-by-row running-balance check
 │   └── excel.ts           → PURE: Excel (.xlsx) sheet builders (transactions / summary / expenses)
 └── strings.ts             → all UI copy in one place (ready for future i18n)
@@ -818,7 +819,10 @@ pdfjs-dist`): for the target banks, reading the PDF's text positions (x/y) and
   indistinguishable from a distinctive brand token (cf. the correct "Richard J Gough"→"R J GOUGH"
   abbreviation), so this is accepted, not special-cased. A matched transaction is tagged `category =
   EXPENSE_CATEGORY` — the string **"Expenses"**, a marker, NOT the expense's own category and
-  deliberately NOT a member of `CATEGORIES`. It is an exported constant rather than a literal
+  deliberately NOT a member of `CATEGORIES` — **but only when the row has no category yet**: on
+  the PDF path that is every row (matching runs before categorization), while on a re-imported
+  CSV/Excel the user's hand-typed categories are real data the marker must not erase (the match is
+  still in the report). It is an exported constant rather than a literal
   because the route filters on the same value; two bare literals in two files would drift. The
   returned `ExpenseMatch` records where it matched (date · account · **bank description** ·
   **signed day gap** · **source file+page**). Wired in `app/api/extract/route.ts`
@@ -871,32 +875,65 @@ pdfjs-dist`): for the target banks, reading the PDF's text positions (x/y) and
   amount + name + ≤5 days; manually reviewed — 69 correct, 1 location-word collision, and it recovered
   real matches the old exact-only rule got wrong, e.g. Toolfix). **Each numbered folder under
   `statements/expenses-reconciliation/` is one client** (statements + one `expenses.csv`).
-- **Reconciled-CSV re-import** (`csv-import.ts`): the user can upload a transactions CSV the app
-  EXPORTED earlier to rebuild the already-reconciled account(s) — no PDF re-parse, no AI — mainly
-  to reconcile them against an `expenses.csv`, or to re-view / re-export after editing a value.
-  **Runs ENTIRELY CLIENT-SIDE**: `parseTransactionsCsv` is the pure inverse of `toCsv`, and the
-  rebuilt accounts feed the same client-safe `checkReconciliation` / `mergeAccounts` /
-  `matchExpenses` — no server route, no network. Scope: only the app's OWN export format
-  (columns Account?/#?/Date/Description/Debit/Credit/Balance/Category/Source; third-party/bank CSVs
-  with column mapping are a future feature). `parseTransactionsCsv` reuses the quote-aware
-  `parseCsvRows` + `amountToCents` + `normalizeDate` (now exported from `expenses.ts` — one CSV
-  engine, not two); it detects the header (Account/# optional), parses `Debit`/`Credit` blank→0,
-  `Balance` blank→null, splits `Source` back into `sourceFile`/`page`, **restores statement order
-  from the `#` column** (the user may have sorted the CSV — the running balance is only valid in
-  statement order), groups rows by `Account` (one account per distinct value; a single account if
-  no column → single-statement result, ≥2 → multi-account), and **derives each account's
-  opening/closing from the running-balance column** robustly to SPORADIC balances (AIB/BOI print it
-  only at checkpoints): opening anchored at the first printed balance, closing at the last. This
-  keeps reconciliation a REAL check — a clean export passes, but a hand-EDITED CSV whose amounts no
-  longer match the balances FAILS (and `findBalanceBreaks` pinpoints the row). UI (`app/page.tsx`):
-  an input-source segmented toggle at the top of the upload card — **"PDF statements"** (default) vs
-  **"Reconciled CSV"**; CSV mode shows one file input, reuses the same **"+ Add expenses"** uploader,
-  and a **"Reconcile CSV"** button → `handleImportCsv` builds an `ApiResponse`-shaped object and
-  `setResult`s it, so the verdict, period bar, combined table, filter/sort, per-account & combined
-  CSV re-export, and the expenses report all work unchanged. NO changes to the route or the core
-  pipeline. Test: `npm run test:csv-import` (round-trip fidelity incl. quoted Source, sporadic
-  balances, multi-account split, `#`-reorder robustness, an edited CSV failing reconciliation,
-  no-Balance-column, expense matching over reconstructed accounts, and rejecting an `expenses.csv`).
+- **Reconciled CSV / Excel re-import** (`csv-import.ts` + `app/import-file.ts`): the user can
+  upload a transactions **CSV or Excel workbook** the app EXPORTED earlier to rebuild the
+  already-reconciled account(s) — no PDF re-parse, no AI — mainly to reconcile them against an
+  `expenses.csv` AFTER typing categories in a spreadsheet, or to re-view / re-export after editing a
+  value. **Runs ENTIRELY CLIENT-SIDE**: the pure core is the inverse of `toCsv` /
+  `transactionSheet`, and the rebuilt accounts feed the same client-safe `checkReconciliation` /
+  `mergeAccounts` / `matchExpenses` — no server route, no network. Scope: only the app's OWN export
+  format (columns Account?/#?/Date/Description/Debit/Credit/Balance/Category/Source; third-party/bank
+  files with column mapping are a future feature). **Structure**: `parseTransactionRows(rows)` is
+  the shared rows-based core (header detection with Account/# optional, `Debit`/`Credit` blank→0,
+  `Balance` blank→null, `Source` split back into `sourceFile`/`page`, **statement order restored
+  from `#`** — the user may have sorted the file; the running balance is only valid in statement
+  order — rows grouped by `Account`: one account or no column → single-statement result, ≥2 →
+  multi-account, and each account's **opening/closing DERIVED from the running-balance column**
+  robustly to SPORADIC balances: opening anchored at the first printed balance, closing at the last).
+  `parseTransactionsCsv(text)` feeds it the quote-aware `parseCsvRows` output and **tolerates what a
+  spreadsheet's Save As does to the file** — verified against real Excel 16 output (COM-driven, en-GB;
+  fixtures in `scripts/fixtures/`): a UTF-8 **BOM** before the first header cell, **day-first dates**
+  (`05/01/2025`, also `dd.mm.yyyy` / `dd-mm-yyyy` in `normalizeDate`), dropped trailing zeros, CRLF,
+  and a **`;` list separator with decimal commas** (`parseCsvRows(text, delimiter)` + the
+  `decimalComma` option; detected on the header line outside quotes). `parseTransactionsWorkbook
+  (sheets)` takes every sheet as TYPED rows (Date objects → ISO — UTC parts when the reader gave UTC
+  midnight; numbers → `#` / money; an Excel serial in the Date column → ISO) and picks the sheet:
+  **"Combined"** when present (the multi-account workbook — all rows + Account column; that is where
+  the user edits categories), else the single sheet with a Date/Debit/Credit header, else EVERY such
+  sheet (a workbook whose Combined was deleted — each account sheet becomes an account labelled by
+  its Account column or its sheet name; accounts are never silently dropped); Summary/Expenses
+  sheets have no Debit/Credit and are ignored; no candidate → `CSV_IMPORT_BAD_FORMAT`. The browser
+  half (`app/import-file.ts`) picks by extension: `.xlsx` → dynamic `import("read-excel-file/
+  browser")` (the reading twin of `write-excel-file`, same author, shared `fflate`) with
+  `dateFormat: DATE_FORMAT`, everything else → `file.text()`; old binary `.xls` is not offered.
+  **What survives the round trip — and why it once didn't**: the user's workflow is reconcile →
+  download → type categories in Excel → later re-import + `expenses.csv`, and two things used to
+  look "lost": (1) `matchExpenses` OVERWROTE every matched debit's category with the `"Expenses"`
+  marker — now the marker is set **only when the row has no category** (on the PDF path that is
+  every row, since matching runs before categorization, so nothing changed there); (2) the
+  imported file's own name stood in as the rows' source — the per-account breakdown listed
+  "export.csv" as the statement, and `transactionSource(t, result.fileName)` put it in cell titles
+  and re-exports. Now `statementsFromSources(rows)` rebuilds the **per-statement breakdown from the
+  rows' `sourceFile`** (one entry per original PDF: file · transactions · period · balance range
+  from that group's running balance) for `fileNames`/`perFile` (single result: shown when ≥2
+  sources, like a multi-PDF upload), and an `imported: true` flag on the client result makes
+  `sourceFallback` `undefined` — an imported row without a Source has none, never the CSV/xlsx name.
+  Export names strip `.pdf|.csv|.xlsx` (`exportBase`), so a re-export of `x.xlsx` isn't
+  `x.xlsx-2025.csv`. UI (`app/page.tsx`): the input-source toggle reads **"PDF statements"** vs
+  **"Reconciled CSV / Excel"**; the picker accepts `.csv,.xlsx` (`IMPORT_ACCEPT`), the same
+  **"+ Add expenses"** uploader applies, and **"Reconcile file"** → `handleImportFile` builds an
+  `ApiResponse`-shaped object and `setResult`s it, so the verdict, period bar, combined table,
+  filter/sort, per-account & combined CSV/Excel re-export and the expenses report all work
+  unchanged. Reconciliation stays a REAL check — a clean export passes, a hand-EDITED file whose
+  amounts no longer match the balances FAILS (and `findBalanceBreaks` pinpoints the row). NO changes
+  to the route or the core pipeline. Test: `npm run test:csv-import` (CSV round-trip fidelity incl.
+  quoted Source, sporadic balances, multi-account split, `#`-reorder, an edited CSV failing,
+  no-Balance-column, expense matching over reconstructed accounts, rejecting an `expenses.csv`; the
+  Excel-saved CSV fixture (BOM/day-first/dropped zeros); a `;`+decimal-comma CSV; the xlsx round
+  trip through `write-excel-file` → `read-excel-file` in Node — single sheet, the full
+  Summary/Combined/per-account/Expenses workbook, the no-Combined fallback, sheet-name labels, a
+  no-transactions workbook rejected; the Excel-saved `.xlsx` fixture; categories surviving
+  `matchExpenses`; `statementsFromSources`).
 - **Transaction provenance (Source column)**: each `Transaction` carries an optional
   `page` (1-based PDF page, set by the deterministic parsers — Revolut/AIB/BOI/
   consolidated) and an optional `sourceFile` (set only when several PDFs are combined,

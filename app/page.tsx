@@ -28,7 +28,13 @@ import { slicePeriod, type Period } from "@/lib/core/period"
 import { mergeAccounts, dedupeLabels } from "@/lib/core/multi-account"
 import type { MultiAccount, MultiAccountResult } from "@/lib/core/multi-account"
 import { expensesReportToCsv, parseExpensesCsv, matchExpenses, type ExpenseReport } from "@/lib/core/expenses"
-import { parseTransactionsCsv, CSV_IMPORT_BAD_FORMAT, CSV_IMPORT_EMPTY } from "@/lib/core/csv-import"
+import {
+  statementsFromSources,
+  importedToStatement,
+  CSV_IMPORT_BAD_FORMAT,
+  CSV_IMPORT_EMPTY,
+} from "@/lib/core/csv-import"
+import { readTransactionsFile } from "./import-file"
 import { CATEGORIES, normalizeDescription } from "@/lib/core/categorization"
 import CategoryCombobox from "./category-combobox"
 import ColumnFilter from "./column-filter"
@@ -106,6 +112,10 @@ interface ApiResponse {
   multi?: MultiAccountResult
   // Present only when an expenses.csv was uploaded (matched against the statement debits):
   expenses?: ExpenseReport
+  // Client-only: set when the result was rebuilt from a re-imported CSV/Excel export
+  // (`handleImportFile`), never by the route. `fileName` is then the import file, which
+  // must NOT stand in as a row's source — the rows carry their original PDF (or nothing).
+  imported?: true
 }
 
 /** An additional bank account added in the multi-account upload flow (the primary
@@ -139,6 +149,10 @@ const EMPTY_RECON: ReconciliationResult = {
   closingBalanceCents: 0,
   computedBalanceCents: 0,
 }
+// What the re-import picker offers: the app's own CSV or Excel export (see
+// `app/import-file.ts`). Old binary .xls is not readable, so it isn't offered.
+const IMPORT_ACCEPT =
+  ".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 const SETTINGS_KEY = "extractionSettings"
 type Settings = typeof DEFAULTS
 
@@ -564,11 +578,14 @@ export default function Page() {
     return hit ?? "generic"
   }
 
-  // Import a previously-exported transactions CSV: rebuild the reconciled account(s)
-  // ENTIRELY CLIENT-SIDE (no PDF re-parse, no AI, no network), optionally match an
-  // uploaded expenses.csv, then render exactly like a normal result. The CSV can hold
-  // several accounts (via the "Account" column of the combined export) → multi result.
-  async function handleImportCsv() {
+  // Import a previously-exported transactions CSV or Excel workbook: rebuild the
+  // reconciled account(s) ENTIRELY CLIENT-SIDE (no PDF re-parse, no AI, no network),
+  // optionally match an uploaded expenses.csv, then render exactly like a normal result.
+  // The file can hold several accounts (via the "Account" column of the combined export)
+  // → multi result. Categories typed in the spreadsheet are kept as the rows' own, and
+  // each account's per-statement breakdown is rebuilt from the rows' Source (the
+  // original PDFs), never from the import file's name.
+  async function handleImportFile() {
     if (!csvFile) return
     setIsLoading(true)
     setError(null)
@@ -581,7 +598,7 @@ export default function Page() {
     setCheckMode(false)
     const startedAt = performance.now()
     try {
-      const imported = parseTransactionsCsv(await csvFile.text())
+      const imported = await readTransactionsFile(csvFile)
       const expensesText = expensesFile ? await expensesFile.text() : null
 
       if (imported.length >= 2) {
@@ -589,12 +606,8 @@ export default function Page() {
         const labels = dedupeLabels(imported.map((a) => a.label ?? "Account"))
         const accounts: MultiAccount[] = imported.map((a, i) => {
           const bank = bankFromLabel(a.label)
-          const data: StatementData = {
-            bank,
-            openingBalance: a.openingBalance,
-            closingBalance: a.closingBalance,
-            transactions: a.transactions,
-          }
+          const data = importedToStatement(a, bank)
+          const perFile = statementsFromSources(a.transactions)
           return {
             label: labels[i],
             bank,
@@ -603,7 +616,9 @@ export default function Page() {
             closingBalance: a.closingBalance,
             reconciliation: checkReconciliation(data),
             transactions: a.transactions,
-            fileNames: [csvFile.name],
+            // The original statements when the rows carry a Source; the import file otherwise.
+            fileNames: perFile.length > 0 ? perFile.map((p) => p.fileName) : [csvFile.name],
+            perFile: perFile.length > 0 ? perFile : undefined,
           }
         })
         const withTx = accounts.filter((a) => a.transactionCount > 0)
@@ -616,8 +631,9 @@ export default function Page() {
           : undefined
         setResult({
           multi: { accounts, allReconciled },
-          fileName: `${accounts.length} account${accounts.length === 1 ? "" : "s"} (CSV)`,
+          fileName: `${accounts.length} account${accounts.length === 1 ? "" : "s"} (${csvFile.name})`,
           expenses,
+          imported: true,
           // Neutral single-statement fields (never read in the multi render path).
           reconciliation: EMPTY_RECON,
           attempts: [],
@@ -626,21 +642,21 @@ export default function Page() {
           corrections: [],
         })
       } else {
-        // One account (or a CSV with no "Account" column) → single-statement result.
+        // One account (or a file with no "Account" column) → single-statement result.
         const a = imported[0]
-        const data: StatementData = {
-          bank: a.label ?? "Imported",
-          openingBalance: a.openingBalance,
-          closingBalance: a.closingBalance,
-          transactions: a.transactions,
-        }
+        const data = importedToStatement(a, a.label ?? "Imported")
         const reconciliation = checkReconciliation(data)
         const expenses = expensesText
           ? matchExpenses(parseExpensesCsv(expensesText), data.transactions.map((tx) => ({ tx })))
           : undefined
+        // The statements it was made of (shown only when there are several, like a
+        // multi-PDF upload); a single-source account just shows its rows' Source cells.
+        const perFile = statementsFromSources(a.transactions)
         setResult({
           data,
           reconciliation,
+          perFile: perFile.length > 1 ? perFile : undefined,
+          imported: true,
           attempts: [
             {
               model: "csv-import",
@@ -754,6 +770,15 @@ export default function Page() {
   const withEditedCategories = (txs: Transaction[]) =>
     txs.map((t) => ({ ...t, category: exportCategory(t) }))
 
+  // The file a row's Source falls back to when the row carries none: the uploaded PDF
+  // for a normal run — but NEVER the CSV/xlsx of a re-import, whose rows either carry
+  // their original PDF or genuinely have no source. Used by the Source cell titles and
+  // by every export's `defaultSource`.
+  const sourceFallback = result && !result.imported ? result.fileName : undefined
+  // Export file names derive from the uploaded name, whatever its extension (.pdf, or the
+  // .csv/.xlsx of a re-import — otherwise "x.xlsx-2025.csv").
+  const exportBase = result ? result.fileName.replace(/\.(pdf|csv|xlsx)$/i, "") : ""
+
   // --- Excel export ---
   // ONE workbook for the whole result (the CSV buttons export one table each):
   //   single statement → one sheet (the bank);
@@ -803,7 +828,7 @@ export default function Page() {
         transactionSheet(
           sheetName(viewData.bank || "Transactions", used),
           { ...viewData, transactions: withEditedCategories(viewData.transactions) },
-          { defaultSource: result.fileName },
+          { defaultSource: sourceFallback },
         ),
       )
     }
@@ -813,7 +838,7 @@ export default function Page() {
   const mainWorkbookName = result
     ? isMulti
       ? `combined-accounts${periodSuffix}.xlsx`
-      : result.fileName.replace(/\.pdf$/i, "") + periodSuffix + ".xlsx"
+      : exportBase + periodSuffix + ".xlsx"
     : ""
 
   // Suggestions for the edit combobox: the fixed list plus any custom categories
@@ -1193,7 +1218,7 @@ export default function Page() {
           <>
             <label>{s.csvFileLabel}</label>
             <FilePicker
-              accept=".csv,text/csv"
+              accept={IMPORT_ACCEPT}
               disabled={isLoading}
               count={csvFile ? 1 : 0}
               onChange={(fs) => {
@@ -1304,7 +1329,7 @@ export default function Page() {
 
         {importMode === "csv" && (
           <div className="csv-import-actions">
-            <button className="button" onClick={handleImportCsv} disabled={!csvFile || isLoading}>
+            <button className="button" onClick={handleImportFile} disabled={!csvFile || isLoading}>
               {isLoading ? s.checkingButton : s.importCsvButton}
             </button>
             <span className="info-tip" tabIndex={0} aria-label={s.importCsvInfo}>
@@ -1537,11 +1562,11 @@ export default function Page() {
                             closingBalance: a.closingBalance,
                             transactions: withEditedCategories(a.transactions),
                           },
-                          { defaultSource: result.fileName },
+                          { defaultSource: sourceFallback },
                         ),
                       ),
                   ]
-                  void saveWorkbook(result.fileName.replace(/\.pdf$/i, "") + ".xlsx", sheets)
+                  void saveWorkbook(exportBase + ".xlsx", sheets)
                 }}
               >
                 {s.downloadExcel}
@@ -1627,8 +1652,8 @@ export default function Page() {
                           closingBalance: a.closingBalance,
                           transactions: withEditedCategories(a.transactions),
                         },
-                        `${result.fileName.replace(/\.pdf$/i, "")}-${a.currency}.csv`,
-                        result.fileName,
+                        `${exportBase}-${a.currency}.csv`,
+                        sourceFallback,
                       )
                     }
                   >
@@ -1668,7 +1693,7 @@ export default function Page() {
                         <td className="num credit">{t.credit ? t.credit.toFixed(2) : ""}</td>
                         <td className="num">{t.balance != null ? t.balance.toFixed(2) : ""}</td>
                         {a.transactions.some((x) => x.category) && categoryCell(t, `a${ai}-${i}`)}
-                        <td className="source" title={transactionSource(t, result.fileName)}>
+                        <td className="source" title={transactionSource(t, sourceFallback)}>
                           <span className="src-scroll" ref={scrollToEnd}>
                             {t.sourceFile
                               ? `${t.sourceFile}${t.page != null ? `, page ${t.page}` : ""}`
@@ -2150,8 +2175,8 @@ export default function Page() {
                       },
                   isMulti
                     ? `combined-accounts${periodSuffix}.csv`
-                    : result.fileName.replace(/\.pdf$/i, "") + periodSuffix + ".csv",
-                  result.fileName,
+                    : exportBase + periodSuffix + ".csv",
+                  sourceFallback,
                 )
               }
             >
@@ -2241,7 +2266,7 @@ export default function Page() {
                   <td className="num credit">{t.credit ? t.credit.toFixed(2) : ""}</td>
                   <td className="num">{t.balance != null ? t.balance.toFixed(2) : ""}</td>
                   {showCategory && categoryCell(t, `s${idx}`)}
-                  <td className="source" title={transactionSource(t, result.fileName)}>
+                  <td className="source" title={transactionSource(t, sourceFallback)}>
                     <span className="src-scroll" ref={scrollToEnd}>
                       {t.sourceFile
                         ? `${t.sourceFile}${t.page != null ? `, page ${t.page}` : ""}`

@@ -87,6 +87,11 @@ check("parse: no link column -> link undefined", parsed[0].link === undefined)
   // filter (route.ts) can never drift apart again.
   check("match: matched rows tagged with the marker", entries.every((e) => e.tx.category === EXPENSE_CATEGORY))
   check("match: the marker is plural", EXPENSE_CATEGORY === "Expenses")
+  // The marker never overwrites a category the row already has (a re-imported CSV/Excel
+  // whose categories the user typed): the match is reported, the category stays.
+  const kept: MatchEntry[] = [{ tx: { ...tx("2025-12-31", 30.03, "POS CIRCLE K CLONTARF"), category: "Fuel" } }]
+  const rk = matchExpenses(parsed, kept)
+  check("match: a row with its own category keeps it (not replaced by the marker)", rk.foundCount === 1 && kept[0].tx.category === "Fuel")
   check("match: zero-amount expense not found", r.matches[2].found === false)
   check("match: records matched date", r.matches[0].matchedDate === "2025-12-31")
   check("match: day gap is signed (+1, bank posted after the invoice)", r.matches[0].matchedDayGap === 1)

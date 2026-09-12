@@ -68,8 +68,11 @@ export interface MatchEntry {
  *
  * Exported (with the two cell helpers below) so the transactions-CSV importer
  * (`csv-import.ts`) can reuse the exact same reader — one CSV engine, not two.
+ *
+ * `delimiter` defaults to the comma our own exports use; the importer passes ";" or a
+ * tab when a spreadsheet re-saved the file with its locale's list separator.
  */
-export function parseCsvRows(text: string): string[][] {
+export function parseCsvRows(text: string, delimiter = ","): string[][] {
   const s = text.replace(/\r\n/g, "\n").replace(/\r/g, "\n")
   const rows: string[][] = []
   let row: string[] = []
@@ -90,7 +93,7 @@ export function parseCsvRows(text: string): string[][] {
       }
     } else if (c === '"') {
       inQuotes = true
-    } else if (c === ",") {
+    } else if (c === delimiter) {
       row.push(field)
       field = ""
     } else if (c === "\n") {
@@ -109,11 +112,13 @@ export function parseCsvRows(text: string): string[][] {
   return rows
 }
 
-/** Normalise a date cell to ISO YYYY-MM-DD (accepts ISO or DD/MM/YYYY). */
+/** Normalise a date cell to ISO YYYY-MM-DD. Accepts ISO and the day-first forms a
+ * spreadsheet writes back (DD/MM/YYYY, DD.MM.YYYY, DD-MM-YYYY — Excel re-saves our ISO
+ * dates in the locale's short-date format). Anything else is returned trimmed. */
 export function normalizeDate(s: string): string {
   const iso = /^(\d{4})-(\d{2})-(\d{2})/.exec(s)
   if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}`
-  const dmy = /^(\d{1,2})\/(\d{1,2})\/(\d{4})/.exec(s)
+  const dmy = /^(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})/.exec(s)
   if (dmy) return `${dmy[3]}-${dmy[2].padStart(2, "0")}-${dmy[1].padStart(2, "0")}`
   return s.trim()
 }
@@ -300,9 +305,13 @@ function pickBest(expense: Expense, candidates: MatchEntry[]): MatchEntry {
  * Match each expense to a statement debit. A match requires ALL THREE: the **exact**
  * cent amount, the **supplier name** present in the bank description (fuzzy `nameMatches`),
  * and a date **within ±windowDays** (default ±5). One-to-one; MUTATES the matched
- * transaction's `category` to `EXPENSE_CATEGORY`. Requiring the name removes coincidental
- * same-amount matches to a different merchant (e.g. a €X expense won't match an unrelated
- * €X transfer/ATM withdrawal); an expense with no name-confirmed debit is left "not found"
+ * transaction's `category` to `EXPENSE_CATEGORY` — but ONLY when the row has no category
+ * yet. On the PDF path that is every row (matching runs before categorization), so matched
+ * debits get the marker as before; on a re-imported CSV/Excel the user's hand-typed
+ * categories are real data and must not be erased by a marker — the match itself is still
+ * reported in the returned report. Requiring the name removes coincidental same-amount
+ * matches to a different merchant (e.g. a €X expense won't match an unrelated €X
+ * transfer/ATM withdrawal); an expense with no name-confirmed debit is left "not found"
  * for the accountant to review.
  */
 export function matchExpenses(
@@ -337,8 +346,10 @@ export function matchExpenses(
       if (candidates.length > 0) {
         const best = pickBest(expense, candidates)
         used.add(best)
-        best.tx.category = EXPENSE_CATEGORY
-        best.tx.categoryByAi = false
+        if (!best.tx.category) {
+          best.tx.category = EXPENSE_CATEGORY
+          best.tx.categoryByAi = false
+        }
         match = {
           expense,
           found: true,

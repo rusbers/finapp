@@ -17,6 +17,7 @@ import readXlsxFile from "read-excel-file/node"
 import {
   parseTransactionsCsv,
   parseTransactionsWorkbook,
+  parseTsvRows,
   statementsFromSources,
   CSV_IMPORT_BAD_FORMAT,
   type ImportedStatement,
@@ -357,6 +358,37 @@ check("one entry per source PDF, in statement order", per15.map((p) => p.fileNam
 check("counts + periods per PDF", per15[0].transactionCount === 2 && per15[0].periodStart === "2025-01-05" && per15[0].periodEnd === "2025-01-10" && per15[1].transactionCount === 2 && per15[1].periodEnd === "2025-02-14")
 check("balance range per PDF from its running balance (jan: 1000 → 976.30; feb: 976.30 → 1010.50)", moneyEq(per15[0].openingBalance, 1000) && moneyEq(per15[0].closingBalance, 976.3) && moneyEq(per15[1].openingBalance, 976.3) && moneyEq(per15[1].closingBalance, 1010.5))
 check("rows without a Source → no entries (caller falls back to the import file)", statementsFromSources(imp6[0].transactions).length === 0)
+
+// ---------------------------------------------------------------------------
+// 16. Excel's CLIPBOARD (Ctrl+C on the rows → Ctrl+V in the app): tab-separated, CRLF,
+//     dates/numbers as displayed, and Excel's own quoting — a cell is quoted ONLY when it
+//     holds a tab or a newline; quotes inside other cells are emitted raw, even a leading
+//     one. Real clipboard text captured from Excel 16 via COM (scripts/fixtures/).
+// ---------------------------------------------------------------------------
+console.log("\n# 16. Excel clipboard (TSV)")
+const clip = readFileSync(fixture("excel-clipboard-export.tsv"), "utf8")
+check("fixture is tab-separated with raw quotes in a cell", clip.includes("\t") && clip.includes('\tCoffee, milk "corner"\t'))
+check("pasted rows import identically to our own CSV (quotes in the description kept)", sameImport(parseTransactionsCsv(clip), expectedSix))
+
+const edge = readFileSync(fixture("excel-clipboard-edge.tsv"), "utf8")
+const rows16 = parseTsvRows(edge)
+check("edge fixture: header + 5 rows, 3 columns each", rows16.length === 6 && rows16.every((r) => r.length === 3))
+const descs = rows16.slice(1).map((r) => r[1])
+check("multi-line cell (quoted by Excel) rejoined with its newline", descs[0] === "line one\nline two")
+check("quotes inside a cell are literal (Excel emits them raw)", descs[1] === 'say "hi" now')
+check("a cell holding a tab (quoted by Excel) keeps the tab", descs[2] === "tab\tinside")
+check("a raw LEADING quote does not swallow the following rows", descs[3] === '"leading quote')
+check("doubled quotes + comma + newline inside a quoted cell", descs[4] === 'a "quoted", comma\nx')
+check("the debits after each of those cells are intact", rows16.slice(1).map((r) => r[2]).join(",") === "1.5,2,3,4,5")
+// (This probe sheet has no Credit column, so as a transactions import it is correctly
+// rejected — what matters here is the cell splitting above.)
+let threw16 = ""
+try {
+  parseTransactionsCsv(edge)
+} catch (e) {
+  threw16 = e instanceof Error ? e.message : String(e)
+}
+check("a tab-separated paste without Debit/Credit is rejected as bad format", threw16 === CSV_IMPORT_BAD_FORMAT)
 
 console.log(`\n${failures === 0 ? "All CSV-import checks passed." : `${failures} check(s) FAILED.`}`)
 process.exit(failures === 0 ? 0 : 1)

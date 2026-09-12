@@ -895,7 +895,22 @@ pdfjs-dist`): for the target banks, reading the PDF's text positions (x/y) and
   fixtures in `scripts/fixtures/`): a UTF-8 **BOM** before the first header cell, **day-first dates**
   (`05/01/2025`, also `dd.mm.yyyy` / `dd-mm-yyyy` in `normalizeDate`), dropped trailing zeros, CRLF,
   and a **`;` list separator with decimal commas** (`parseCsvRows(text, delimiter)` + the
-  `decimalComma` option; detected on the header line outside quotes). `parseTransactionsWorkbook
+  `decimalComma` option; detected on the header line outside quotes). **Paste from Excel**: the same
+  text parser also takes the rows the user copies in Excel (Ctrl+C on the range → **Ctrl+V anywhere on
+  the page** in import mode) — Excel puts them on the clipboard as TAB-separated text whose quoting is
+  NOT CSV's (measured, fixtures `excel-clipboard-*.tsv`): a cell is quoted ONLY when it holds a tab or a
+  newline (inner quotes doubled), while a cell that merely contains quotes — even a LEADING one — is
+  emitted raw (`say "hi" now`, `"leading quote`). `parseCsvRows` would drop the quotes of the first and,
+  on the second, swallow the rest of the paste into one field, so a tab delimiter routes to
+  **`parseTsvRows`**: a `"` is literal unless it opens a cell that either closes with `"`+tab/EOL on the
+  same line AND contains a tab, or does not close on the line — a cell spanning lines, told apart from a
+  raw leading quote by the COLUMN COUNT (a line already holding as many tab-separated fields as the
+  header is a complete row). In `app/page.tsx` a document-level `paste` listener (import mode only,
+  not while loading; pastes into `input`/`textarea`/`[contenteditable]` and non-tabular text — no tab
+  and a single line — are left to the browser) stores `pastedText`, shown as a "Pasted from Excel — N
+  rows" chip with ✕ in place of the file row (one source at a time: a paste drops the file, picking a
+  file drops the paste, Clear drops both); "Reconcile file" then calls `parseTransactionsCsv(pastedText)`
+  with `PASTED_FILE_NAME` ("pasted-transactions.csv") as the export-name stand-in. `parseTransactionsWorkbook
   (sheets)` takes every sheet as TYPED rows (Date objects → ISO — UTC parts when the reader gave UTC
   midnight; numbers → `#` / money; an Excel serial in the Date column → ISO) and picks the sheet:
   **"Combined"** when present (the multi-account workbook — all rows + Account column; that is where
@@ -933,7 +948,9 @@ pdfjs-dist`): for the target banks, reading the PDF's text positions (x/y) and
   trip through `write-excel-file` → `read-excel-file` in Node — single sheet, the full
   Summary/Combined/per-account/Expenses workbook, the no-Combined fallback, sheet-name labels, a
   no-transactions workbook rejected; the Excel-saved `.xlsx` fixture; categories surviving
-  `matchExpenses`; `statementsFromSources`).
+  `matchExpenses`; `statementsFromSources`; the real Excel clipboard text of an export, and an
+  edge fixture for `parseTsvRows` — multi-line cell, raw inner quotes, a cell holding a tab, a raw
+  leading quote, doubled quotes + newline).
 - **Transaction provenance (Source column)**: each `Transaction` carries an optional
   `page` (1-based PDF page, set by the deterministic parsers — Revolut/AIB/BOI/
   consolidated) and an optional `sourceFile` (set only when several PDFs are combined,

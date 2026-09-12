@@ -237,18 +237,119 @@ function detectDelimiter(text: string): string {
   return best
 }
 
+/** Read a quoted TSV cell from `s[start]` (just after the opening quote): `""` is a literal
+ * quote; a lone `"` followed by a tab or the end of `s` closes the cell. `closed: false` =
+ * the cell continues on the next line (Excel keeps the cell's own newlines). */
+function readQuotedCell(s: string, start: number): { content: string; end: number; closed: boolean } {
+  let content = ""
+  let i = start
+  while (i < s.length) {
+    const c = s[i]
+    if (c === '"') {
+      if (s[i + 1] === '"') {
+        content += '"'
+        i += 2
+        continue
+      }
+      if (i + 1 === s.length || s[i + 1] === "\t") return { content, end: i + 1, closed: true }
+      // A stray quote inside the cell \u2014 keep it (lenient).
+    }
+    content += c
+    i++
+  }
+  return { content, end: i, closed: false }
+}
+
 /**
- * Parse the app's exported transactions CSV (as text) into one `ImportedStatement` per
- * account. Tolerates what a spreadsheet's "Save As CSV" does to the file: a leading BOM,
- * a locale list separator, day-first dates and dropped trailing zeros.
- * Throws `CSV_IMPORT_EMPTY` / `CSV_IMPORT_BAD_FORMAT` on an unusable file.
+ * Split TAB-separated text into rows \u2014 what Excel puts on the clipboard (Ctrl+C on a range)
+ * and writes to a "Text (tab delimited)" file. Its quoting is NOT CSV's (measured on Excel
+ * 16, fixtures in `scripts/fixtures/`): a cell is wrapped in quotes ONLY when it contains a
+ * tab or a newline (inner quotes then doubled), while a cell that merely contains quotes \u2014
+ * even a LEADING one \u2014 is emitted raw: `say "hi" now`, `"leading quote`. `parseCsvRows`
+ * would drop the quotes of the first and, on the second, swallow the rest of the paste into
+ * one field. So here a `"` is literal unless it opens a cell that (a) closes with `"` + tab/
+ * end-of-line on the same line AND holds a tab (why else would Excel have quoted it), or
+ * (b) does not close on this line \u2014 a cell spanning lines \u2014 which is told apart from a raw
+ * leading quote by the COLUMN COUNT: a line that already carries as many tab-separated
+ * fields as the header is a complete row, not the start of a multi-line cell.
+ */
+export function parseTsvRows(text: string): string[][] {
+  const lines = text.replace(/\r\n?/g, "\n").split("\n")
+  if (lines.length > 1 && lines[lines.length - 1] === "") lines.pop() // the trailing newline
+  const width = lines[0].split("\t").length
+  const rows: string[][] = []
+  let row: string[] = []
+  let open: string | null = null // content so far of a cell spanning lines
+
+  for (const line of lines) {
+    let pos = 0
+    if (open != null) {
+      const q = readQuotedCell(line, 0)
+      open += "\n" + q.content
+      if (!q.closed) continue
+      row.push(open)
+      open = null
+      pos = q.end
+      if (pos >= line.length) {
+        rows.push(row)
+        row = []
+        continue
+      }
+      pos++ // the tab after the closing quote
+    }
+    for (;;) {
+      const nextTab = line.indexOf("\t", pos)
+      const rawEnd = nextTab === -1 ? line.length : nextTab
+      if (line[pos] === '"') {
+        const q = readQuotedCell(line, pos + 1)
+        if (q.closed && q.content.includes("\t")) {
+          row.push(q.content)
+          pos = q.end
+          if (pos >= line.length) break
+          pos++
+          continue
+        }
+        if (!q.closed) {
+          const naiveFields = row.length + line.slice(pos).split("\t").length
+          if (naiveFields < width) {
+            open = q.content // the cell continues on the next line
+            break
+          }
+        }
+        // Otherwise the quote is literal \u2014 fall through.
+      }
+      row.push(line.slice(pos, rawEnd))
+      if (nextTab === -1) break
+      pos = nextTab + 1
+    }
+    if (open == null) {
+      rows.push(row)
+      row = []
+    }
+  }
+  if (open != null) {
+    // Unterminated at the end of the text: keep what was read rather than lose the row.
+    row.push(open)
+    rows.push(row)
+  }
+  return rows
+}
+
+/**
+ * Parse the app's exported transactions as TEXT \u2014 a CSV file, a tab-delimited file, or the
+ * rows Excel puts on the clipboard (Ctrl+C \u2192 Ctrl+V in the app) \u2014 into one
+ * `ImportedStatement` per account. Tolerates what a spreadsheet does to the data: a
+ * leading BOM, a locale list separator, day-first dates, dropped trailing zeros, and the
+ * clipboard's own quoting rules (`parseTsvRows`).
+ * Throws `CSV_IMPORT_EMPTY` / `CSV_IMPORT_BAD_FORMAT` on unusable text.
  */
 export function parseTransactionsCsv(text: string): ImportedStatement[] {
   const body = text.replace(/^\uFEFF/, "") // a UTF-8 BOM ("CSV UTF-8" in Excel) before the first header cell
   const delimiter = detectDelimiter(body)
+  const rows = delimiter === "\t" ? parseTsvRows(body) : parseCsvRows(body, delimiter)
   // A ";" list separator goes with a "," decimal separator (that is WHY those locales
   // can't use the comma to separate fields).
-  return parseTransactionRows(parseCsvRows(body, delimiter), { decimalComma: delimiter === ";" })
+  return parseTransactionRows(rows, { decimalComma: delimiter === ";" })
 }
 
 // --- Excel workbook -----------------------------------------------------------------

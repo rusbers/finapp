@@ -578,6 +578,25 @@ of `toCsv` / `transactionSheet`; the rebuilt accounts feed the same client-safe
   dropped trailing zeros, CRLF; and a `;` list separator with decimal commas (RO/DE locales) —
   the delimiter is detected on the header line outside quotes (`parseCsvRows(text, delimiter)`),
   and `;` switches the money cells to decimal-comma parsing (`decimalComma`).
+- **Paste from Excel** (Ctrl+C on the rows, header included → Ctrl+V anywhere on the page in
+  import mode): Excel puts a range on the clipboard as TAB-separated text with its OWN quoting
+  (captured via COM `Range.Copy` + `Get-Clipboard -Raw`, fixtures `scripts/fixtures/
+  excel-clipboard-*.tsv`): a cell is quoted only when it holds a tab or a newline (inner quotes
+  doubled); a cell that merely contains quotes — even a leading one — is emitted raw
+  (`say "hi" now`, `"leading quote`). `parseCsvRows` would strip the first's quotes and, on the
+  second, swallow the rest of the paste into one field, so a tab delimiter routes to
+  `parseTsvRows`: `"` is literal unless it opens a cell that closes with `"`+tab/EOL on the same
+  line AND holds a tab, or does not close on the line (a cell spanning lines — distinguished from a
+  raw leading quote by the column count: a line already carrying as many tab-separated fields as
+  the header is a complete row). Known limit: a cell holding BOTH a tab and a newline on its first
+  line reads as a complete row (never seen in bank descriptions). UI (`app/page.tsx`): a
+  document-level `paste` listener, active only in import mode and not while loading; pastes into
+  `input`/`textarea`/`[contenteditable]` (label inputs, the category combobox) and non-tabular
+  text (no tab, single line) are left to the browser. The text lands in `pastedText`, shown as a
+  "Pasted from Excel — N rows" chip (✕ to drop) instead of the file row — one source at a time (a
+  paste drops the file, a file drops the paste, Clear drops both); a hint line under the picker
+  says how. "Reconcile file" then calls `parseTransactionsCsv(pastedText)`; `PASTED_FILE_NAME`
+  ("pasted-transactions.csv") is only the export-name stand-in, never a row's Source.
 - **Excel** `parseTransactionsWorkbook(sheets)`: every sheet as TYPED rows from the reader
   (`read-excel-file`, the reading twin of `write-excel-file` — same author, shared `fflate`; loaded
   by dynamic `import("read-excel-file/browser")` in `app/import-file.ts`, with `dateFormat:
@@ -614,10 +633,13 @@ of `toCsv` / `transactionSheet`; the rebuilt accounts feed the same client-safe
   `;`+decimal-comma CSV; the xlsx round trip through `write-excel-file` → `read-excel-file` in
   Node (single sheet; the full Summary/Combined/per-account/Expenses workbook; the no-Combined
   fallback; sheet-name labels; a no-transactions workbook rejected); the Excel-saved `.xlsx`
-  fixture; categories surviving `matchExpenses`; `statementsFromSources`. To regenerate the
-  fixtures: write a CSV with `toCsv`, open it in Excel via COM (`New-Object -ComObject
-  Excel.Application` → `Workbooks.Open` → `SaveAs(path, 62)` for CSV UTF-8, `SaveAs(path, 51)`
-  for xlsx).
+  fixture; categories surviving `matchExpenses`; `statementsFromSources`; the real clipboard
+  text of an export + the `parseTsvRows` edge fixture (multi-line cell, raw inner quotes, a cell
+  with a tab, a raw leading quote, doubled quotes + newline; the probe sheet has no Credit column,
+  so as a transactions import it is correctly rejected). To regenerate the fixtures: write a CSV
+  with `toCsv`, open it in Excel via COM (`New-Object -ComObject Excel.Application` →
+  `Workbooks.Open` → `SaveAs(path, 62)` for CSV UTF-8, `SaveAs(path, 51)` for xlsx;
+  `UsedRange.Copy()` + `Get-Clipboard -Raw` for the clipboard text).
 
 ## PTSB hybrid descriptions (`ptsb-descriptions.ts`)
 

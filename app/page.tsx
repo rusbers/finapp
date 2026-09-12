@@ -29,6 +29,7 @@ import { mergeAccounts, dedupeLabels } from "@/lib/core/multi-account"
 import type { MultiAccount, MultiAccountResult } from "@/lib/core/multi-account"
 import { expensesReportToCsv, parseExpensesCsv, matchExpenses, type ExpenseReport } from "@/lib/core/expenses"
 import {
+  parseTransactionsCsv,
   statementsFromSources,
   importedToStatement,
   CSV_IMPORT_BAD_FORMAT,
@@ -153,6 +154,10 @@ const EMPTY_RECON: ReconciliationResult = {
 // `app/import-file.ts`). Old binary .xls is not readable, so it isn't offered.
 const IMPORT_ACCEPT =
   ".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+// Stand-in "file name" for rows pasted from Excel — only ever feeds the export names
+// (`exportBase` → "pasted-transactions-2025.csv"); an imported result never uses it as a
+// row's Source.
+const PASTED_FILE_NAME = "pasted-transactions.csv"
 const SETTINGS_KEY = "extractionSettings"
 type Settings = typeof DEFAULTS
 
@@ -300,10 +305,14 @@ export default function Page() {
   const [expensesFile, setExpensesFile] = useState<File | null>(null)
   const [expensesOpen, setExpensesOpen] = useState(false)
   // Input source: extract from PDFs (default) or re-import a previously-exported
-  // transactions CSV (rebuilt + reconciled entirely client-side; no PDF/AI). See
-  // lib/core/csv-import.ts.
+  // transactions CSV / Excel file (rebuilt + reconciled entirely client-side; no
+  // PDF/AI). See lib/core/csv-import.ts. In import mode the rows can also be PASTED
+  // straight from Excel (Ctrl+C on the range → Ctrl+V on the page): `pastedText` is the
+  // clipboard's tab-separated text. One source at a time — a paste replaces the file
+  // and picking a file drops the paste.
   const [importMode, setImportMode] = useState<"pdf" | "csv">("pdf")
   const [csvFile, setCsvFile] = useState<File | null>(null)
+  const [pastedText, setPastedText] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   // The in-flight reconciliation, so Cancel can abort it; null when idle. `cancelled`
   // shows a short note after a cancel (cleared by the next action, like an error).
@@ -381,6 +390,7 @@ export default function Page() {
     setCheckMode(false)
   }, [result])
 
+
   // Test controls — read from the localStorage-backed store (SSR-safe, no warnings).
   const settings = useSyncExternalStore(
     subscribeSettings,
@@ -430,9 +440,38 @@ export default function Page() {
     setExpensesFile(null)
     setExpensesOpen(false)
     setCsvFile(null)
+    setPastedText(null)
     setPeriod({ kind: "all" })
     resetResult()
   }
+
+  // Paste from Excel: in import mode, Ctrl+V anywhere on the page takes the clipboard's
+  // text (Excel copies a range as tab-separated rows) as the import source. Pastes INTO
+  // an editable control (the label inputs, the category combobox) are left to the
+  // browser, and so is anything that doesn't look like a table — a single value pasted
+  // by accident shouldn't replace an attached file.
+  useEffect(() => {
+    if (importMode !== "csv" || isLoading) return
+    const onPaste = (e: ClipboardEvent) => {
+      const target = e.target as HTMLElement | null
+      if (target?.closest("input, textarea, [contenteditable]")) return
+      const text = e.clipboardData?.getData("text/plain") ?? ""
+      const tabular = text.includes("\t") || text.trim().split(/\r?\n/).length >= 2
+      if (!tabular) return
+      e.preventDefault()
+      setPastedText(text)
+      setCsvFile(null)
+      setResult(null)
+      setError(null)
+      setCancelled(false)
+      setDurationMs(null)
+    }
+    document.addEventListener("paste", onPaste)
+    return () => document.removeEventListener("paste", onPaste)
+  }, [importMode, isLoading])
+  // Rows in the pasted text, for the status chip only (a cell holding its own newline
+  // counts extra — the parser, not this figure, decides what a row is).
+  const pastedRows = pastedText ? Math.max(0, pastedText.trim().split(/\r?\n/).length - 1) : 0
   const addAccount = () => {
     setExtraAccounts((prev) => [
       ...prev,
@@ -506,7 +545,15 @@ export default function Page() {
   const totalStatements = files.length + extraAccounts.reduce((n, a) => n + a.files.length, 0)
   // The Clear button appears once there is anything to clear (an input or a result).
   const canClear =
-    !!result || !!error || totalStatements > 0 || extraAccounts.length > 0 || !!csvFile || !!expensesFile
+    !!result ||
+    !!error ||
+    totalStatements > 0 ||
+    extraAccounts.length > 0 ||
+    !!csvFile ||
+    !!pastedText ||
+    !!expensesFile
+  // Import mode has something to reconcile: an attached file OR pasted rows.
+  const hasImportSource = !!csvFile || !!pastedText
 
   async function handleCheck() {
     if (!canCheck) return
@@ -586,7 +633,7 @@ export default function Page() {
   // each account's per-statement breakdown is rebuilt from the rows' Source (the
   // original PDFs), never from the import file's name.
   async function handleImportFile() {
-    if (!csvFile) return
+    if (!csvFile && !pastedText) return
     setIsLoading(true)
     setError(null)
     setResult(null)
@@ -598,7 +645,11 @@ export default function Page() {
     setCheckMode(false)
     const startedAt = performance.now()
     try {
-      const imported = await readTransactionsFile(csvFile)
+      // A pasted range goes through the same text parser as a CSV (it detects the tab
+      // delimiter and Excel's clipboard quoting); a file is read by extension.
+      const imported = csvFile ? await readTransactionsFile(csvFile) : parseTransactionsCsv(pastedText ?? "")
+      // Only feeds the export file names (and the multi label); never a row's Source.
+      const sourceName = csvFile ? csvFile.name : PASTED_FILE_NAME
       const expensesText = expensesFile ? await expensesFile.text() : null
 
       if (imported.length >= 2) {
@@ -617,7 +668,7 @@ export default function Page() {
             reconciliation: checkReconciliation(data),
             transactions: a.transactions,
             // The original statements when the rows carry a Source; the import file otherwise.
-            fileNames: perFile.length > 0 ? perFile.map((p) => p.fileName) : [csvFile.name],
+            fileNames: perFile.length > 0 ? perFile.map((p) => p.fileName) : [sourceName],
             perFile: perFile.length > 0 ? perFile : undefined,
           }
         })
@@ -631,7 +682,7 @@ export default function Page() {
           : undefined
         setResult({
           multi: { accounts, allReconciled },
-          fileName: `${accounts.length} account${accounts.length === 1 ? "" : "s"} (${csvFile.name})`,
+          fileName: `${accounts.length} account${accounts.length === 1 ? "" : "s"} (${sourceName})`,
           expenses,
           imported: true,
           // Neutral single-statement fields (never read in the multi render path).
@@ -668,7 +719,7 @@ export default function Page() {
           modelUsed: "csv-import",
           fallbackUsed: false,
           corrections: [],
-          fileName: csvFile.name,
+          fileName: sourceName,
           expenses,
         })
       }
@@ -1213,7 +1264,10 @@ export default function Page() {
           </>
         )}
 
-        {/* CSV import: one file (which may itself hold several accounts via its Account column). */}
+        {/* CSV / Excel import: one file (which may itself hold several accounts via its
+            Account column) — or the rows pasted straight from Excel (Ctrl+V on the page;
+            see the paste effect). One source at a time: the pasted chip and the file row
+            never show together. */}
         {importMode === "csv" && (
           <>
             <label>{s.csvFileLabel}</label>
@@ -1223,9 +1277,11 @@ export default function Page() {
               count={csvFile ? 1 : 0}
               onChange={(fs) => {
                 setCsvFile(fs[0] ?? null)
+                setPastedText(null)
                 resetResult()
               }}
             />
+            {!pastedText && <p className="paste-hint">{s.pasteHint}</p>}
             {csvFile && (
               <div className="files">
                 <ul className="account-files">
@@ -1248,12 +1304,34 @@ export default function Page() {
                 </ul>
               </div>
             )}
+            {pastedText && (
+              <div className="files">
+                <ul className="account-files">
+                  <li>
+                    <span className="account-file-name">{s.pastedStatus(pastedRows)}</span>
+                    <span className="account-file-size">{formatSize(pastedText.length)}</span>
+                    <button
+                      type="button"
+                      className="file-remove"
+                      aria-label={s.removePasted}
+                      disabled={isLoading}
+                      onClick={() => {
+                        setPastedText(null)
+                        resetResult()
+                      }}
+                    >
+                      ✕
+                    </button>
+                  </li>
+                </ul>
+              </div>
+            )}
           </>
         )}
 
         {/* Add expenses — reveals the expenses.csv uploader (matched against the debits).
             Shown in BOTH modes: alongside PDFs, or the reconciled-CSV import. */}
-        {(importMode === "pdf" ? files.length > 0 : !!csvFile) && !expensesOpen && (
+        {(importMode === "pdf" ? files.length > 0 : hasImportSource) && !expensesOpen && (
           <button
             type="button"
             className="link-button add-account"
@@ -1329,7 +1407,7 @@ export default function Page() {
 
         {importMode === "csv" && (
           <div className="csv-import-actions">
-            <button className="button" onClick={handleImportFile} disabled={!csvFile || isLoading}>
+            <button className="button" onClick={handleImportFile} disabled={!hasImportSource || isLoading}>
               {isLoading ? s.checkingButton : s.importCsvButton}
             </button>
             <span className="info-tip" tabIndex={0} aria-label={s.importCsvInfo}>

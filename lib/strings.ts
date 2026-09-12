@@ -33,10 +33,14 @@ export const strings = {
   csvFileLabel: "Transactions file (CSV or Excel from a previous export)",
   importCsvButton: "Reconcile file",
   importCsvInfo:
-    "Re-load accounts you already reconciled from a CSV or Excel file this app exported — no PDF re-parse — then match them against expenses. Categories you typed in the spreadsheet are kept. A multi-account workbook is read from its Combined sheet.",
+    "Re-load accounts you already reconciled from a CSV or Excel file this app exported — or paste the rows straight from Excel — no PDF re-parse — then match them against expenses. Categories you typed in the spreadsheet are kept. A multi-account workbook is read from its Combined sheet.",
   csvImportBadFormat:
-    "Not a recognized transactions export. Expected the Date, Debit, Credit and Balance columns of a previous CSV or Excel export (a workbook needs its Combined or transactions sheet).",
+    "Not a recognized transactions export. Expected the Date, Debit, Credit and Balance columns of a previous CSV or Excel export (a workbook needs its Combined or transactions sheet; when pasting, include the header row).",
   csvImportEmpty: "This file has no transaction rows.",
+  // Paste from Excel: Ctrl+C on the rows in Excel, Ctrl+V anywhere on the page.
+  pasteHint: "…or select the rows in Excel (header row included), copy, and press Ctrl+V anywhere on this page.",
+  pastedStatus: (rows: number) => `Pasted from Excel — ${rows} row${rows === 1 ? "" : "s"}`,
+  removePasted: "Remove pasted rows",
 
   // Processing feedback
   uploading: (pct: number) => `Uploading… ${pct}%`,

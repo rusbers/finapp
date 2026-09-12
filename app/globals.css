@@ -186,6 +186,14 @@ body {
 .file-picker-status.has-files {
   color: var(--ink);
 }
+/* Import mode: the "…or paste from Excel" line under the picker — a quiet hint, not a
+   control (the paste itself is a document-level Ctrl+V; nothing to click). */
+.paste-hint {
+  flex: 1 1 100%;
+  margin: -4px 0 0;
+  font-size: 13px;
+  color: var(--ink-soft);
+}
 .button {
   padding: 11px 22px;
   border: 0;

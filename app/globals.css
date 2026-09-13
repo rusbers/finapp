@@ -88,6 +88,80 @@ body {
   border-color: var(--action);
   color: #fff;
 }
+/* Changelog link in the header — visible only in developer view; as quiet as the toggle. */
+.changelog-link {
+  margin-top: 4px;
+  padding: 6px 4px;
+  color: var(--ink-soft);
+  font-size: 12px;
+  font-weight: 600;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.changelog-link:hover {
+  color: var(--action);
+  text-decoration: underline;
+}
+
+/* Changelog page (app/changelog/page.tsx): a title row + one card per day. */
+.changelog {
+  max-width: 800px;
+}
+.changelog-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  margin-bottom: 32px;
+}
+.changelog-head h1 {
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+.changelog-head p {
+  margin-top: 4px;
+  color: var(--ink-soft);
+  font-size: 14px;
+}
+.changelog-back {
+  flex-shrink: 0;
+  margin-top: 6px;
+  color: var(--action);
+  font-size: 14px;
+  font-weight: 600;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.changelog-back:hover {
+  text-decoration: underline;
+}
+.changelog-entry {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 20px 24px;
+  margin-bottom: 16px;
+}
+.changelog-entry time {
+  display: block;
+  font-family: var(--font-num);
+  font-size: 12px;
+  color: var(--ink-soft);
+}
+.changelog-entry h2 {
+  margin: 4px 0 10px;
+  font-size: 16px;
+  font-weight: 600;
+}
+.changelog-entry ul {
+  padding-left: 20px;
+  font-size: 14px;
+  color: var(--ink);
+}
+.changelog-entry li + li {
+  margin-top: 6px;
+}
 
 /* Input-source switch (PDF statements ⟷ reconciled CSV) — a segmented control
    spanning the upload card's top row. */

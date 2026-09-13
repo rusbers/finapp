@@ -13,6 +13,7 @@
  */
 
 import { useState, useEffect, useMemo, useRef, useSyncExternalStore } from "react"
+import Link from "next/link"
 import { fromCents, checkReconciliation } from "@/lib/core/reconciliation"
 import { findBalanceBreaks, isExplainedByCryptoFees, transactionSource } from "@/lib/core/verification"
 import type {
@@ -1054,6 +1055,12 @@ export default function Page() {
     <main className="page">
       <header className="header">
         <span className="beta-badge">{s.betaBadge}</span>
+        {/* Changelog link — a developer aid, so it renders only while Developer view is on. */}
+        {dev && (
+          <Link href="/changelog" className="changelog-link">
+            {s.changelogLink}
+          </Link>
+        )}
         <button
           type="button"
           className={`dev-toggle ${dev ? "on" : ""}`}

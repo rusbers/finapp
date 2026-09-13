@@ -48,6 +48,11 @@ export const strings = {
 
   // View mode (clean production view vs full developer detail)
   devView: (on: boolean) => `Developer view: ${on ? "On" : "Off"}`,
+  // Changelog page (app/changelog/page.tsx); the header link shows only in developer view
+  changelogLink: "Changelog",
+  changelogTitle: "Changelog",
+  changelogSubtitle: "Notable changes to the app, newest first.",
+  changelogBack: "← Back to the app",
 
   // Categorization toggle (uses AI for descriptions the rules don't catch)
   categorizeLabel: "Categorize transactions",

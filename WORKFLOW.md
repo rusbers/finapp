@@ -13,7 +13,9 @@
 **Whenever you change behavior (parsers, reconciliation, pipeline, UI, config),
 update `CLAUDE.md` and this `WORKFLOW.md` in the SAME change.** Treat docs drift as
 a bug. If you discover a new statement quirk or a gotcha, write it down here so the
-next session doesn't rediscover it.
+next session doesn't rediscover it. A notable, user-visible change also gets one
+sentence in `lib/changelog.ts` (the in-app `/changelog` page, linked from the header
+in Developer view) under that day's entry.
 
 ---
 

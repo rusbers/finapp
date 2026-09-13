@@ -17,14 +17,14 @@ export const metadata: Metadata = {
 
 export default function ChangelogPage() {
   return (
-    <main className="page changelog">
-      <header className="changelog-head">
+    <main className="page subpage">
+      <header className="subpage-head">
         <div>
           <h1>{s.changelogTitle}</h1>
           <p>{s.changelogSubtitle}</p>
         </div>
-        <Link href="/" className="changelog-back">
-          {s.changelogBack}
+        <Link href="/" className="subpage-back">
+          {s.backToApp}
         </Link>
       </header>
 

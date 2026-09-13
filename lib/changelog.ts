@@ -18,9 +18,10 @@ export type ChangelogEntry = {
 export const CHANGELOG: ChangelogEntry[] = [
   {
     date: "2026-09-13",
-    title: "Paste from Excel",
+    title: "Paste from Excel, Features and Changelog pages",
     items: [
       "Re-import: select the rows in Excel, copy, and press Ctrl+V anywhere on the page — no file needed.",
+      "Features page (header link) listing what the app can do, grouped by task; and this Changelog page, linked in Developer view.",
     ],
   },
   {

@@ -15,7 +15,9 @@ update `CLAUDE.md` and this `WORKFLOW.md` in the SAME change.** Treat docs drift
 a bug. If you discover a new statement quirk or a gotcha, write it down here so the
 next session doesn't rediscover it. A notable, user-visible change also gets one
 sentence in `lib/changelog.ts` (the in-app `/changelog` page, linked from the header
-in Developer view) under that day's entry.
+in Developer view) under that day's entry, and a new user-visible feature also
+adds/updates its entry in `lib/features.ts` (the `/features` page; linked in Developer
+view for now, to go public later).
 
 ---
 

@@ -238,6 +238,7 @@ future mobile. The endpoint is a thin layer that just wires core logic to HTTP.
 app/
 ├── api/extract/route.ts   → POST /api/extract — thin endpoint, calls the pipeline
 ├── page.tsx               → upload page + manual verification (UI)
+├── features/page.tsx      → /features — what the app can do, for users (linked in dev view for now)
 ├── changelog/page.tsx     → /changelog — static list of notable changes (linked only in dev view)
 ├── layout.tsx             → root layout
 └── globals.css            → styles
@@ -271,6 +272,7 @@ lib/
 │   │                        into accounts (inverse of toCsv / transactionSheet); browser reads in app/import-file.ts
 │   ├── verification.ts    → CSV export + row-by-row running-balance check
 │   └── excel.ts           → PURE: Excel (.xlsx) sheet builders (transactions / summary / expenses)
+├── features.ts            → hand-curated feature list DATA (grouped by task), rendered by app/features
 ├── changelog.ts           → hand-curated changelog DATA (newest first), rendered by app/changelog
 └── strings.ts             → all UI copy in one place (ready for future i18n)
 ```
@@ -1043,10 +1045,21 @@ pdfjs-dist`): for the target banks, reading the PDF's text positions (x/y) and
   `/changelog` route listing the app's notable changes, newest first, one card per day (date ·
   title · bullet items). The content is a hand-curated typed array (`CHANGELOG` in
   `lib/changelog.ts`) — DATA, not UI copy, so it lives beside `strings.ts` rather than in it; the
-  page's labels (`changelogTitle` / `changelogBack` …) are in `strings.ts`. The page is a server
+  page's labels (`changelogTitle` / `backToApp` …) are in `strings.ts`. The page is a server
   component (no state, no fetch). The header link to it in `app/page.tsx` renders **only while
   Developer view is on** (`{dev && <Link …>}`) — it is a developer aid, not something accountants
   see; the route itself is open like the rest of the internal tool (there is no auth yet to gate it).
+- **Features page** (`app/features/page.tsx` + `lib/features.ts`): the user-facing twin of the
+  changelog — a static `/features` route listing **what the app can do**, grouped by task (one
+  card per group: title · optional intro · a `<dl>` of feature name → description). Content is a
+  hand-curated typed array (`FEATURE_GROUPS`), written for accountants (what it does for them,
+  never parser internals). **For now the header link ("Features", beside Changelog) also renders
+  only while Developer view is on** — the page is meant for users and will go public later, once
+  it is ready to be seen (drop it out of the `{dev && …}` block in `app/page.tsx` at that point;
+  Changelog stays dev-only for good). Both sub-pages share the `.subpage` / `.subpage-head` /
+  `.subpage-back` chrome and the `.nav-link` header style in `globals.css`. **Convention: every
+  new user-visible feature adds/updates an entry in `lib/features.ts` in the same commit** (the
+  changelog records WHEN, the features list records WHAT).
 
 ### Known testing notes
 
@@ -1086,7 +1099,8 @@ layer (bank identification + saving results).
   **`WORKFLOW.md` is the working playbook + bank-parser reference — read it before
   any parser/extraction work, especially in a fresh session.** A notable, user-visible
   change also gets an item in `lib/changelog.ts` (the in-app `/changelog` page) in the
-  same change — one plain sentence under that day's entry.
+  same change — one plain sentence under that day's entry — and a NEW user-visible
+  feature also adds/updates its entry in `lib/features.ts` (the `/features` page).
 - **After a parser change, offer the regression harness.** When you create or modify
   a parser, ask whether to run `npm run test:statements -- <bank>` and report the diff
   vs the saved baseline BEFORE committing. The harness (`scripts/test-statements.mts`)

@@ -1055,11 +1055,18 @@ export default function Page() {
     <main className="page">
       <header className="header">
         <span className="beta-badge">{s.betaBadge}</span>
-        {/* Changelog link — a developer aid, so it renders only while Developer view is on. */}
+        {/* Sub-page links render only while Developer view is on. Changelog is a developer
+            aid for good; Features is meant for users and will go public later — for now it
+            stays behind the toggle too, until the page is ready to be seen. */}
         {dev && (
-          <Link href="/changelog" className="changelog-link">
-            {s.changelogLink}
-          </Link>
+          <>
+            <Link href="/features" className="nav-link">
+              {s.featuresLink}
+            </Link>
+            <Link href="/changelog" className="nav-link">
+              {s.changelogLink}
+            </Link>
+          </>
         )}
         <button
           type="button"

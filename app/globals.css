@@ -52,7 +52,7 @@ body {
   align-items: flex-start;
   gap: 16px;
 }
-/* Beta badge — kept on the left (margin-right:auto) while the dev toggle stays right. */
+/* Beta badge — kept on the left (margin-right:auto) while the dev links + toggle stay right. */
 .beta-badge {
   margin-right: auto;
   margin-top: 4px;
@@ -88,8 +88,9 @@ body {
   border-color: var(--action);
   color: #fff;
 }
-/* Changelog link in the header — visible only in developer view; as quiet as the toggle. */
-.changelog-link {
+/* Header nav links (Features + Changelog, shown only in developer view for now) — as
+   quiet as the toggle. */
+.nav-link {
   margin-top: 4px;
   padding: 6px 4px;
   color: var(--ink-soft);
@@ -98,33 +99,34 @@ body {
   text-decoration: none;
   white-space: nowrap;
 }
-.changelog-link:hover {
+.nav-link:hover {
   color: var(--action);
   text-decoration: underline;
 }
 
-/* Changelog page (app/changelog/page.tsx): a title row + one card per day. */
-.changelog {
+/* Sub-pages (app/features, app/changelog): a narrower column, a title row with a back
+   link, then one card per section. */
+.subpage {
   max-width: 800px;
 }
-.changelog-head {
+.subpage-head {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
   gap: 16px;
   margin-bottom: 32px;
 }
-.changelog-head h1 {
+.subpage-head h1 {
   font-size: 24px;
   font-weight: 700;
   letter-spacing: -0.01em;
 }
-.changelog-head p {
+.subpage-head p {
   margin-top: 4px;
   color: var(--ink-soft);
   font-size: 14px;
 }
-.changelog-back {
+.subpage-back {
   flex-shrink: 0;
   margin-top: 6px;
   color: var(--action);
@@ -133,9 +135,44 @@ body {
   text-decoration: none;
   white-space: nowrap;
 }
-.changelog-back:hover {
+.subpage-back:hover {
   text-decoration: underline;
 }
+
+/* Features page: one card per task group, a definition list of name → description. */
+.feature-group {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 20px 24px;
+  margin-bottom: 16px;
+}
+.feature-group h2 {
+  font-size: 16px;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+.feature-intro {
+  color: var(--ink-soft);
+  font-size: 14px;
+  margin-bottom: 4px;
+}
+.feature-group dl {
+  margin-top: 10px;
+}
+.feature + .feature {
+  margin-top: 10px;
+}
+.feature dt {
+  font-size: 14px;
+  font-weight: 600;
+}
+.feature dd {
+  font-size: 14px;
+  color: var(--ink-soft);
+}
+
+/* Changelog page: one card per day. */
 .changelog-entry {
   background: var(--card);
   border: 1px solid var(--line);

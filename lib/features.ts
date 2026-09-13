@@ -187,6 +187,27 @@ export const FEATURE_GROUPS: FeatureGroup[] = [
     ],
   },
   {
+    title: "Recent reconciliations",
+    intro: "The last 5 reconciliations are kept in this browser, so closing the tab no longer loses your work.",
+    features: [
+      {
+        name: "Saved automatically",
+        description:
+          "Every reconciliation (PDF or re-imported file) is saved on this device — the statements themselves, the result, your category edits and your verified ticks, which keep saving as you work.",
+      },
+      {
+        name: "Reopen, rename, remove",
+        description:
+          "Open a saved reconciliation exactly as you left it — statements attached, result shown; click its name to give it the client's name; remove it when done. Only the last 5 are kept.",
+      },
+      {
+        name: "Add or remove statements later",
+        description:
+          "On an opened reconciliation, attach one more statement (or another account, or an expenses file), remove one with ✕, and reconcile again — the saved entry is updated in place, keeping its name and your category edits.",
+      },
+    ],
+  },
+  {
     title: "Re-import a previous export",
     features: [
       {

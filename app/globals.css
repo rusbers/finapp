@@ -651,6 +651,69 @@ body {
   cursor: default;
 }
 
+/* --- Recent reconciliations (saved in this browser) --- */
+/* A card under the upload card, reusing the files-table look. */
+.recent {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 20px 24px;
+  margin-top: 16px;
+}
+.recent .files-head {
+  align-items: baseline;
+  flex-wrap: wrap;
+}
+.recent-subtitle {
+  font-size: 12px;
+  color: var(--ink-soft);
+}
+/* Name column stays greedy; the rest compact. */
+.recent-table th:first-child {
+  width: 100%;
+}
+/* The record whose result is on screen — a quiet neutral tint, no colour. */
+.recent-current td {
+  background: var(--paper);
+}
+/* Name reads as text, edits on click (inline input of the same size). */
+.recent-name {
+  border: 0;
+  background: none;
+  padding: 0;
+  font: inherit;
+  color: var(--ink);
+  cursor: text;
+  text-align: left;
+  border-bottom: 1px dashed transparent;
+}
+.recent-name:hover {
+  border-bottom-color: var(--line);
+}
+.recent-rename {
+  font: inherit;
+  color: var(--ink);
+  padding: 2px 6px;
+  border: 1px solid var(--action);
+  border-radius: 6px;
+  width: 100%;
+  min-width: 160px;
+}
+.recent-verdict {
+  white-space: nowrap;
+  font-weight: 600;
+  font-size: 12px;
+}
+.recent-verdict.pass {
+  color: var(--ledger-green);
+}
+.recent-verdict.soft {
+  color: var(--soft);
+}
+.recent-verdict.fail {
+  color: var(--discrepancy);
+}
+
 /* --- Multi-account upload (add another bank account) --- */
 /* Label input sits in a .control column beside the bank <select>; it fills the column
    and matches the select's height/border so the two columns line up. */

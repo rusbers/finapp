@@ -59,6 +59,27 @@ export const strings = {
   changelogTitle: "Changelog",
   changelogSubtitle: "Notable changes to the app, newest first.",
 
+  // Recent reconciliations (app/recent-store.ts): the last few results, saved in this browser.
+  recentTitle: "Recent reconciliations",
+  recentSubtitle: (n: number) =>
+    `Saved in this browser only — the last ${n}. Each one keeps its statements, category edits and verified ticks: open it to add or remove statements and reconcile again.`,
+  recentColumns: {
+    name: "Name",
+    saved: "Updated",
+    accounts: "Accounts",
+    files: "Files",
+    transactions: "Transactions",
+    period: "Period",
+    result: "Result",
+  },
+  recentOpen: "Open",
+  recentOpened: "Opened", // the record whose result is on screen right now
+  recentDelete: "Remove from recent",
+  recentRename: "Click to rename",
+  recentVerdict: { pass: "Reconciled", soft: "Explained", fail: "Out of balance" },
+  // Shown under Reconcile once an opened record's statements were changed.
+  recentRerunNote: (name: string) => `Reconcile again to update “${name}” in Recent.`,
+
   // Categorization toggle (uses AI for descriptions the rules don't catch)
   categorizeLabel: "Categorize transactions",
   // Categorization trace (developer view)

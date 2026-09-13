@@ -16,19 +16,13 @@ import { useState, useEffect, useMemo, useRef, useSyncExternalStore } from "reac
 import Link from "next/link"
 import { fromCents, checkReconciliation } from "@/lib/core/reconciliation"
 import { findBalanceBreaks, isExplainedByCryptoFees, transactionSource } from "@/lib/core/verification"
-import type {
-  StatementData,
-  ReconciliationResult,
-  ExtractionAttempt,
-  SignCorrection,
-  Transaction,
-} from "@/lib/core/types"
+import type { StatementData, ReconciliationResult, Transaction } from "@/lib/core/types"
 import { BANK_LABELS, SHORT_BANK_LABELS, type BankId } from "@/lib/core/prompts"
 import { isAllowedModel } from "@/lib/core/config"
 import { slicePeriod, type Period } from "@/lib/core/period"
 import { mergeAccounts, dedupeLabels } from "@/lib/core/multi-account"
-import type { MultiAccount, MultiAccountResult } from "@/lib/core/multi-account"
-import { expensesReportToCsv, parseExpensesCsv, matchExpenses, type ExpenseReport } from "@/lib/core/expenses"
+import type { MultiAccount } from "@/lib/core/multi-account"
+import { expensesReportToCsv, parseExpensesCsv, matchExpenses } from "@/lib/core/expenses"
 import {
   parseTransactionsCsv,
   statementsFromSources,
@@ -46,79 +40,21 @@ import { saveWorkbook } from "./excel-export"
 import { expensesSheet, sheetName, summarySheet, transactionSheet, type XlsxSheet } from "@/lib/core/excel"
 import { applyView, anyFilterActive, isColumnActive } from "./table-view"
 import type { ColumnKey, Filters, SortState } from "./table-view"
+import type { ApiResponse, PerFileResult } from "./api-types"
+import {
+  RECENT_LIMIT,
+  summarize,
+  listRecent,
+  loadInputs,
+  saveRecent,
+  updateRecent,
+  deleteRecent,
+  toStoredFile,
+  toFile,
+  type RecentRecord,
+  type RecentInputs,
+} from "./recent-store"
 import { strings as s } from "@/lib/strings"
-
-interface PerFileResult {
-  fileName: string
-  transactionCount: number
-  openingBalance: number
-  closingBalance: number
-  periodStart: string | null
-  periodEnd: string | null
-}
-
-interface StatementGap {
-  afterClosingBalance: number
-  nextOpeningBalance: number | null
-  beforeEnd: string | null
-  afterStart: string | null
-}
-
-interface DuplicateStatement {
-  fileName: string
-  duplicateOf: string
-  transactionCount: number
-  openingBalance: number
-  closingBalance: number
-  periodStart: string | null
-  periodEnd: string | null
-}
-
-interface ConsolidatedAccount {
-  label: string
-  currency: string
-  transactionCount: number
-  openingBalance: number
-  closingBalance: number
-  reconciliation: ReconciliationResult
-  transactions: Transaction[]
-}
-interface ConsolidatedResponse {
-  bank: string
-  allReconciled: boolean
-  accounts: ConsolidatedAccount[]
-}
-
-interface ApiResponse {
-  // `data` is ABSENT for a multi-account result (see `multi` below), so it's optional.
-  // The other single-statement fields below are only ever read inside the single-mode
-  // render branch (gated on a non-null reconciliation), so they stay required — the
-  // multi response simply omits them and is never asked for them.
-  data?: StatementData
-  reconciliation: ReconciliationResult
-  attempts: ExtractionAttempt[]
-  modelUsed: string
-  fallbackUsed: boolean
-  corrections: SignCorrection[]
-  fileName: string
-  // Present only when multiple statements were combined:
-  perFile?: PerFileResult[]
-  gaps?: StatementGap[]
-  fullyChained?: boolean
-  duplicates?: DuplicateStatement[]
-  // Present only when categorization ran (toggle on):
-  categorization?: { ruleCount: number; aiCount: number; uniqueAiDescriptions: number } | null
-  // Present only for a Revolut consolidated statement (per-account results):
-  consolidated?: ConsolidatedResponse
-  // Present only for a multi-account client (several bank accounts, combined table):
-  multi?: MultiAccountResult
-  // Present only when an expenses.csv was uploaded (matched against the statement debits):
-  expenses?: ExpenseReport
-  // Client-only: set when the result was rebuilt from a re-imported CSV/Excel export
-  // (`handleImportFile`), never by the route. `fileName` is then the import file, which
-  // must NOT stand in as a row's source — the rows carry their original PDF (or nothing).
-  imported?: true
-}
 
 /** An additional bank account added in the multi-account upload flow (the primary
  * account stays in `files`/`selectedBank`/`primaryLabel`). */
@@ -274,6 +210,20 @@ function formatSize(bytes: number): string {
   return `${bytes} B`
 }
 
+/** A pick ADDS to the attached PDFs (so statements can come from several folders, and one
+ * more can be added to a reopened record); a file already attached (same name + size) is
+ * not attached twice. Removal is the ✕ on each file. */
+function addFiles(existing: File[], picked: File[]): File[] {
+  const key = (f: File) => `${f.name} ${f.size}`
+  const have = new Set(existing.map(key))
+  return [...existing, ...picked.filter((f) => !have.has(key(f)))]
+}
+
+/** When a recent record was saved, in the user's locale and timezone ("13/09/2026, 14:05"). */
+function formatSavedAt(ms: number): string {
+  return new Date(ms).toLocaleString(undefined, { dateStyle: "short", timeStyle: "short" })
+}
+
 /** The individual statements (PDFs) that make up one account, for the per-account
  * breakdown (each with its period + balance range). A multi-file account already
  * carries a `perFile`; a single-file account is summarised into one synthetic entry
@@ -351,6 +301,14 @@ export default function Page() {
   // turns on "Check mode" (off by default).
   const [checkMode, setCheckMode] = useState(false)
   const [verified, setVerified] = useState<Set<number>>(new Set())
+  // Recent reconciliations (BACKLOG 5.1 v1): the saved records shown in the "Recent" card,
+  // and which of them the on-screen result belongs to (null = not saved / not autosaving).
+  const [recent, setRecent] = useState<RecentRecord[]>([])
+  const [currentRecordId, setCurrentRecordId] = useState<string | null>(null)
+  const [renamingId, setRenamingId] = useState<string | null>(null)
+  // Edits/ticks to re-apply when a saved record is opened: the two `[result]` effects below
+  // clear both on every new result, so they consume this ref instead when it is set.
+  const restoreRef = useRef<{ catOverrides?: Record<string, string>; verified?: Set<number> } | null>(null)
   const toggleVerified = (idx: number) =>
     setVerified((prev) => {
       const next = new Set(prev)
@@ -381,15 +339,57 @@ export default function Page() {
   useEffect(() => {
     setBreakCursor(-1)
     clearView()
-    setVerified(new Set())
+    // Opening a saved record: restore its ticks instead of clearing them.
+    const pending = restoreRef.current
+    if (pending?.verified) {
+      setVerified(pending.verified)
+      delete pending.verified
+    } else {
+      setVerified(new Set())
+    }
   }, [result, period])
 
   // Clear category edits + exit check mode when a new result arrives.
   useEffect(() => {
-    setCatOverrides({})
+    const pending = restoreRef.current
+    if (pending?.catOverrides) {
+      setCatOverrides(pending.catOverrides)
+      delete pending.catOverrides
+    } else {
+      setCatOverrides({})
+    }
+    if (pending && !pending.verified && !pending.catOverrides) restoreRef.current = null
     setEditingCell(null)
     setCheckMode(false)
   }, [result])
+
+  // Recent reconciliations: load the saved list once (IndexedDB is async; an empty list
+  // when storage is unavailable).
+  useEffect(() => {
+    let alive = true
+    listRecent().then((list) => {
+      if (alive) setRecent(list)
+    })
+    return () => {
+      alive = false
+    }
+  }, [])
+
+  // Autosave the user's work (category edits + verified ticks) into the current record,
+  // debounced. A no-op while no record is current — and `currentRecordId` is nulled
+  // SYNCHRONOUSLY at the start of every new check/import/clear, because the effects above
+  // wipe the edits on a new result and an empty save must never land on the previous record.
+  // Also a no-op while there is NO result on screen: editing the working set (adding or
+  // removing a file) resets the result, which clears the edits — those must stay in the
+  // record until the re-run carries them forward.
+  useEffect(() => {
+    if (!currentRecordId || !result) return
+    const id = currentRecordId
+    const timer = setTimeout(() => {
+      updateRecent(id, { catOverrides, verified: [...verified] })
+    }, 400)
+    return () => clearTimeout(timer)
+  }, [currentRecordId, result, catOverrides, verified])
 
 
   // Test controls — read from the localStorage-backed store (SSR-safe, no warnings).
@@ -443,7 +443,109 @@ export default function Page() {
     setCsvFile(null)
     setPastedText(null)
     setPeriod({ kind: "all" })
+    setCurrentRecordId(null)
     resetResult()
+  }
+
+  // --- Recent reconciliations (saved in this browser) ---
+  // Everything the upload card holds right now, as storable bytes — read AFTER a result
+  // arrives (never delays the upload), so a saved record can be reopened and re-run.
+  async function collectInputs(): Promise<RecentInputs> {
+    const stored = (fs: File[]) => Promise.all(fs.map(toStoredFile))
+    return {
+      mode: importMode,
+      bank: selectedBank,
+      primaryLabel,
+      files: await stored(importMode === "pdf" ? files : csvFile ? [csvFile] : []),
+      extraAccounts: await Promise.all(
+        extraAccounts.map(async (a) => ({ bank: a.bank, label: a.label, files: await stored(a.files) })),
+      ),
+      expenses: expensesFile ? await toStoredFile(expensesFile) : null,
+      pastedText: importMode === "csv" ? pastedText : null,
+    }
+  }
+  // Number of statement PDFs behind a result (the Files column of the Recent card).
+  const statementFileCount = () =>
+    importMode === "pdf" ? files.length + extraAccounts.reduce((n, a) => n + a.files.length, 0) : 0
+  // Save a fresh result: as a NEW record — or, when the upload card is a record's working
+  // set (`rerunId`: it was opened / just saved, then edited), as an UPDATE of that record:
+  // same name, category edits kept (they key on descriptions, still valid), ticks cleared
+  // (row indices shift). Storage is best-effort: a null save just means "not saved".
+  // Before a re-run result lands: carry the record's SAVED category edits across it (the
+  // in-memory ones were already cleared when the inputs changed and the result reset).
+  function keepEditsForRerun(rerunId: string | null) {
+    const saved = rerunId ? recent.find((r) => r.id === rerunId) : undefined
+    if (saved) restoreRef.current = { catOverrides: saved.catOverrides }
+  }
+  async function publishRecent(res: ApiResponse, rerunId: string | null) {
+    const inputs = await collectInputs()
+    const summary = summarize(res, statementFileCount())
+    if (rerunId && recent.some((r) => r.id === rerunId)) {
+      await updateRecent(rerunId, { result: res, summary, savedAt: Date.now(), verified: [] }, inputs)
+      setCurrentRecordId(rerunId)
+    } else {
+      const rec = await saveRecent(
+        { name: res.fileName, summary, result: res, catOverrides: {}, verified: [] },
+        inputs,
+      )
+      if (!rec) return
+      setCurrentRecordId(rec.id)
+    }
+    setRecent(await listRecent())
+  }
+  // Open a saved record: rebuild the upload card from its stored inputs (a record saved
+  // before inputs were stored opens with an empty card — the result render doesn't depend
+  // on attached files), then restore the result with its edits/ticks through `restoreRef`,
+  // which the `[result]` effects consume instead of clearing.
+  async function openRecent(rec: RecentRecord) {
+    if (isLoading) return
+    const inputs = await loadInputs(rec.id)
+    if (inputs) {
+      setImportMode(inputs.mode)
+      updateSettings({ bank: inputs.bank })
+      setPrimaryLabel(inputs.primaryLabel)
+      setFiles(inputs.mode === "pdf" ? inputs.files.map(toFile) : [])
+      setExtraAccounts(
+        inputs.extraAccounts.map((a) => ({
+          id: nextAccountId.current++,
+          bank: a.bank,
+          label: a.label,
+          files: a.files.map(toFile),
+        })),
+      )
+      setExpensesFile(inputs.expenses ? toFile(inputs.expenses) : null)
+      setExpensesOpen(!!inputs.expenses)
+      setCsvFile(inputs.mode === "csv" && inputs.files[0] ? toFile(inputs.files[0]) : null)
+      setPastedText(inputs.mode === "csv" ? inputs.pastedText : null)
+    } else {
+      setFiles([])
+      setExtraAccounts([])
+      setPrimaryLabel("")
+      setExpensesFile(null)
+      setExpensesOpen(false)
+      setCsvFile(null)
+      setPastedText(null)
+    }
+    setPeriod({ kind: "all" })
+    setError(null)
+    setCancelled(false)
+    setDurationMs(null)
+    restoreRef.current = { catOverrides: rec.catOverrides, verified: new Set(rec.verified) }
+    setCurrentRecordId(rec.id)
+    setResult(rec.result)
+  }
+  async function removeRecent(id: string) {
+    await deleteRecent(id)
+    // The on-screen result stays; it just stops autosaving.
+    if (currentRecordId === id) setCurrentRecordId(null)
+    setRecent(await listRecent())
+  }
+  async function renameRecent(id: string, name: string) {
+    setRenamingId(null)
+    const trimmed = name.trim()
+    if (!trimmed) return
+    await updateRecent(id, { name: trimmed })
+    setRecent((prev) => prev.map((r) => (r.id === id ? { ...r, name: trimmed } : r)))
   }
 
   // Paste from Excel: in import mode, Ctrl+V anywhere on the page takes the clipboard's
@@ -555,13 +657,17 @@ export default function Page() {
     !!expensesFile
   // Import mode has something to reconcile: an attached file OR pasted rows.
   const hasImportSource = !!csvFile || !!pastedText
+  // Name of the saved record the upload card currently belongs to (for the re-run note).
+  const currentRecordName = recent.find((r) => r.id === currentRecordId)?.name ?? null
 
   async function handleCheck() {
     if (!canCheck) return
+    const rerunId = currentRecordId // the working set of a saved record → update it in place
     setIsLoading(true)
     setError(null)
     setCancelled(false)
     setResult(null)
+    setCurrentRecordId(null)
     setDurationMs(null)
     setPeriod({ kind: "all" })
     setPhase("uploading")
@@ -602,7 +708,9 @@ export default function Page() {
         signal: controller.signal,
       })
       if (!ok) throw new Error((data as { error?: string })?.error ?? s.errorGeneric)
+      keepEditsForRerun(rerunId)
       setResult(data as ApiResponse)
+      await publishRecent(data as ApiResponse, rerunId)
     } catch (e) {
       // A cancel is the user's own action, not a failure: a quiet note, no red error.
       if (e instanceof DOMException && e.name === "AbortError") setCancelled(true)
@@ -635,9 +743,11 @@ export default function Page() {
   // original PDFs), never from the import file's name.
   async function handleImportFile() {
     if (!csvFile && !pastedText) return
+    const rerunId = currentRecordId
     setIsLoading(true)
     setError(null)
     setResult(null)
+    setCurrentRecordId(null)
     setDurationMs(null)
     setPeriod({ kind: "all" })
     clearView()
@@ -681,7 +791,7 @@ export default function Page() {
               accounts.flatMap((a) => a.transactions.map((tx) => ({ tx, account: a.label }))),
             )
           : undefined
-        setResult({
+        const res: ApiResponse = {
           multi: { accounts, allReconciled },
           fileName: `${accounts.length} account${accounts.length === 1 ? "" : "s"} (${sourceName})`,
           expenses,
@@ -692,7 +802,10 @@ export default function Page() {
           modelUsed: "csv-import",
           fallbackUsed: false,
           corrections: [],
-        })
+        }
+        keepEditsForRerun(rerunId)
+        setResult(res)
+        await publishRecent(res, rerunId)
       } else {
         // One account (or a file with no "Account" column) → single-statement result.
         const a = imported[0]
@@ -704,7 +817,7 @@ export default function Page() {
         // The statements it was made of (shown only when there are several, like a
         // multi-PDF upload); a single-source account just shows its rows' Source cells.
         const perFile = statementsFromSources(a.transactions)
-        setResult({
+        const res: ApiResponse = {
           data,
           reconciliation,
           perFile: perFile.length > 1 ? perFile : undefined,
@@ -722,7 +835,10 @@ export default function Page() {
           corrections: [],
           fileName: sourceName,
           expenses,
-        })
+        }
+        keepEditsForRerun(rerunId)
+        setResult(res)
+        await publishRecent(res, rerunId)
       }
     } catch (e) {
       const msg = e instanceof Error ? e.message : ""
@@ -1154,7 +1270,7 @@ export default function Page() {
           disabled={isLoading}
           count={files.length}
           onChange={(fs) => {
-            setFiles(fs)
+            setFiles(addFiles(files, fs))
             resetResult()
           }}
         />
@@ -1243,7 +1359,7 @@ export default function Page() {
               multiple
               disabled={isLoading}
               count={acc.files.length}
-              onChange={(fs) => updateAccount(acc.id, { files: fs })}
+              onChange={(fs) => updateAccount(acc.id, { files: addFiles(acc.files, fs) })}
             />
             {acc.files.length > 0 && (
               <ul className="account-files">
@@ -1416,6 +1532,11 @@ export default function Page() {
               ) : null}
             </div>
             {cancelled && <p className="cancel-note">{s.cancelledNote}</p>}
+            {/* The upload card is a saved record's working set that was edited: the next
+                Reconcile UPDATES that record (name + category edits kept), not a new one. */}
+            {currentRecordId && !result && !isLoading && currentRecordName && (
+              <p className="cancel-note">{s.recentRerunNote(currentRecordName)}</p>
+            )}
           </>
         )}
 
@@ -1513,6 +1634,101 @@ export default function Page() {
           </div>
         )}
       </section>
+
+      {/* Recent reconciliations — the last few results saved in this browser (IndexedDB).
+          Open restores the result with its category edits + verified ticks; the row whose
+          result is on screen is marked "Opened". Hidden until there is something saved. */}
+      {recent.length > 0 && (
+        <section className="recent">
+          <div className="files-head">
+            <span className="files-title">{s.recentTitle}</span>
+            <span className="recent-subtitle">{s.recentSubtitle(RECENT_LIMIT)}</span>
+          </div>
+          <table className="files-table recent-table">
+            <thead>
+              <tr>
+                <th>{s.recentColumns.name}</th>
+                <th>{s.recentColumns.saved}</th>
+                <th>{s.recentColumns.accounts}</th>
+                <th>{s.recentColumns.files}</th>
+                <th>{s.recentColumns.transactions}</th>
+                <th>{s.recentColumns.period}</th>
+                <th>{s.recentColumns.result}</th>
+                <th></th>
+                <th className="files-x"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {recent.map((rec) => {
+                const isCurrent = rec.id === currentRecordId
+                return (
+                  <tr key={rec.id} className={isCurrent ? "recent-current" : undefined}>
+                    <td className="files-name">
+                      {renamingId === rec.id ? (
+                        <input
+                          className="recent-rename"
+                          defaultValue={rec.name}
+                          autoFocus
+                          aria-label={s.recentColumns.name}
+                          onBlur={(e) => renameRecent(rec.id, e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") renameRecent(rec.id, e.currentTarget.value)
+                            else if (e.key === "Escape") setRenamingId(null)
+                          }}
+                        />
+                      ) : (
+                        <button
+                          type="button"
+                          className="recent-name"
+                          title={s.recentRename}
+                          onClick={() => setRenamingId(rec.id)}
+                        >
+                          {rec.name}
+                        </button>
+                      )}
+                    </td>
+                    <td className="files-pending">{formatSavedAt(rec.savedAt)}</td>
+                    <td className="files-pending">{rec.summary.accounts}</td>
+                    <td className="files-pending">{rec.summary.files ?? "—"}</td>
+                    <td className="files-pending">{rec.summary.transactions}</td>
+                    <td className="files-range">
+                      {rec.summary.periodStart && rec.summary.periodEnd
+                        ? `${rec.summary.periodStart} → ${rec.summary.periodEnd}`
+                        : "—"}
+                    </td>
+                    <td>
+                      <span className={`recent-verdict ${rec.summary.verdict}`}>
+                        {rec.summary.verdict === "fail" ? "✗" : "✓"} {s.recentVerdict[rec.summary.verdict]}
+                      </span>
+                    </td>
+                    <td className="files-x">
+                      <button
+                        type="button"
+                        className="link-button"
+                        disabled={isCurrent || isLoading}
+                        onClick={() => openRecent(rec)}
+                      >
+                        {isCurrent ? s.recentOpened : s.recentOpen}
+                      </button>
+                    </td>
+                    <td className="files-x">
+                      <button
+                        type="button"
+                        className="file-remove"
+                        aria-label={`${s.recentDelete}: ${rec.name}`}
+                        disabled={isLoading}
+                        onClick={() => removeRecent(rec.id)}
+                      >
+                        ✕
+                      </button>
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </section>
+      )}
 
       {error && <div className="error">{error}</div>}
 

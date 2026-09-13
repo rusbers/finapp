@@ -238,6 +238,8 @@ future mobile. The endpoint is a thin layer that just wires core logic to HTTP.
 app/
 ├── api/extract/route.ts   → POST /api/extract — thin endpoint, calls the pipeline
 ├── page.tsx               → upload page + manual verification (UI)
+├── api-types.ts           → the /api/extract response shape as the client sees it (type-only)
+├── recent-store.ts        → BROWSER: IndexedDB store of the last 5 reconciliations (result + edits + ticks)
 ├── features/page.tsx      → /features — what the app can do, for users (linked in dev view for now)
 ├── changelog/page.tsx     → /changelog — static list of notable changes (linked only in dev view)
 ├── layout.tsx             → root layout
@@ -1060,6 +1062,56 @@ pdfjs-dist`): for the target banks, reading the PDF's text positions (x/y) and
   `.subpage-back` chrome and the `.nav-link` header style in `globals.css`. **Convention: every
   new user-visible feature adds/updates an entry in `lib/features.ts` in the same commit** (the
   changelog records WHEN, the features list records WHAT).
+- **Recent reconciliations (BACKLOG 5.1, v1 — browser-local)** (`app/recent-store.ts` +
+  `app/api-types.ts`): the last **5** reconciliations are saved in the browser and reopened from
+  a **"Recent reconciliations"** card under the upload card. First slice of persistence: **no
+  accounts, no server** — later versions move the same records to a database. A record is a
+  **WORKING SET**: `RecentRecord` = the `ApiResponse` + the user's work on it (category edits
+  `catOverrides`, verified ticks `verified` as an array) + a `summary` (verdict / tx / accounts /
+  files / period — computed once by `summarize(result, files)`; the verdict reuses the page's own
+  rule incl. the crypto-spread "soft" state) + a renamable `name` (defaults to `fileName`; click
+  to edit); and `RecentInputs` = everything the upload card held (mode, primary bank + label,
+  the PDFs — or the CSV/xlsx / pasted text in import mode — the extra accounts with their PDFs,
+  the expenses.csv), files stored as `{ name, type, bytes: ArrayBuffer }` (`toStoredFile` /
+  `toFile`). **Storage is IndexedDB, NOT localStorage**: results are ~0.5 MB each for a full
+  year and the PDFs are megabytes — localStorage's ~5 MB origin quota could never hold that and a
+  `QuotaExceededError` would silently lose the save. One DB `statement-check` (`DB_VERSION` 2),
+  **two stores keyed by the same id**: `recent` (record + result + edits — what `listRecent`
+  reads with one `getAll`) and `inputs` (the bytes — read ONLY by `loadInputs` when a record is
+  opened, so listing never loads PDFs). Hand-written wrapper, no dependency; **every call is
+  fail-soft** (private mode / blocked storage → empty list, no-op saves, never a UI error).
+  **Saving** (`publishRecent` in `page.tsx`, right after each `setResult` for PDF checks AND
+  CSV/Excel re-imports; `collectInputs` reads the bytes AFTER the result, never delaying the
+  upload): a fresh result becomes a NEW record (trimmed to `RECENT_LIMIT`, oldest dropped with
+  its inputs) — **unless the upload card is a saved record's working set** (`rerunId` =
+  `currentRecordId` captured at the start of `handleCheck`/`handleImportFile`, i.e. the record
+  was opened or just saved and then edited): then the SAME record is **updated in place** —
+  result, summary, inputs and `savedAt` refreshed, **name and category edits kept** (they key on
+  normalized descriptions, still valid — `keepEditsForRerun` puts the record's SAVED edits into
+  `restoreRef` because the in-memory ones were already cleared when the inputs changed),
+  **verified ticks cleared** (row indices shift). "Clear" nulls `currentRecordId`, so the next
+  run is a new record. A note under Reconcile (`recentRerunNote`) says which record the next run
+  will update. **Opening a record** rebuilds the upload card from `loadInputs` (mode, bank via
+  `updateSettings`, labels, files as `File`s, extra accounts with fresh ids, expenses) — a record
+  saved before inputs were stored opens with an EMPTY card (the result render is gated on
+  `result.data/multi/consolidated`, not on attached files) — then restores the result with its
+  edits/ticks through **`restoreRef`**: the two existing `[result]` effects clear `verified` /
+  `catOverrides` on every new result, so each consumes its half of the ref instead when set.
+  **The PDF pickers APPEND** (`addFiles`: dedupe on name+size; ✕ removes) instead of replacing
+  the list — so one more statement can be added to a reopened record (and picked from several
+  folders); the single-file pickers (CSV import, expenses) still replace. **Autosave**: an effect
+  on `[currentRecordId, result, catOverrides, verified]` debounces 400 ms and `updateRecent`s the
+  current record — a no-op while `currentRecordId` is null OR **`result` is null** (editing the
+  working set resets the result, which clears the in-memory edits; without the guard an empty
+  save would erase the record's edits before the re-run could carry them forward). **Race
+  guard**: `currentRecordId` is nulled SYNCHRONOUSLY at the start of `handleCheck` /
+  `handleImportFile` / `clearAll`, so the wipe a new result triggers never lands on the previous
+  record. Removing the current record keeps the result on screen, it just stops autosaving.
+  Views (Financial period, filters/sort, check-mode toggle) are NOT saved. The response
+  interfaces moved from `page.tsx` to `app/api-types.ts` (pure move) so the store can type what
+  it saves without importing a page file. No migration layer: bump `DB_VERSION` when the shape
+  changes (a stale record can simply be removed from the card). Inspect in DevTools →
+  Application → IndexedDB → `statement-check` → `recent` / `inputs`.
 
 ### Known testing notes
 

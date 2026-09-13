@@ -46,6 +46,12 @@ view for now, to go public later).
   bank CSV may merge multiple accounts (e.g. current + savings) into one file —
   compare against the correct series, not the merged total.
 - **Money in integer cents**, reconciliation tolerance ±2 cents (see `CLAUDE.md`).
+- **Recent reconciliations live in the browser** (`app/recent-store.ts`, IndexedDB —
+  DevTools → Application → IndexedDB → `statement-check`: store `recent` holds the
+  record + result + edits, store `inputs` the PDF bytes it was made from). Nothing in
+  the core or the pipeline knows about them; the harness is unaffected. Bump
+  `DB_VERSION` in `app/recent-store.ts` when the stored shape changes; there is no
+  migration layer in v1 — a stale record is simply "Remove"d from the card.
 
 ---
 

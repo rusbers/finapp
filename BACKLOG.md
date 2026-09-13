@@ -185,6 +185,88 @@ These are the features generic tools don't have — real competitive edge.
 
 ---
 
+## PHASE 5 — Proposed (review of 2026-09-13, not scheduled)
+
+Improvement ideas recorded after the Features/Changelog pages shipped. **Nothing here
+is being built** — ordered by the value they would bring to the first real user (the
+founder's own firm). 5.1 is the recommended next architectural layer; the rest are
+independent of each other.
+
+### 5.1 — Persistence: save results (clients → accounts → statements)
+
+- **Type:** Architecture · **Effort:** L · **Value:** ★★★
+- **The biggest gap.** Every result lives only in the browser tab: close it and the
+  reconciliation, the ticked rows and the edited categories are gone. The whole
+  "reconcile → download → edit in Excel → re-import" loop exists mostly BECAUSE
+  nothing is saved.
+- The layer CLAUDE.md already names: database + auth (Supabase), with a **client →
+  account → statement** model. Unlocks: a client list; chaining a new month onto an
+  account's already-saved statements; category edits remembered PER CLIENT ("Tesco →
+  Groceries" taught once, not every session); an audit history; later, the API.
+- **Build as a thin first slice:** save/load one result, nothing else. It is the
+  biggest step so far, so keep it supervisable.
+- Changes the product from a converter into a workspace; most later items hang off it.
+- **✅ v1 built (2026-09-13): browser-local, last 5, no accounts.** The last 5
+  reconciliations — result, category edits + verified ticks (autosaved), AND the input
+  statements / bank / labels / expenses file — are kept in the browser's IndexedDB and
+  reopened from a "Recent reconciliations" card (`app/recent-store.ts`); an opened record
+  can have statements added or removed and be reconciled again, updating in place. Per
+  browser, per device. **Remaining scope:** database + auth, the client → account →
+  statement model, chaining onto saved statements, per-client category memory, history.
+  The v1 record shape (`RecentRecord`) is the natural row to migrate.
+
+### 5.2 — Automatic bank detection
+
+- **Type:** UI flow + Completeness · **Effort:** S · **Value:** ★★★
+- The bank dropdown is a manual step that fails silently: pick the wrong bank and the
+  result is 0 transactions or an unnecessary AI fallback.
+- Each PDF carries an unmistakable fingerprint on page 1 (IBAN prefix, "permanent
+  tsb", the Revolut header, "Bank of Ireland"). A cheap text-layer sniff → auto-select
+  the parser; the dropdown becomes an override.
+- Small effort, removes a whole class of user error, and is the precondition for the
+  templates system described in CLAUDE.md.
+
+### 5.3 — Reconciliation-failure UX: source page inline + fix-and-recheck
+
+- **Type:** UI flow · **Effort:** M · **Value:** ★★★
+- On a ✗ the app shows WHERE the break is, but the next step is still "open the PDF,
+  find the page, compare by eye".
+- (a) Render the source page INLINE next to the highlighted row (pdfjs can rasterise a
+  page client-side; the Source column already knows the page).
+- (b) On the AI path, let the user correct the one wrong amount inline and watch the
+  verdict flip — this is BACKLOG 2.2, which should move up in priority.
+
+### 5.4 — Clear error messages for non-technical colleagues
+
+- **Type:** UI flow · **Effort:** S · **Value:** ★★
+- Once someone other than the founder uses it, each edge case must explain itself: a
+  PDF with a REAL password, an image-only scan, a file over 15 MB, a Revolut
+  CSV-as-PDF. Today these end in a generic message or a silent 0-tx.
+- One short "what went wrong and what to do" per case, in `lib/strings.ts`. Cheap;
+  saves support time.
+
+### 5.5 — Tests for the route layer + split `app/page.tsx`
+
+- **Type:** Robustness · **Effort:** M · **Value:** ★★
+- The core is well tested (harness, perf, unit tests), but `app/api/extract/route.ts`
+  (multi-account dispatch, expense-matching order, PTSB description layer, cancel) and
+  `app/page.tsx` have none.
+- `page.tsx` is ~2,400 lines and growing — the file most at risk of becoming
+  unsupervisable. Split into `upload-card`, `result-view`, `transaction-table`
+  components BEFORE adding persistence (5.1) to it; this helps both readability and
+  testability.
+
+### 5.6 — Small wins
+
+- **Type:** Nice-to-have · **Effort:** S each · **Value:** ★
+- Print stylesheet for the result (accountants print).
+- Keyboard shortcuts in Check mode (space = tick, ↓ = next row).
+- Per-request AI cost in developer view (durations per model are already logged;
+  cents per statement would inform pricing).
+- Size of the "Other" category bucket as a signal for which keyword rules to add next.
+
+---
+
 ## Key decisions (recorded)
 
 - **Category vs subcategory → ONE `category` column.** Reasons: more reliable for

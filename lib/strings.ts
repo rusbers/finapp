@@ -79,6 +79,12 @@ export const strings = {
   recentVerdict: { pass: "Reconciled", soft: "Explained", fail: "Out of balance" },
   // Shown under Reconcile once an opened record's statements were changed.
   recentRerunNote: (name: string) => `Reconcile again to update “${name}” in Recent.`,
+  // Saving failed (storage blocked / full / unreadable file). NOT an error: the result on
+  // screen is complete and correct; only the browser-side copy is missing.
+  recentSaveFailed:
+    "This reconciliation could not be saved to Recent (the browser's storage refused it). The result above is complete — export it to keep it.",
+  recentAutosaveFailed:
+    "Your latest edits could not be saved to Recent (the browser's storage refused them). The result above is unaffected — export it to keep your changes.",
 
   // Categorization toggle (uses AI for descriptions the rules don't catch)
   categorizeLabel: "Categorize transactions",

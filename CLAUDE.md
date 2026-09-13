@@ -1079,7 +1079,12 @@ pdfjs-dist`): for the target banks, reading the PDF's text positions (x/y) and
   **two stores keyed by the same id**: `recent` (record + result + edits — what `listRecent`
   reads with one `getAll`) and `inputs` (the bytes — read ONLY by `loadInputs` when a record is
   opened, so listing never loads PDFs). Hand-written wrapper, no dependency; **every call is
-  fail-soft** (private mode / blocked storage → empty list, no-op saves, never a UI error).
+  fail-soft and never throws** — `saveRecent` returns null and `updateRecent` false when
+  storage refuses (private mode, blocked storage, quota). **Saving must never interrupt the
+  reconciliation or make it look failed**: `publishRecent` runs AFTER `setResult`, catches
+  everything (incl. reading the file bytes) and on failure only sets `saveWarning` — an amber
+  `.save-warning` note above the result (`recentSaveFailed` / `recentAutosaveFailed` for the
+  debounced edits), never the red `.error`; cleared by `resetResult` and on the next save.
   **Saving** (`publishRecent` in `page.tsx`, right after each `setResult` for PDF checks AND
   CSV/Excel re-imports; `collectInputs` reads the bytes AFTER the result, never delaying the
   upload): a fresh result becomes a NEW record (trimmed to `RECENT_LIMIT`, oldest dropped with

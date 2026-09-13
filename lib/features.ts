@@ -193,7 +193,7 @@ export const FEATURE_GROUPS: FeatureGroup[] = [
       {
         name: "Saved automatically",
         description:
-          "Every reconciliation (PDF or re-imported file) is saved on this device — the statements themselves, the result, your category edits and your verified ticks, which keep saving as you work.",
+          "Every reconciliation (PDF or re-imported file) is saved on this device — the statements themselves, the result, your category edits and your verified ticks, which keep saving as you work. If the browser cannot store it, the reconciliation still completes and a note tells you it was not saved.",
       },
       {
         name: "Reopen, rename, remove",

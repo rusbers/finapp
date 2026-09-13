@@ -20,7 +20,7 @@ export const CHANGELOG: ChangelogEntry[] = [
     date: "2026-09-13",
     title: "Recent reconciliations, paste from Excel, Features and Changelog pages",
     items: [
-      "Recent reconciliations: the last 5 are saved in the browser — statements, result, category edits and verified ticks — and can be reopened, renamed, extended with more statements (or trimmed) and reconciled again from a card under the upload card.",
+      "Recent reconciliations: the last 5 are saved in the browser — statements, result, category edits and verified ticks — and can be reopened, renamed, extended with more statements (or trimmed) and reconciled again from a card under the upload card. If the browser refuses to store one, the reconciliation still completes and a note says it was not saved.",
       "Re-import: select the rows in Excel, copy, and press Ctrl+V anywhere on the page — no file needed.",
       "Features page (header link) listing what the app can do, grouped by task; and this Changelog page, linked in Developer view.",
     ],

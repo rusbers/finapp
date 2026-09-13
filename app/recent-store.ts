@@ -17,8 +17,11 @@
  * list reads with one getAll) and `inputs` (the file bytes — read only when a record is
  * opened, so listing never loads megabytes of PDFs).
  *
- * Every call is best-effort: when IndexedDB is unavailable (private mode, storage
- * blocked) the list is empty and saves are no-ops — never an error in the UI.
+ * Every call is best-effort and NEVER throws: when IndexedDB is unavailable (private
+ * mode, storage blocked, quota exceeded) the list is empty and a save reports failure
+ * (null / false) so the page can show a quiet "could not be saved" note — saving is a
+ * convenience layered on top of the reconciliation, which must never be interrupted
+ * or made to look failed by it.
  * Browser-only (uses `indexedDB`, `File`), so it lives in `app/`, not `lib/core/`.
  */
 
@@ -240,13 +243,14 @@ export async function saveRecent(
 }
 
 /** Merge a patch into a saved record (name, edits, ticks — or, on a re-run, the new
- * result/summary/savedAt) and, when given, replace its inputs. No-op if the record is
- * missing. */
+ * result/summary/savedAt) and, when given, replace its inputs. Resolves true when the
+ * write went through (a missing record is a no-op, still true), false when storage
+ * failed — the caller decides whether to tell the user. */
 export async function updateRecent(
   id: string,
   patch: Partial<Omit<RecentRecord, "id">>,
   inputs?: RecentInputs | null,
-): Promise<void> {
+): Promise<boolean> {
   try {
     const db = await openDb()
     const tx = db.transaction([STORE, INPUTS], "readwrite")
@@ -261,8 +265,9 @@ export async function updateRecent(
       tx.onerror = () => reject(tx.error)
       tx.onabort = () => reject(tx.error)
     })
+    return true
   } catch {
-    // best-effort
+    return false
   }
 }
 

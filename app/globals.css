@@ -1494,6 +1494,17 @@ td.source {
   font-size: 13px;
   color: var(--ink-soft);
 }
+/* Saving to Recent failed — a quiet amber note above the result, never a red error:
+   the reconciliation is complete; only the browser-side copy is missing. */
+.save-warning {
+  margin: 16px 0 0;
+  padding: 10px 14px;
+  border: 1px solid var(--soft);
+  border-radius: 10px;
+  background: var(--soft-bg);
+  color: var(--soft);
+  font-size: 13px;
+}
 @media (prefers-reduced-motion: reduce) {
   .progress-indet {
     left: 0;

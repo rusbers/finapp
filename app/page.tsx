@@ -306,6 +306,9 @@ export default function Page() {
   const [recent, setRecent] = useState<RecentRecord[]>([])
   const [currentRecordId, setCurrentRecordId] = useState<string | null>(null)
   const [renamingId, setRenamingId] = useState<string | null>(null)
+  // A quiet note when the record could not be saved / autosaved (storage blocked, quota,
+  // unreadable file) — the reconciliation itself is unaffected and stays on screen.
+  const [saveWarning, setSaveWarning] = useState<string | null>(null)
   // Edits/ticks to re-apply when a saved record is opened: the two `[result]` effects below
   // clear both on every new result, so they consume this ref instead when it is set.
   const restoreRef = useRef<{ catOverrides?: Record<string, string>; verified?: Set<number> } | null>(null)
@@ -386,7 +389,9 @@ export default function Page() {
     if (!currentRecordId || !result) return
     const id = currentRecordId
     const timer = setTimeout(() => {
-      updateRecent(id, { catOverrides, verified: [...verified] })
+      updateRecent(id, { catOverrides, verified: [...verified] }).then((ok) => {
+        if (!ok) setSaveWarning(s.recentAutosaveFailed)
+      })
     }, 400)
     return () => clearTimeout(timer)
   }, [currentRecordId, result, catOverrides, verified])
@@ -427,6 +432,7 @@ export default function Page() {
     setError(null)
     setCancelled(false)
     setDurationMs(null)
+    setSaveWarning(null)
   }
   // Cancel the in-flight reconciliation (no-op when idle).
   const cancelCheck = () => abortRef.current?.abort()
@@ -470,7 +476,10 @@ export default function Page() {
   // Save a fresh result: as a NEW record — or, when the upload card is a record's working
   // set (`rerunId`: it was opened / just saved, then edited), as an UPDATE of that record:
   // same name, category edits kept (they key on descriptions, still valid), ticks cleared
-  // (row indices shift). Storage is best-effort: a null save just means "not saved".
+  // (row indices shift). Saving is a convenience on top of the reconciliation and MUST
+  // NEVER interrupt it or make it look failed: this function never throws — any failure
+  // (reading the bytes, storage blocked, quota exceeded) just sets `saveWarning`, a quiet
+  // note under the result; the result itself is already on screen and stays.
   // Before a re-run result lands: carry the record's SAVED category edits across it (the
   // in-memory ones were already cleared when the inputs changed and the result reset).
   function keepEditsForRerun(rerunId: string | null) {
@@ -478,20 +487,27 @@ export default function Page() {
     if (saved) restoreRef.current = { catOverrides: saved.catOverrides }
   }
   async function publishRecent(res: ApiResponse, rerunId: string | null) {
-    const inputs = await collectInputs()
-    const summary = summarize(res, statementFileCount())
-    if (rerunId && recent.some((r) => r.id === rerunId)) {
-      await updateRecent(rerunId, { result: res, summary, savedAt: Date.now(), verified: [] }, inputs)
-      setCurrentRecordId(rerunId)
-    } else {
-      const rec = await saveRecent(
-        { name: res.fileName, summary, result: res, catOverrides: {}, verified: [] },
-        inputs,
-      )
-      if (!rec) return
-      setCurrentRecordId(rec.id)
+    setSaveWarning(null)
+    try {
+      const inputs = await collectInputs()
+      const summary = summarize(res, statementFileCount())
+      let ok: boolean
+      if (rerunId && recent.some((r) => r.id === rerunId)) {
+        ok = await updateRecent(rerunId, { result: res, summary, savedAt: Date.now(), verified: [] }, inputs)
+        if (ok) setCurrentRecordId(rerunId)
+      } else {
+        const rec = await saveRecent(
+          { name: res.fileName, summary, result: res, catOverrides: {}, verified: [] },
+          inputs,
+        )
+        ok = !!rec
+        if (rec) setCurrentRecordId(rec.id)
+      }
+      if (!ok) setSaveWarning(s.recentSaveFailed)
+      setRecent(await listRecent())
+    } catch {
+      setSaveWarning(s.recentSaveFailed)
     }
-    setRecent(await listRecent())
   }
   // Open a saved record: rebuild the upload card from its stored inputs (a record saved
   // before inputs were stored opens with an empty card — the result render doesn't depend
@@ -1731,6 +1747,8 @@ export default function Page() {
       )}
 
       {error && <div className="error">{error}</div>}
+      {/* Saving to Recent failed — a note, never an error: the result below is complete. */}
+      {saveWarning && result && <div className="save-warning">{saveWarning}</div>}
 
       {/* Expense reconciliation — the uploaded expenses.csv matched against the
           statement debits (found / not found per expense). Shown in addition to the

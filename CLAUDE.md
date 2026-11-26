@@ -757,7 +757,12 @@ pdfjs-dist`): for the target banks, reading the PDF's text positions (x/y) and
   parent's state (the browser's own text can't be changed and goes stale when a file is
   ✕-removed from the list), so Clear/removal keep the text in sync with no DOM reset;
   the hidden input's value is cleared after each pick so the same file can be re-picked
-  after a removal. **Cancel** aborts the
+  after a removal. **Drag and drop**: the same box is a drop zone — a drop behaves exactly
+  like a pick (REPLACES the selection, filtered by `accept` since a drop bypasses the
+  dialog's filter; first file only when not `multiple`; nothing usable → selection kept),
+  with a dashed outline while files hover. A file dropped OUTSIDE every box is swallowed
+  page-wide (window `dragover`/`drop` preventDefault), otherwise the browser would open the
+  PDF and the user would lose the page state. **Cancel** aborts the
   in-flight reconciliation: an `AbortController` per run → `xhr.abort()`; the catch
   branch turns the `AbortError` into a muted "Reconciliation cancelled." note (no red
   error), the files stay attached, Reconcile is re-enabled. **The cancel reaches the

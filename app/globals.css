@@ -297,6 +297,22 @@ body {
 .file-picker-status.has-files {
   color: var(--ink);
 }
+/* Drag and drop: a quiet hint at the right; while files hover the box, a dashed
+   action-coloured outline (no layout change — the border keeps its width). */
+.file-picker-drop-hint {
+  margin-left: auto;
+  font-size: 13px;
+  color: var(--ink-soft);
+}
+.file-picker.dragging {
+  border-style: dashed;
+  border-color: var(--action);
+  background: #eef3f9;
+}
+.file-picker.dragging .file-picker-status {
+  color: var(--action);
+  font-weight: 500;
+}
 /* Import mode: the "…or paste from Excel" line under the picker — a quiet hint, not a
    control (the paste itself is a document-level Ctrl+V; nothing to click). */
 .paste-hint {

@@ -29,7 +29,7 @@ export const FEATURE_GROUPS: FeatureGroup[] = [
     features: [
       {
         name: "PDF upload",
-        description: "One or many statements at once, up to 15 MB each.",
+        description: "One or many statements at once, up to 15 MB each — pick them or drag them onto the upload box.",
       },
       {
         name: "Automatic reconciliation",

@@ -17,6 +17,13 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    date: "2026-11-26",
+    title: "Drag and drop",
+    items: [
+      "Drag bank statements (and CSV / Excel / expenses files) straight onto an upload box instead of using the file dialog.",
+    ],
+  },
+  {
     date: "2026-09-13",
     title: "Paste from Excel, Features and Changelog pages",
     items: [

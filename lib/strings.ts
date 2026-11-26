@@ -24,6 +24,8 @@ export const strings = {
   chooseFile: "Choose file",
   filesUploaded: (n: number) => `Uploaded ${n} file${n === 1 ? "" : "s"}`,
   noFileSelected: "No file selected",
+  orDragHere: "or drag files here", // drop-zone hint at the right of the picker
+  dropFilesHere: (multiple: boolean) => `Drop ${multiple ? "files" : "the file"} to attach`,
   removeFile: "Remove",
 
   // Input source: extract from PDFs, or re-import a previously-exported transactions

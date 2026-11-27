@@ -23,6 +23,7 @@ export const CHANGELOG: ChangelogEntry[] = [
       "Dark theme: the app follows the device's light / dark setting, and a switch in the header (Match device / Light / Dark) overrides it — remembered in the browser.",
       "The expenses file can now be an Excel workbook (.xlsx) as well as a CSV.",
       "Re-import: expense rows can be pasted from Excel too (Ctrl+V) — a paste with an expenses header goes to the expenses, not the transactions.",
+      "Re-import: the expenses box appears once the transactions are in (transactions first), and a second Ctrl+V briefly notes that it replaced the previous transactions or expenses.",
       "Expense matching accepts a bank posting up to 7 days from the receipt date (was 5).",
       "Supplier names written with different spacing now match — \"B&Q Ireland\" ↔ \"B & Q\", \"PTRS Limited\" ↔ \"P T R S\".",
       "Built-in supplier aliases link suppliers the bank shows under another name (e.g. CSS LTD ↔ CITYSAWSERVICE, Applus ↔ NCTS).",

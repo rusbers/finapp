@@ -632,8 +632,9 @@ of `toCsv` / `transactionSheet`; the rebuilt accounts feed the same client-safe
   file whose amounts no longer match the balances FAILS, and the existing `findBalanceBreaks`
   pinpoints the offending row.
 - **UI**: the input-source segmented toggle — "PDF statements" (default) vs "Reconciled CSV /
-  Excel". Import mode = one file input (`IMPORT_ACCEPT`: `.csv,.xlsx`) + the same "+ Add expenses"
-  uploader + a "Reconcile file" button (`handleImportFile` in `app/page.tsx` →
+  Excel". Import mode = one file input (`IMPORT_ACCEPT`: `.csv,.xlsx`) + the expenses
+  uploader (shown on its own once the transactions are in, no "+ Add expenses" button here; an
+  expenses paste before the transactions is refused) + a "Reconcile file" button (`handleImportFile` in `app/page.tsx` →
   `readTransactionsFile` → an `ApiResponse`-shaped object → `setResult`). NO changes to the API
   route or the core pipeline — the whole feature is client-side + one pure module.
 - **Test**: `npm run test:csv-import` — CSV round-trip fidelity (quoted Source, sporadic balances,

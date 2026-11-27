@@ -934,8 +934,11 @@ pdfjs-dist`): for the target banks, reading the PDF's text positions (x/y) and
   with `PASTED_FILE_NAME` ("pasted-transactions.csv") as the export-name stand-in. **Expenses can be
   pasted the same way**: the listener first tries `pastedExpensesToCsv(text)` (csv-import.ts) — an
   EXPENSES header (Amount + Supplier/Description, not Date/Debit/Credit) → CSV text stored as
-  `expensesPasted`, the expenses block opens with its own chip; anything else goes to `pastedText` as
-  before, so pasting expenses never replaces the transactions. Both run paths read the expenses via
+  `expensesPasted`, shown as its own chip in the expenses block; anything else goes to `pastedText` as
+  before, so pasting expenses never replaces the transactions. Transactions come FIRST: an expenses
+  paste with no transactions source yet is refused (`expensesPasteNeedsTransactions` error). A paste
+  that replaces an earlier source in its slot (pasted rows or a picked file) shows a "Previous
+  transactions/expenses replaced" pill on the new chip for ~3s (`pasteReplaced`). Both run paths read the expenses via
   `readExpensesSource()` (file → `readExpensesText`, else the paste). `parseTransactionsWorkbook
   (sheets)` takes every sheet as TYPED rows (Date objects → ISO — UTC parts when the reader gave UTC
   midnight; numbers → `#` / money; an Excel serial in the Date column → ISO) and picks the sheet:
@@ -961,8 +964,10 @@ pdfjs-dist`): for the target banks, reading the PDF's text positions (x/y) and
   `sourceFallback` `undefined` — an imported row without a Source has none, never the CSV/xlsx name.
   Export names strip `.pdf|.csv|.xlsx` (`exportBase`), so a re-export of `x.xlsx` isn't
   `x.xlsx-2025.csv`. UI (`app/page.tsx`): the input-source toggle reads **"PDF statements"** vs
-  **"Reconciled CSV / Excel"**; the picker accepts `.csv,.xlsx` (`IMPORT_ACCEPT`), the same
-  **"+ Add expenses"** uploader applies, and **"Reconcile file"** → `handleImportFile` builds an
+  **"Reconciled CSV / Excel"**; the picker accepts `.csv,.xlsx` (`IMPORT_ACCEPT`), the expenses
+  uploader applies but with NO "+ Add expenses" button: the block (picker + paste hint) shows on its
+  own once a transactions source is in (`hasImportSource`) and, once expenses are added, stays even if
+  the transactions are removed; PDF mode keeps the button, and **"Reconcile file"** → `handleImportFile` builds an
   `ApiResponse`-shaped object and `setResult`s it, so the verdict, period bar, combined table,
   filter/sort, per-account & combined CSV/Excel re-export and the expenses report all work
   unchanged. Reconciliation stays a REAL check — a clean export passes, a hand-EDITED file whose

@@ -884,6 +884,26 @@ body {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* "Previous … replaced" — shown for ~3s on a chip after a paste replaced the earlier rows. */
+.paste-replaced {
+  flex-shrink: 0;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--soft-bg);
+  color: var(--soft);
+  font-size: 12px;
+  animation: paste-replaced-in 0.2s ease-out;
+}
+@keyframes paste-replaced-in {
+  from {
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .paste-replaced {
+    animation: none;
+  }
+}
 .account-file-size {
   flex-shrink: 0;
   color: var(--ink-soft);

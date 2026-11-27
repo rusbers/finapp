@@ -321,6 +321,10 @@ export default function Page() {
   const [importMode, setImportMode] = useState<"pdf" | "csv">("pdf")
   const [csvFile, setCsvFile] = useState<File | null>(null)
   const [pastedText, setPastedText] = useState<string | null>(null)
+  // Which slot the last paste replaced an earlier source in — a short note on its chip
+  // for ~3s (see the paste effect); null otherwise.
+  const [pasteReplaced, setPasteReplaced] = useState<"transactions" | "expenses" | null>(null)
+  const replacedTimer = useRef<number | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   // The in-flight reconciliation, so Cancel can abort it; null when idle. `cancelled`
   // shows a short note after a cancel (cleared by the next action, like an error).
@@ -469,8 +473,23 @@ export default function Page() {
       if (!tabular) return
       e.preventDefault()
       // An expenses header (Amount + Supplier/Description, no Debit/Credit) goes to the
-      // expenses slot — opening it — so pasting expenses never replaces the transactions.
+      // expenses slot, so pasting expenses never replaces the transactions. Transactions
+      // come first: expenses pasted before them are refused with a note.
       const expensesCsv = pastedExpensesToCsv(text)
+      if (expensesCsv != null && !csvFile && !pastedText) {
+        setError(s.expensesPasteNeedsTransactions)
+        return
+      }
+      // A paste over an earlier source (pasted rows or a picked file) replaces it; say so
+      // briefly on the new chip, so a second Ctrl+V isn't mistaken for an append.
+      const replaced =
+        expensesCsv != null
+          ? expensesPasted != null || expensesFile != null
+            ? "expenses"
+            : null
+          : pastedText != null || csvFile != null
+            ? "transactions"
+            : null
       if (expensesCsv != null) {
         setExpensesPasted(expensesCsv)
         setExpensesFile(null)
@@ -479,6 +498,9 @@ export default function Page() {
         setPastedText(text)
         setCsvFile(null)
       }
+      if (replacedTimer.current != null) window.clearTimeout(replacedTimer.current)
+      setPasteReplaced(replaced)
+      if (replaced) replacedTimer.current = window.setTimeout(() => setPasteReplaced(null), 3000)
       setResult(null)
       setError(null)
       setCancelled(false)
@@ -486,7 +508,7 @@ export default function Page() {
     }
     document.addEventListener("paste", onPaste)
     return () => document.removeEventListener("paste", onPaste)
-  }, [importMode, isLoading])
+  }, [importMode, isLoading, csvFile, pastedText, expensesFile, expensesPasted])
   // Rows in the pasted text, for the status chip only (a cell holding its own newline
   // counts extra — the parser, not this figure, decides what a row is).
   const pastedRows = pastedText ? pastedRowCount(pastedText) : 0
@@ -1370,6 +1392,11 @@ export default function Page() {
                 <ul className="account-files">
                   <li>
                     <span className="account-file-name">{s.pastedStatus(pastedRows)}</span>
+                    {pasteReplaced === "transactions" && (
+                      <span className="paste-replaced" role="status">
+                        {s.pasteReplacedTransactions}
+                      </span>
+                    )}
                     <span className="account-file-size">{formatSize(pastedText.length)}</span>
                     <button
                       type="button"
@@ -1390,9 +1417,10 @@ export default function Page() {
           </>
         )}
 
-        {/* Add expenses — reveals the expenses.csv uploader (matched against the debits).
-            Shown in BOTH modes: alongside PDFs, or the reconciled-CSV import. */}
-        {(importMode === "pdf" ? files.length > 0 : hasImportSource) && !expensesOpen && (
+        {/* Expenses (matched against the debits). PDF mode: an "Add expenses" button
+            reveals the uploader once there are statements. Import mode: the uploader (with
+            its paste hint) shows on its own once the transactions are in — they come first. */}
+        {importMode === "pdf" && files.length > 0 && !expensesOpen && (
           <button
             type="button"
             className="link-button add-account"
@@ -1402,24 +1430,30 @@ export default function Page() {
             {s.addExpensesButton}
           </button>
         )}
-        {expensesOpen && (
+        {/* Import mode: once expenses are in, the block stays even if the transactions
+            are removed, so the expenses are never hidden. */}
+        {(importMode === "pdf" ? expensesOpen : hasImportSource || !!expensesFile || !!expensesPasted) && (
           <div className="expenses-input">
             <div className="account-block-head">
               <label className="control-label">{s.expensesLabel}</label>
-              <button
-                type="button"
-                className="file-remove"
-                aria-label={s.removeExpenses}
-                disabled={isLoading}
-                onClick={() => {
-                  setExpensesOpen(false)
-                  setExpensesFile(null)
-                  setExpensesPasted(null)
-                  resetResult()
-                }}
-              >
-                ✕
-              </button>
+              {/* Import mode: the block stays while there are transactions, so ✕ only
+                  shows to drop a picked expenses file (a paste has its own chip ✕). */}
+              {(importMode === "pdf" || expensesFile) && (
+                <button
+                  type="button"
+                  className="file-remove"
+                  aria-label={s.removeExpenses}
+                  disabled={isLoading}
+                  onClick={() => {
+                    setExpensesOpen(false)
+                    setExpensesFile(null)
+                    setExpensesPasted(null)
+                    resetResult()
+                  }}
+                >
+                  ✕
+                </button>
+              )}
             </div>
             <FilePicker
               accept={IMPORT_ACCEPT}
@@ -1438,6 +1472,11 @@ export default function Page() {
                 <ul className="account-files">
                   <li>
                     <span className="account-file-name">{s.pastedStatus(pastedRowCount(expensesPasted))}</span>
+                    {pasteReplaced === "expenses" && (
+                      <span className="paste-replaced" role="status">
+                        {s.pasteReplacedExpenses}
+                      </span>
+                    )}
                     <span className="account-file-size">{formatSize(expensesPasted.length)}</span>
                     <button
                       type="button"

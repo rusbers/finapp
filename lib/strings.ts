@@ -103,6 +103,10 @@ export const strings = {
   removeExpenses: "Remove expenses",
   expensesPasteHint: "…or select the expense rows in Excel (header row included), copy, and press Ctrl+V anywhere on this page.",
   removePastedExpenses: "Remove pasted expenses",
+  pasteReplacedTransactions: "Previous transactions replaced",
+  pasteReplacedExpenses: "Previous expenses replaced",
+  expensesPasteNeedsTransactions:
+    "Those look like expenses — add the transactions first (file or paste), then paste the expenses.",
   expensesHeading: "Expense reconciliation",
   expensesSummary: (found: number, total: number, tbc: number) =>
     `${found} of ${total} expenses found in the statement${tbc > 0 ? ` · ${tbc} to confirm` : ""}`,

@@ -809,8 +809,8 @@ pdfjs-dist`): for the target banks, reading the PDF's text positions (x/y) and
   found. **`parseExpensesCsv`** is a small quoted-field CSV reader (the codebase had no CSV
   *reader*, only `toCsv`); **`matchExpenses`** pools every account's transactions and matches on a
   **single strict rule, one-to-one**: for each expense with `amount > 0`, an unused debit whose amount
-  matches **to the cent** AND whose description **contains the supplier name** (fuzzy `nameMatches`)
-  AND whose date is **within ±5 days** (`DEFAULT_WINDOW_DAYS`); `pickBest` breaks ties by closest date.
+  matches **to the cent** AND whose description **contains the supplier name** (fuzzy `nameMatches`, or a **developer-maintained alias** from `lib/core/supplier-aliases.ts` — e.g. "CSS LTD" ↔ "CITYSAWSERVICE"; the alias bank name must appear as whole adjacent words; add pairs only when confirmed on real data, how-to in the file header)
+  AND whose date is **within ±7 days** (`DEFAULT_WINDOW_DAYS`); `pickBest` breaks ties by closest date.
   **The supplier name is REQUIRED** — this is deliberate: an exact-amount debit alone produces
   coincidental false matches (a €X expense hitting an unrelated €X transfer / ATM withdrawal / a
   different merchant with the same amount). Requiring the name removes those (measured on real data:
@@ -881,7 +881,7 @@ pdfjs-dist`): for the target banks, reading the PDF's text positions (x/y) and
   uploaded; it never affects reconciliation, parsers, or the regression fingerprint. Test: `npm
   run test:expenses` (synthetic parse/match/source asserts + fuzzy `nameMatches` + name-tier asserts,
   and a real case `statements/expenses-reconciliation/2/` = BOI×3 + Revolut, **70/109 found** (exact
-  amount + name + ≤5 days; manually reviewed — 69 correct, 1 location-word collision, and it recovered
+  amount + name + ≤7 days; manually reviewed — 69 correct, 1 location-word collision, and it recovered
   real matches the old exact-only rule got wrong, e.g. Toolfix). **Each numbered folder under
   `statements/expenses-reconciliation/` is one client** (statements + one `expenses.csv`).
 - **Reconciled CSV / Excel re-import** (`csv-import.ts` + `app/import-file.ts`): the user can

@@ -15,9 +15,10 @@
 import type { Transaction } from "./types"
 import { toCents } from "./reconciliation"
 import { csvCell } from "./verification"
+import { SUPPLIER_ALIASES, type SupplierAlias } from "./supplier-aliases"
 
 /** A day window (either side) within which a debit may match an expense's date. */
-export const DEFAULT_WINDOW_DAYS = 5
+export const DEFAULT_WINDOW_DAYS = 7
 
 /** Marker category stamped on a debit matched to an expense. Deliberately NOT a member of
  * `CATEGORIES` (categorization.ts) — it marks provenance, not a kind of spending. Exported
@@ -246,7 +247,7 @@ function wordsOf(text: string): string[] {
  *   1. Token prefix (min 4 chars, either direction) — truncation/normal brands
  *      (screwfix↔screw, "Screwfix Blanchardstown"↔screwfix, tesco↔"tesco express").
  *   2. Short-brand word-boundary n-gram — the collapsed supplier (≥2 chars) equals the
- *      collapsed join of 1–3 ADJACENT description words (B&Q "bq" == "b"+"q"). Using a
+ *      collapsed join of 1–4 ADJACENT description words (B&Q "bq" == "b"+"q"; also with generic words dropped, "PTRS Limited" == "P T R S"). Using a
  *      word boundary (not a raw substring) avoids "EE" matching inside "coffee".
  * A supplier with no signal (no strong token AND collapsed < 2) never matches.
  */
@@ -266,19 +267,57 @@ export function nameMatches(supplier: string, description: string): boolean {
     }
   }
 
-  // Rule 2 — short brand: collapsed supplier equals a 1–3 adjacent-word join.
-  if (supCollapsed.length >= 2) {
+  // Rule 2 — short brand: collapsed supplier equals a 1–4 adjacent-word join. Tried both
+  // with and without generic words, so "B&Q Ireland" ↔ "B & Q" and "PTRS Limited" ↔
+  // "P T R S" match just like a bare "B&Q" ↔ "B & Q".
+  const supCore = supWords.filter((w) => !NAME_STOPWORDS.has(w)).join("")
+  for (const target of new Set([supCollapsed, supCore])) {
+    if (target.length < 2) continue
     for (let i = 0; i < descWords.length; i++) {
       let gram = ""
-      for (let n = 0; n < 3 && i + n < descWords.length; n++) {
+      for (let n = 0; n < 4 && i + n < descWords.length; n++) {
         gram += descWords[i + n]
-        if (gram === supCollapsed) return true
-        if (gram.length > supCollapsed.length) break
+        if (gram === target) return true
+        if (gram.length > target.length) break
       }
     }
   }
 
   return false
+}
+
+// --- Supplier aliases (Tier 3) --------------------------------------------
+// A supplier the bank shows under a different name entirely ("CSS LTD" ↔ "CITYSAWSERVICE")
+// is linked by the developer-maintained list in `supplier-aliases.ts`.
+
+/** Does `phrase` appear in `description` as whole ADJACENT words (spacing/punctuation
+ * ignored)? Stricter than `nameMatches` on purpose: an alias is a specific bank name, so
+ * "AIC PAINTS" must not match "PAT MCDONNELL PAINTS" on the shared "paints". */
+function bankPhraseIn(phrase: string, description: string): boolean {
+  const target = wordsOf(phrase).join("")
+  if (target.length < 2) return false
+  const descWords = wordsOf(description)
+  for (let i = 0; i < descWords.length; i++) {
+    let gram = ""
+    for (let j = i; j < descWords.length && gram.length < target.length; j++) {
+      gram += descWords[j]
+      if (gram === target) return true
+    }
+  }
+  return false
+}
+
+/** Supplier name check used by `matchExpenses`: the fuzzy `nameMatches`, or else one of
+ * the supplier's aliases appears in the bank line. */
+export function supplierMatches(
+  supplier: string,
+  description: string,
+  aliases: SupplierAlias[] = SUPPLIER_ALIASES,
+): boolean {
+  if (nameMatches(supplier, description)) return true
+  return aliases.some(
+    (a) => nameMatches(a.supplier, supplier) && a.bank.some((b) => bankPhraseIn(b, description)),
+  )
 }
 
 /** Of several same-amount, in-window candidates, prefer one whose description
@@ -303,8 +342,9 @@ function pickBest(expense: Expense, candidates: MatchEntry[]): MatchEntry {
 
 /**
  * Match each expense to a statement debit. A match requires ALL THREE: the **exact**
- * cent amount, the **supplier name** present in the bank description (fuzzy `nameMatches`),
- * and a date **within ±windowDays** (default ±5). One-to-one; MUTATES the matched
+ * cent amount, the **supplier name** present in the bank description (fuzzy `nameMatches`,
+ * or a developer-listed alias — `supplierMatches` / `supplier-aliases.ts`),
+ * and a date **within ±windowDays** (default ±7). One-to-one; MUTATES the matched
  * transaction's `category` to `EXPENSE_CATEGORY` — but ONLY when the row has no category
  * yet. On the PDF path that is every row (matching runs before categorization), so matched
  * debits get the marker as before; on a re-imported CSV/Excel the user's hand-typed
@@ -317,9 +357,10 @@ function pickBest(expense: Expense, candidates: MatchEntry[]): MatchEntry {
 export function matchExpenses(
   expenses: Expense[],
   entries: MatchEntry[],
-  opts: { windowDays?: number } = {},
+  opts: { windowDays?: number; aliases?: SupplierAlias[] } = {},
 ): ExpenseReport {
   const windowDays = opts.windowDays ?? DEFAULT_WINDOW_DAYS
+  const aliases = opts.aliases ?? SUPPLIER_ALIASES
 
   // Index debit entries by their cent amount (a debit is used at most once).
   const byCents = new Map<number, MatchEntry[]>()
@@ -341,7 +382,7 @@ export function matchExpenses(
         (e) =>
           !used.has(e) &&
           withinWindow(expense.date, e.tx.date, windowDays) &&
-          nameMatches(expense.supplier, e.tx.description),
+          supplierMatches(expense.supplier, e.tx.description, aliases),
       )
       if (candidates.length > 0) {
         const best = pickBest(expense, candidates)

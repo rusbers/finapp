@@ -15,6 +15,7 @@ import {
   matchExpenses,
   expensesReportToCsv,
   nameMatches,
+  supplierMatches,
   EXPENSE_CATEGORY,
   type MatchEntry,
 } from "../lib/core/expenses"
@@ -75,7 +76,7 @@ check("parse: no link column -> link undefined", parsed[0].link === undefined)
   check("parse: 'Receipt URL' header -> link captured (substring)", withUrl[0].link === "https://receipts.example/2")
 }
 
-// Matching: exact cents + supplier name + date window (±5). Both debits carry the name.
+// Matching: exact cents + supplier name + date window (±7). Both debits carry the name.
 {
   const entries: MatchEntry[] = [
     { tx: tx("2025-12-31", 30.03, "POS CIRCLE K CLONTARF") }, // +1 day, name present -> match
@@ -97,14 +98,14 @@ check("parse: no link column -> link undefined", parsed[0].link === undefined)
   check("match: day gap is signed (+1, bank posted after the invoice)", r.matches[0].matchedDayGap === 1)
   check("match: a not-found row has no day gap", r.matches[2].matchedDayGap === undefined)
 }
-// Date window edge: +5 matches, +6 doesn't (name present in both).
+// Date window edge: +7 matches, +8 doesn't (name present in both).
 {
   const ck = parseExpensesCsv(CSV)[0] // Circle K Clontarf, 2025-12-30, 30.03
-  const e5 = matchExpenses([ck], [{ tx: tx("2026-01-04", 30.03, "POS CIRCLE K CLONTARF") }]) // +5 days
-  const e6 = matchExpenses([ck], [{ tx: tx("2026-01-05", 30.03, "POS CIRCLE K CLONTARF") }]) // +6 days
-  check("match: +5 days within window", e5.foundCount === 1)
-  check("match: +6 days outside window", e6.foundCount === 0)
-  check("match: day gap at the window edge is +5", e5.matches[0].matchedDayGap === 5)
+  const e5 = matchExpenses([ck], [{ tx: tx("2026-01-06", 30.03, "POS CIRCLE K CLONTARF") }]) // +7 days
+  const e6 = matchExpenses([ck], [{ tx: tx("2026-01-07", 30.03, "POS CIRCLE K CLONTARF") }]) // +8 days
+  check("match: +7 days within window", e5.foundCount === 1)
+  check("match: +8 days outside window", e6.foundCount === 0)
+  check("match: day gap at the window edge is +7", e5.matches[0].matchedDayGap === 7)
 }
 // Day gap sign + zero. A debit dated BEFORE its invoice yields a NEGATIVE gap — the whole
 // point of reporting it signed, since that direction is the one worth a second look.
@@ -181,6 +182,30 @@ console.log("\n# Fuzzy name matcher + name-required matching")
 check("name: truncation (Screwfix Blanchardstown -> SCREW)", nameMatches("Screwfix Blanchardstown", "POS SCREW DUBLIN"))
 check("name: full brand in the line", nameMatches("Screwfix Blanchardstown", "SCREWFIX IE 12"))
 check("name: punctuation B&Q == 'B & Q'", nameMatches("B&Q", "B & Q RETAIL PARK"))
+check("name: B&Q == AIB 'VDC-B & Q IRELAND'", nameMatches("B&Q", "VDC-B & Q IRELAND"))
+check("name: 'B&Q Ireland' == 'B & Q' (generic word dropped)", nameMatches("B&Q Ireland", "VDC-B & Q TALLAGHT"))
+check("name: 'PTRS Limited' == spaced 'P T R S'", nameMatches("PTRS Limited", "VDP-P T R S"))
+// Supplier aliases (supplier-aliases.ts): a name the bank shows differently entirely.
+check("alias: CSS LTD == VDP-CITYSAWSERVICE", supplierMatches("CSS LTD", "VDP-CITYSAWSERVICE"))
+check("alias: Applus Inspection Services == WWW NCTS IE", supplierMatches("Applus Inspection Services Ireland Ltd (NCT)", "VDP-WWW NCTS IE FO"))
+check("alias: AIC PAINTS needs the whole phrase (not just 'paints')", !supplierMatches("Allied Industrial Coatings Ltd", "VDC-PAT MCDONNELL PAINTS"))
+check("alias: unrelated supplier gets no alias", !supplierMatches("Woodies", "VDP-CITYSAWSERVICE"))
+check("alias: off when an empty list is passed", !supplierMatches("CSS LTD", "VDP-CITYSAWSERVICE", []))
+{
+  const [css] = parseExpensesCsv(`"Supplier","Category","Date","Amount"\n"CSS LTD","X","2025-12-02","900.66"`)
+  const hit = matchExpenses([css], [{ tx: tx("2025-12-02", 900.66, "VDP-CITYSAWSERVICE") }])
+  const wrongAmount = matchExpenses([css], [{ tx: tx("2025-12-02", 900.65, "VDP-CITYSAWSERVICE") }])
+  const tooLate = matchExpenses([css], [{ tx: tx("2025-12-10", 900.66, "VDP-CITYSAWSERVICE") }]) // +8 days
+  check("alias match: same amount, same day -> found", hit.foundCount === 1)
+  check("alias match: amount still must be exact", wrongAmount.foundCount === 0)
+  check("alias match: date window still applies", tooLate.foundCount === 0)
+}
+// Real case: B&Q receipt dated 6 days after the bank posting — inside the ±7 window.
+{
+  const [bq] = parseExpensesCsv(`"Supplier","Category","Date","Amount"\n"B&Q","X","2025-11-10","54.00"`)
+  const r = matchExpenses([bq], [{ tx: tx("2025-11-04", 54, "VDC-B & Q IRELAND") }])
+  check("match: B&Q -6 days found", r.foundCount === 1 && r.matches[0].matchedDayGap === -6)
+}
 check("name: no false hit ('EE' inside 'coffee')", !nameMatches("EE", "COFFEE ANGEL DUBLIN"))
 check("name: generic-only supplier never matches", !nameMatches("Services Ltd", "RANDOM MERCHANT CORK"))
 check("name: unrelated brands don't match", !nameMatches("Tesco", "SUPERVALU CORK"))
@@ -217,14 +242,14 @@ check("name: but the real brand still matches", nameMatches("Screwfix Ireland Lt
   const r = matchExpenses([exp], [{ tx: tx("2025-06-11", 52.0, "POS SCREWFIX IE") }])
   check("match: name present but amount differs -> not found", r.matches[0].found === false)
 }
-// Exact amount + name but OUTSIDE the ±5-day window -> NOT found.
+// Exact amount + name but OUTSIDE the ±7-day window -> NOT found.
 {
   const [exp] = parseExpensesCsv(
     `"Supplier","Description","Category","Date","Amount"
 "Woodies","paint","X","2025-06-01","20.00"`,
   )
   const r = matchExpenses([exp], [{ tx: tx("2025-06-20", 20.0, "POS WOODIES CORK") }]) // +19 days
-  check("match: exact amount + name but >5 days -> not found", r.matches[0].found === false)
+  check("match: exact amount + name but >7 days -> not found", r.matches[0].found === false)
 }
 
 // --- 2. Real case (case 2: BOI x3 + Revolut) ------------------------------

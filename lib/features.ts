@@ -155,7 +155,7 @@ export const FEATURE_GROUPS: FeatureGroup[] = [
       {
         name: "Match an expenses file",
         description:
-          "Upload an expenses.csv (supplier, date, amount…) alongside the statements; each expense is matched to a statement debit by exact amount, supplier name and a date within 5 days.",
+          "Upload an expenses file — CSV or Excel (supplier, date, amount…) — alongside the statements; each expense is matched to a statement debit by exact amount, supplier name and a date within 7 days. Suppliers the bank shows under another name (e.g. CSS LTD ↔ CITYSAWSERVICE) are linked by a built-in alias list.",
       },
       {
         name: "Found / not-found report",
@@ -201,7 +201,7 @@ export const FEATURE_GROUPS: FeatureGroup[] = [
       },
       {
         name: "Match against expenses later",
-        description: "Re-imported accounts can be matched to an expenses.csv just like a fresh reconciliation.",
+        description: "Re-imported accounts can be matched to an expenses file (CSV or Excel) just like a fresh reconciliation.",
       },
     ],
   },

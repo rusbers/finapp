@@ -239,6 +239,39 @@ check("alias: off when an empty list is passed", !supplierMatches("CSS LTD", "VD
   check("alias match: amount still must be exact", wrongAmount.foundCount === 0)
   check("alias match: date window still applies", tooLate.foundCount === 0)
 }
+// Late-paying suppliers (supplier-payment-terms.ts): eFlow is charged ~16 days after the
+// invoice. Only the AFTER side widens (amounts repeat monthly), and every such match is TBC.
+{
+  const eflow = (date: string, amount = "16.53") =>
+    parseExpensesCsv(`"Supplier","Category","Date","Amount"\n"eFlow","Tolls","${date}","${amount}"`)[0]
+  const debit = (date: string, amount = 16.53) => ({ tx: tx(date, amount, "VDP-EFLOW BARRIER") })
+  const late: MatchEntry[] = [debit("2025-06-17")] // +16
+  const r16 = matchExpenses([eflow("2025-06-01")], late)
+  check("late payer: eFlow +16 days found", r16.foundCount === 1 && r16.matches[0].matchedDayGap === 16)
+  check(
+    "late payer: +16 is TBC with the late-payment reason",
+    r16.matches[0].tbc === true && r16.matches[0].tbcReasons?.[0] === "bank posted 16 days after the receipt (late-payment supplier)",
+  )
+  check("late payer: debit tagged 'Expenses TBC'", late[0].tx.category === EXPENSE_TBC_CATEGORY)
+  const r2 = matchExpenses([eflow("2025-06-01")], [debit("2025-06-03")]) // +2
+  check("late payer: +2 days found and certain", r2.foundCount === 1 && r2.matches[0].tbc === false)
+  check("late payer: +26 days not found", matchExpenses([eflow("2025-06-01")], [debit("2025-06-27")]).foundCount === 0)
+  check("late payer: -10 days (previous month) not found", matchExpenses([eflow("2025-06-01")], [debit("2025-05-22")]).foundCount === 0)
+  // Two monthly charges of the same amount: each invoice gets its OWN month's charge.
+  const months = matchExpenses([eflow("2025-07-01"), eflow("2025-06-01")], [debit("2025-06-17"), debit("2025-07-17")])
+  check(
+    "late payer: recurring amount → each invoice gets its own month",
+    months.matches[0].matchedDate === "2025-07-17" && months.matches[1].matchedDate === "2025-06-17",
+  )
+  check(
+    "late payer: a non-listed supplier at +16 is still not found",
+    matchExpenses(
+      parseExpensesCsv(`"Supplier","Category","Date","Amount"\n"Woodies","X","2025-06-01","20.00"`),
+      [{ tx: tx("2025-06-17", 20, "POS WOODIES CORK") }],
+    ).foundCount === 0,
+  )
+  check("late payer: an empty list restores the ±7 window", matchExpenses([eflow("2025-06-01")], [debit("2025-06-17")], { paymentTerms: [] }).foundCount === 0)
+}
 // Real case: B&Q receipt dated 6 days after the bank posting — inside the ±7 window.
 {
   const [bq] = parseExpensesCsv(`"Supplier","Category","Date","Amount"\n"B&Q","X","2025-11-10","54.00"`)

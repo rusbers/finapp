@@ -155,7 +155,7 @@ export const FEATURE_GROUPS: FeatureGroup[] = [
       {
         name: "Match an expenses file",
         description:
-          "Upload an expenses file — CSV or Excel (supplier, date, amount…) — alongside the statements; each expense is matched to a statement debit by exact amount, supplier name and a date within 7 days. Suppliers the bank shows under another name (e.g. CSS LTD ↔ CITYSAWSERVICE) are linked by a built-in alias list.",
+          "Upload an expenses file — CSV or Excel (supplier, date, amount…) — alongside the statements; each expense is matched to a statement debit by exact amount, supplier name and a date within 7 days. Suppliers the bank shows under another name (e.g. CSS LTD ↔ CITYSAWSERVICE) are linked by a built-in alias list, and suppliers paid well after their invoice (e.g. eFlow, up to 25 days) by a late-payment list — those matches are flagged TBC.",
       },
       {
         name: "Found / not-found report",

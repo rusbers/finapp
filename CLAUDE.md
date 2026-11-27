@@ -810,7 +810,12 @@ pdfjs-dist`): for the target banks, reading the PDF's text positions (x/y) and
   *reader*, only `toCsv`); **`matchExpenses`** pools every account's transactions and matches on a
   **single strict rule, one-to-one**: for each expense with `amount > 0`, an unused debit whose amount
   matches **to the cent** AND whose description **contains the supplier name** (fuzzy `nameMatches`, or a **developer-maintained alias** from `lib/core/supplier-aliases.ts` — e.g. "CSS LTD" ↔ "CITYSAWSERVICE"; the alias bank name must appear as whole adjacent words; add pairs only when confirmed on real data, how-to in the file header)
-  AND whose date is **within ±7 days** (`DEFAULT_WINDOW_DAYS`); `pickBest` breaks ties by closest date.
+  AND whose date is **within ±7 days** (`DEFAULT_WINDOW_DAYS`) — except **late-paying suppliers**
+  listed in `lib/core/supplier-payment-terms.ts` (developer-maintained; eFlow: `maxDaysAfter` 25,
+  invoiced the 1st, charged +16–18), whose window widens ONLY on the AFTER side (`withinRange`;
+  amounts repeat monthly, so looking back would grab the previous month's charge); every match beyond
+  `TBC_MAX_LAG_DAYS` for such a supplier is TBC "(late-payment supplier)" by user decision. Real data:
+  +10 eFlow in client 4, each to its own month. `pickBest` breaks ties by closest date.
   **The supplier name is REQUIRED** — this is deliberate: an exact-amount debit alone produces
   coincidental false matches (a €X expense hitting an unrelated €X transfer / ATM withdrawal / a
   different merchant with the same amount). Requiring the name removes those (measured on real data:

@@ -16,6 +16,7 @@ import type { Transaction } from "./types"
 import { toCents } from "./reconciliation"
 import { csvCell } from "./verification"
 import { SUPPLIER_ALIASES, type SupplierAlias } from "./supplier-aliases"
+import { SUPPLIER_PAYMENT_TERMS, type PaymentTerm } from "./supplier-payment-terms"
 
 /** A day window (either side) within which a debit may match an expense's date. */
 export const DEFAULT_WINDOW_DAYS = 7
@@ -197,11 +198,20 @@ function daysBetween(a: string, b: string): number {
   return Math.abs(Date.parse(b) - Date.parse(a)) / 86_400_000
 }
 
-function withinWindow(a: string, b: string, windowDays: number): boolean {
-  const da = Date.parse(a)
-  const db = Date.parse(b)
-  if (Number.isNaN(da) || Number.isNaN(db)) return false
-  return Math.abs(db - da) <= windowDays * 86_400_000
+/** Is the bank date `txDate` at most `daysBefore` days before and at most `daysAfter` days
+ * after the expense date? (Symmetric ±window normally; a late-paying supplier widens only
+ * the AFTER side — see supplier-payment-terms.ts.) */
+function withinRange(expenseDate: string, txDate: string, daysBefore: number, daysAfter: number): boolean {
+  const de = Date.parse(expenseDate)
+  const dt = Date.parse(txDate)
+  if (Number.isNaN(de) || Number.isNaN(dt)) return false
+  const diff = dt - de
+  return diff >= -daysBefore * 86_400_000 && diff <= daysAfter * 86_400_000
+}
+
+/** The late-payment entry for this expense's supplier, if listed (fuzzy name match). */
+function paymentTermFor(supplier: string, terms: PaymentTerm[]): PaymentTerm | undefined {
+  return terms.find((t) => nameMatches(t.supplier, supplier))
 }
 
 /**
@@ -410,10 +420,11 @@ function pickBest(expense: Expense, candidates: MatchEntry[]): MatchEntry {
 export function matchExpenses(
   expenses: Expense[],
   entries: MatchEntry[],
-  opts: { windowDays?: number; aliases?: SupplierAlias[] } = {},
+  opts: { windowDays?: number; aliases?: SupplierAlias[]; paymentTerms?: PaymentTerm[] } = {},
 ): ExpenseReport {
   const windowDays = opts.windowDays ?? DEFAULT_WINDOW_DAYS
   const aliases = opts.aliases ?? SUPPLIER_ALIASES
+  const paymentTerms = opts.paymentTerms ?? SUPPLIER_PAYMENT_TERMS
 
   // Index debit entries by their cent amount (a debit is used at most once).
   const byCents = new Map<number, MatchEntry[]>()
@@ -431,17 +442,21 @@ export function matchExpenses(
   for (const expense of expenses) {
     let match: ExpenseMatch = { expense, found: false }
     if (expense.amountCents > 0) {
+      // A late-paying supplier (supplier-payment-terms.ts) may be charged up to
+      // `maxDaysAfter` days after the receipt; the BEFORE side never widens.
+      const term = paymentTermFor(expense.supplier, paymentTerms)
+      const daysAfter = term ? Math.max(windowDays, term.maxDaysAfter) : windowDays
       const candidates = (byCents.get(expense.amountCents) ?? []).filter(
         (e) =>
           !used.has(e) &&
-          withinWindow(expense.date, e.tx.date, windowDays) &&
+          withinRange(expense.date, e.tx.date, windowDays, daysAfter) &&
           supplierMatches(expense.supplier, e.tx.description, aliases),
       )
       if (candidates.length > 0) {
         const best = pickBest(expense, candidates)
         used.add(best)
         const gap = dayOffset(expense.date, best.tx.date)
-        const tbcReasons = tbcReasonsFor(gap, candidates.length)
+        const tbcReasons = tbcReasonsFor(gap, candidates.length, !!term)
         if (!best.tx.category) {
           best.tx.category = tbcReasons.length > 0 ? EXPENSE_TBC_CATEGORY : EXPENSE_CATEGORY
           best.tx.categoryByAi = false
@@ -475,12 +490,14 @@ export function matchExpenses(
  * signal (tested: matches on a secondary word were all correct) and alias matches are
  * developer-verified, so neither is flagged.
  */
-function tbcReasonsFor(gap: number | undefined, candidateCount: number): string[] {
+function tbcReasonsFor(gap: number | undefined, candidateCount: number, latePayer = false): string[] {
   const reasons: string[] = []
   const days = (n: number) => `${n} day${n === 1 ? "" : "s"}`
   if (gap != null && gap < 0) reasons.push(`bank posted ${days(-gap)} before the receipt`)
   else if (gap != null && gap > TBC_MAX_LAG_DAYS)
-    reasons.push(`bank posted ${days(gap)} after the receipt`)
+    // A late-payment supplier's long delay is expected, but the user wants every such
+    // match reviewed — so it stays TBC, with the reason saying why the delay was allowed.
+    reasons.push(`bank posted ${days(gap)} after the receipt${latePayer ? " (late-payment supplier)" : ""}`)
   if (candidateCount > 1) reasons.push(`${candidateCount} possible debits — closest date picked`)
   return reasons
 }

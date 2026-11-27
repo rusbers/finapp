@@ -497,7 +497,9 @@ quoted-field CSV reader (no CSV *reader* existed — only `toCsv` writes). `matc
 pools ALL accounts' transactions and matches on a **single strict rule, one-to-one**: for each
 expense with amount > 0, an unused debit whose amount matches **to the cent** AND whose description
 **contains the supplier name** (fuzzy `nameMatches`, or a developer-maintained alias from `lib/core/supplier-aliases.ts`) AND whose date is **within ±7 days**
-(`DEFAULT_WINDOW_DAYS`); `pickBest` breaks ties by closest date. **The name is REQUIRED** on purpose —
+(`DEFAULT_WINDOW_DAYS`) — or, for a late-paying supplier listed in `lib/core/supplier-payment-terms.ts`
+(eFlow: up to 25 days), up to `maxDaysAfter` days AFTER (never further back; such matches are always TBC);
+`pickBest` breaks ties by closest date. **The name is REQUIRED** on purpose —
 an exact-amount debit alone produces coincidental false matches (a €X expense hitting an unrelated €X
 transfer / ATM / a different merchant at the same amount); requiring the name removes those (measured:
 6 wrong exact matches eliminated on the real case, and it recovered real ones the old rule missed, e.g.

@@ -17,6 +17,7 @@ import readXlsxFile from "read-excel-file/node"
 import {
   parseTransactionsCsv,
   parseTransactionsWorkbook,
+  expensesWorkbookToCsv,
   parseTsvRows,
   statementsFromSources,
   CSV_IMPORT_BAD_FORMAT,
@@ -391,6 +392,35 @@ try {
   threw16 = e instanceof Error ? e.message : String(e)
 }
 check("a tab-separated paste without Debit/Credit is rejected as bad format", threw16 === CSV_IMPORT_BAD_FORMAT)
+
+// --- Expenses from an Excel workbook ------------------------------------------------
+// A user's own expenses spreadsheet (real date + number cells, a decoy sheet first)
+// round-trips through write/read-excel-file → expensesWorkbookToCsv → parseExpensesCsv.
+{
+  const d = (y: number, m: number, day: number) => ({ value: new Date(Date.UTC(y, m - 1, day)), type: Date, format: "dd/mm/yyyy" })
+  const n = (v: number) => ({ value: v, type: Number, format: "#,##0.00" })
+  const buf = await writeExcelFile([
+    { sheet: "Notes", data: [[{ value: "Just notes" }]] },
+    {
+      sheet: "My expenses",
+      data: [
+        [{ value: "Supplier" }, { value: "Description" }, { value: "Category" }, { value: "Date" }, { value: "Amount" }, { value: "VAT" }],
+        [{ value: "Tesco, Ltd" }, { value: "Groceries" }, { value: "Food" }, d(2025, 3, 7), n(1234.5), n(0)],
+        [{ value: "Eir" }, { value: "Broadband" }, { value: "Utilities" }, d(2025, 3, 15), n(60), n(11.22)],
+      ],
+    },
+  ] as never).toBuffer()
+  const read = await readXlsxFile(buf)
+  const exps = parseExpensesCsv(expensesWorkbookToCsv(read.map((s) => ({ name: s.sheet, rows: s.data }))))
+  check("xlsx expenses: both rows read from the right sheet", exps.length === 2)
+  check("xlsx expenses: supplier with a comma survives", exps[0]?.supplier === "Tesco, Ltd")
+  check("xlsx expenses: date cell → ISO", exps[0]?.date === "2025-03-07" && exps[1]?.date === "2025-03-15")
+  check("xlsx expenses: number cell → cents", exps[0]?.amountCents === 123450 && exps[1]?.amountCents === 6000)
+  check(
+    "xlsx expenses: a workbook with no expenses sheet gives no expenses",
+    parseExpensesCsv(expensesWorkbookToCsv([{ name: "x", rows: [["a", "b"], [1, 2]] }])).length === 0,
+  )
+}
 
 console.log(`\n${failures === 0 ? "All CSV-import checks passed." : `${failures} check(s) FAILED.`}`)
 process.exit(failures === 0 ? 0 : 1)

@@ -14,6 +14,7 @@
  */
 
 import {
+  expensesWorkbookToCsv,
   parseTransactionsCsv,
   parseTransactionsWorkbook,
   type ImportedStatement,
@@ -37,4 +38,13 @@ export async function readTransactionsFile(file: File): Promise<ImportedStatemen
     return parseTransactionsWorkbook(sheets.map((s) => ({ name: s.sheet, rows: s.data })))
   }
   return parseTransactionsCsv(await file.text())
+}
+
+/** The expenses file (.csv or .xlsx) as CSV text for `parseExpensesCsv` — an .xlsx is
+ * converted here so the server route and the re-import path share the one CSV parser. */
+export async function readExpensesText(file: File): Promise<string> {
+  if (!isXlsxFile(file)) return file.text()
+  const { default: readXlsxFile } = await import("read-excel-file/browser")
+  const sheets = await readXlsxFile(file, { dateFormat: DATE_FORMAT })
+  return expensesWorkbookToCsv(sheets.map((s) => ({ name: s.sheet, rows: s.data })))
 }

@@ -96,7 +96,7 @@ export const strings = {
   perFileHeading: (n: number) => `Statements — ${n} file${n === 1 ? "" : "s"}`,
 
   // Expense reconciliation (match an expenses.csv against the statement debits)
-  expensesLabel: "Expenses (CSV)",
+  expensesLabel: "Expenses (CSV or Excel)",
   addExpensesButton: "+ Add expenses",
   removeExpenses: "Remove expenses",
   expensesHeading: "Expense reconciliation",

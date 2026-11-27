@@ -19,6 +19,7 @@ import type { StatementData, Transaction } from "./types"
 import type { PerFileResult } from "./pipeline"
 import { parseCsvRows, amountToCents, normalizeDate } from "./expenses"
 import { toCents } from "./reconciliation"
+import { csvCell } from "./verification"
 
 /** One account reconstructed from the file (one per distinct `Account` value; a single
  * element when there is no Account column). Opening/closing are DERIVED from the
@@ -437,6 +438,30 @@ export function parseTransactionsWorkbook(sheets: WorkbookSheet[]): ImportedStat
   }
   if (all.length === 0) throw new Error(CSV_IMPORT_EMPTY)
   return all
+}
+
+/**
+ * An expenses spreadsheet (.xlsx) → the CSV text `parseExpensesCsv` reads, so the server
+ * route and the re-import path keep ONE expenses parser. Picks the first sheet whose header
+ * has an "Amount" column plus "Supplier" or "Description" (a sheet named "Expenses" wins,
+ * e.g. our own exported workbook); dates become ISO, amounts two-decimal strings, every
+ * other cell its text. No such sheet → "" (parses to no expenses, like a bad CSV).
+ */
+export function expensesWorkbookToCsv(sheets: WorkbookSheet[]): string {
+  const headerOf = (s: WorkbookSheet) => (s.rows[0] ?? []).map((c) => (c == null ? "" : String(c).trim()))
+  const isExpenses = (s: WorkbookSheet) => {
+    const h = headerOf(s).map((c) => c.toLowerCase())
+    return h.includes("amount") && (h.includes("supplier") || h.includes("description"))
+  }
+  const candidates = sheets.filter(isExpenses)
+  const sheet = candidates.find((s) => s.name.trim().toLowerCase() === "expenses") ?? candidates[0]
+  if (!sheet) return ""
+  const header = headerOf(sheet)
+  const lower = header.map((c) => c.toLowerCase())
+  const kind = (i: number): "date" | "money" | "text" =>
+    lower[i] === "date" ? "date" : lower[i] === "amount" || lower[i] === "vat" ? "money" : "text"
+  const rows = [header, ...sheet.rows.slice(1).map((r) => r.map((c, i) => cellToString(c, kind(i))))]
+  return rows.map((r) => r.map(csvCell).join(",")).join("\n")
 }
 
 // --- Per-statement breakdown ------------------------------------------------------

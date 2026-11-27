@@ -36,7 +36,7 @@ import {
   CSV_IMPORT_BAD_FORMAT,
   CSV_IMPORT_EMPTY,
 } from "@/lib/core/csv-import"
-import { readTransactionsFile } from "./import-file"
+import { readExpensesText, readTransactionsFile } from "./import-file"
 import { CATEGORIES, normalizeDescription } from "@/lib/core/categorization"
 import CategoryCombobox from "./category-combobox"
 import ColumnFilter from "./column-filter"
@@ -595,7 +595,11 @@ export default function Page() {
       fd.append("fallbackModel", selectedFallbackModel)
       fd.append("enableFallback", String(enableFallback))
       fd.append("categorize", String(categorize))
-      if (expensesFile) fd.append("expenses", expensesFile)
+      // An .xlsx expenses file is converted to CSV here, so the route reads one format.
+      if (expensesFile) {
+        const csv = await readExpensesText(expensesFile)
+        fd.append("expenses", new File([csv], "expenses.csv", { type: "text/csv" }))
+      }
       const { ok, data } = await postExtract(fd, {
         onUploadProgress: (pct) => setUploadPct(pct),
         onUploaded: () => setPhase("processing"),
@@ -651,7 +655,7 @@ export default function Page() {
       const imported = csvFile ? await readTransactionsFile(csvFile) : parseTransactionsCsv(pastedText ?? "")
       // Only feeds the export file names (and the multi label); never a row's Source.
       const sourceName = csvFile ? csvFile.name : PASTED_FILE_NAME
-      const expensesText = expensesFile ? await expensesFile.text() : null
+      const expensesText = expensesFile ? await readExpensesText(expensesFile) : null
 
       if (imported.length >= 2) {
         // Several accounts (a combined export) → multi-account result.
@@ -1374,7 +1378,7 @@ export default function Page() {
               </button>
             </div>
             <FilePicker
-              accept=".csv,text/csv"
+              accept={IMPORT_ACCEPT}
               disabled={isLoading}
               count={expensesFile ? 1 : 0}
               onChange={(fs) => {

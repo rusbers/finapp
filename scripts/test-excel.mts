@@ -93,10 +93,11 @@ const rawHeader = ["Supplier", "Description", "Category", "Date", "Amount", "VAT
 const report: ExpenseReport = {
   total: 2,
   foundCount: 1,
+  tbcCount: 0,
   matches: [
     {
       expense: { supplier: "Screwfix", description: "Drill", category: "Tools", date: "2024-03-01", amount: 99.99, amountCents: 9999, link: "https://x/1", raw: ["Screwfix", "Drill", "Tools", "01/03/2024", "99.99", "23%", "https://x/1"], rawHeader },
-      found: true, matchedDate: "2024-03-03", matchedAccount: "BOI", matchedDescription: "SCREWFIX BLANCH", matchedDayGap: 2, matchedSourceFile: "boi.pdf", matchedPage: 3,
+      found: true, matchedDate: "2024-03-03", matchedAccount: "BOI", matchedDescription: "SCREWFIX BLANCH", matchedDayGap: 2, matchedSourceFile: "boi.pdf", matchedPage: 3, tbc: false, tbcReasons: [],
     },
     {
       expense: { supplier: "Cash shop", description: "Misc", category: "Other", date: "2024-03-05", amount: 10, amountCents: 1000, raw: ["Cash shop", "Misc", "Other", "05/03/2024", "10.00"], rawHeader },
@@ -106,11 +107,12 @@ const report: ExpenseReport = {
 }
 const ex = expensesSheet(report)
 const { header: exHeader, rows: exRows } = expensesReportRows(report)
-check("expenses: header = CSV header (original columns + 6 appended)", ex.rows[0].map(text).join("|") === exHeader.join("|") && exHeader.length === rawHeader.length + 6)
+check("expenses: header = CSV header (original columns + 8 appended)", ex.rows[0].map(text).join("|") === exHeader.join("|") && exHeader.length === rawHeader.length + 8)
 check("expenses: original cells verbatim as text", ex.rows[1].slice(0, 7).join("|") === "Screwfix|Drill|Tools|01/03/2024|99.99|23%|https://x/1")
 check("expenses: Days is a number", ex.rows[1][exHeader.length - 2] === 2)
 check("expenses: Source appended", ex.rows[1][exHeader.length - 1] === "boi.pdf, page 3")
-check("expenses: short row padded, not-found Days blank", ex.rows[2][6] === "" && ex.rows[2][exHeader.length - 2] === "" && ex.rows[2][7] === "not found")
+check("expenses: short row padded, not-found Days blank", ex.rows[2][6] === "" && ex.rows[2][exHeader.length - 2] === "" && ex.rows[2][7] === "not found" && ex.rows[2][8] === "")
+check("expenses: TBC FALSE for a certain match", ex.rows[1][8] === "FALSE")
 check("expenses: every sheet row equals the CSV row (Days aside)", ex.rows.slice(1).every((r, i) => r.map((c) => String(c ?? "")).join("|") === exRows[i].join("|")))
 check("expensesReportToCsv still = header + rows joined", expensesReportToCsv(report).split("\n").length === 3 && expensesReportToCsv(report).startsWith("Supplier,Description,Category,Date,Amount,VAT,Link,Found,"))
 

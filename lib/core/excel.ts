@@ -170,12 +170,14 @@ export function summarySheet(accounts: SummaryAccount[], name = "Summary"): Xlsx
  */
 export function expensesSheet(report: ExpenseReport, name = "Expenses"): XlsxSheet {
   const { header, rows } = expensesReportRows(report)
-  const daysCol = header.length - 2 // …, Days, Source
+  const daysCol = header.lastIndexOf("Days") // the appended one, even if the source CSV has a "Days" column
+  const appendedFrom = header.lastIndexOf("Found")
   const typed = rows.map((r): XlsxCell[] =>
     r.map((cell, i) => (i === daysCol && cell !== "" ? Number(cell) : cell)),
   )
+  const wide = new Set(["TBC reason", "Matched description", "Source"])
   const columns = header.map((h, i) => ({
-    width: i < header.length - 6 ? 18 : h === "Matched description" || h === "Source" ? 30 : 12,
+    width: i < appendedFrom ? 18 : wide.has(h) ? 30 : h === "TBC" ? 8 : 12,
   }))
   return { name, rows: [header.map(bold), ...typed], columns, stickyRowsCount: 1 }
 }

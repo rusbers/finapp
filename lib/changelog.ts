@@ -24,6 +24,8 @@ export const CHANGELOG: ChangelogEntry[] = [
       "Expense matching accepts a bank posting up to 7 days from the receipt date (was 5).",
       "Supplier names written with different spacing now match — \"B&Q Ireland\" ↔ \"B & Q\", \"PTRS Limited\" ↔ \"P T R S\".",
       "Built-in supplier aliases link suppliers the bank shows under another name (e.g. CSS LTD ↔ CITYSAWSERVICE, Applus ↔ NCTS).",
+      "Expense report: a TBC column flags matches worth a second look (bank posted before the receipt, more than 3 days after it, or several possible debits), with the reason — on screen and in the CSV / Excel export.",
+      "In the transactions table, debits whose expense match is TBC get the category \"Expenses TBC\" (instead of \"Expenses\"), so the Category filter shows just the ones to confirm.",
     ],
   },
   {

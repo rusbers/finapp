@@ -511,14 +511,15 @@ can rarely still collide ("Centra Artane" vs a different merchant "…ARTAN" at 
 place names are structurally indistinguishable from a distinctive brand token (cf. the correct
 "Richard J Gough"→"R J GOUGH"), so it's accepted, not special-cased. A match tags the row
 `category = EXPENSE_CATEGORY` — the string **"Expenses"**, a marker (the user chose this over the
-expense's own category), exported as a constant because `route.ts` filters on the same value and two
+expense's own category; **"Expenses TBC"** = `EXPENSE_TBC_CATEGORY` when the match is TBC, for quick
+filtering), exported as a constant because `route.ts` filters on the same value and two
 bare literals would drift — **only when the row has no category yet**: on the PDF path that is every
 row (matching runs before categorization); on a re-imported CSV/Excel the user's hand-typed
 categories stay (the match is still in the report). It records
 where it matched (date · account · bank description · signed day gap · source file+page). Wired in
 `route.ts`: expense matching runs
 **BEFORE** categorization, and `maybeCategorize`
-then **skips rows already tagged `EXPENSE_CATEGORY`** — so the marker isn't overwritten and no AI is
+then **skips rows already tagged with either marker** (`isExpenseMarker`) — so the marker isn't overwritten and no AI is
 spent on matched rows. Added to every branch's response as `expenses`; entries carry
 `{ tx, account }` so the report names the paying account WITHOUT setting `accountLabel` on
 rows (that would add a spurious "Account" column to the per-account CSV). UI: an "+ Add
@@ -535,8 +536,9 @@ It's `table-layout: fixed`, so long Supplier/Category/Bank-description cells tru
 ellipsis (full text on hover-`title`); the matched Source (file + page) is CSV-export-only, not
 shown on screen.
 **CSV export (`expensesReportToCsv`) reproduces the original expenses.csv verbatim** (all columns
-incl. VAT + the link column under its own name) and appends Found · Matched account · Matched date ·
-Matched description · Days · Source — account/date stay separate columns in the export (the single
+incl. VAT + the link column under its own name) and appends Found · TBC · TBC reason · Matched account · Matched date ·
+Matched description · Days · Source (TBC = a found match to double-check: bank posted before the receipt,
+>3 days after it, or several possible debits — see `tbcReasonsFor`) — account/date stay separate columns in the export (the single
 "Matched" cell is UI-only) and Days is a plain signed integer (no `+`, ASCII hyphen) so a spreadsheet
 reads it as a number;
 nothing in the source is mutated (`Expense.raw`/`Expense.rawHeader` carry the original cells/header

@@ -20,11 +20,25 @@ import { SUPPLIER_ALIASES, type SupplierAlias } from "./supplier-aliases"
 /** A day window (either side) within which a debit may match an expense's date. */
 export const DEFAULT_WINDOW_DAYS = 7
 
+/** A found match whose bank posting is more than this many days AFTER the receipt (or any
+ * day before it) is flagged "to be confirmed" — the normal card lag is 0–3 days. */
+export const TBC_MAX_LAG_DAYS = 3
+
 /** Marker category stamped on a debit matched to an expense. Deliberately NOT a member of
  * `CATEGORIES` (categorization.ts) — it marks provenance, not a kind of spending. Exported
  * because the route filters on it too (matched rows are excluded from the AI categorization
  * pass); a bare literal in two files would eventually drift. */
 export const EXPENSE_CATEGORY = "Expenses"
+
+/** The marker for a matched debit whose match is "to be confirmed" (`tbcReasonsFor`) — a
+ * separate category so the accountant can filter the transaction table to just those. */
+export const EXPENSE_TBC_CATEGORY = "Expenses TBC"
+
+/** Is this category one of the expense-match markers? The route uses it to keep matched
+ * rows out of the AI categorization pass (so a marker is never overwritten). */
+export function isExpenseMarker(category?: string): boolean {
+  return category === EXPENSE_CATEGORY || category === EXPENSE_TBC_CATEGORY
+}
 
 export interface Expense {
   supplier: string
@@ -47,12 +61,15 @@ export interface ExpenseMatch {
   matchedDayGap?: number // SIGNED days from the expense date to the statement date (see `dayOffset`)
   matchedSourceFile?: string // the PDF the matched debit came from (when several were combined)
   matchedPage?: number // 1-based page of that PDF (deterministic parsers)
+  tbc?: boolean // found but "to be confirmed" (see `tbcReasonsFor`); undefined when not found
+  tbcReasons?: string[] // why, in plain words — shown on hover and in the export
 }
 
 export interface ExpenseReport {
   matches: ExpenseMatch[]
   total: number
   foundCount: number
+  tbcCount: number // found matches flagged "to be confirmed"
 }
 
 /** One statement debit candidate, carrying its account label for the report. */
@@ -345,7 +362,8 @@ function pickBest(expense: Expense, candidates: MatchEntry[]): MatchEntry {
  * cent amount, the **supplier name** present in the bank description (fuzzy `nameMatches`,
  * or a developer-listed alias — `supplierMatches` / `supplier-aliases.ts`),
  * and a date **within ±windowDays** (default ±7). One-to-one; MUTATES the matched
- * transaction's `category` to `EXPENSE_CATEGORY` — but ONLY when the row has no category
+ * transaction's `category` to `EXPENSE_CATEGORY` (or `EXPENSE_TBC_CATEGORY` when the match is
+ * to be confirmed) — but ONLY when the row has no category
  * yet. On the PDF path that is every row (matching runs before categorization), so matched
  * debits get the marker as before; on a re-imported CSV/Excel the user's hand-typed
  * categories are real data and must not be erased by a marker — the match itself is still
@@ -387,8 +405,10 @@ export function matchExpenses(
       if (candidates.length > 0) {
         const best = pickBest(expense, candidates)
         used.add(best)
+        const gap = dayOffset(expense.date, best.tx.date)
+        const tbcReasons = tbcReasonsFor(gap, candidates.length)
         if (!best.tx.category) {
-          best.tx.category = EXPENSE_CATEGORY
+          best.tx.category = tbcReasons.length > 0 ? EXPENSE_TBC_CATEGORY : EXPENSE_CATEGORY
           best.tx.categoryByAi = false
         }
         match = {
@@ -397,9 +417,11 @@ export function matchExpenses(
           matchedDate: best.tx.date,
           matchedAccount: best.account,
           matchedDescription: best.tx.description,
-          matchedDayGap: dayOffset(expense.date, best.tx.date),
+          matchedDayGap: gap,
           matchedSourceFile: best.tx.sourceFile,
           matchedPage: best.tx.page,
+          tbc: tbcReasons.length > 0,
+          tbcReasons,
         }
       }
     }
@@ -407,16 +429,34 @@ export function matchExpenses(
   }
 
   const foundCount = matches.filter((m) => m.found).length
-  return { matches, total: expenses.length, foundCount }
+  const tbcCount = matches.filter((m) => m.tbc).length
+  return { matches, total: expenses.length, foundCount, tbcCount }
+}
+
+/**
+ * Why a FOUND match is "to be confirmed" (empty = certain). Calibrated on the real cases:
+ * 216 of 220 matches post 0–3 days after the receipt, so anything outside that, or a pick
+ * between several equally valid debits, is worth a human look. Name strength is NOT a
+ * signal (tested: matches on a secondary word were all correct) and alias matches are
+ * developer-verified, so neither is flagged.
+ */
+function tbcReasonsFor(gap: number | undefined, candidateCount: number): string[] {
+  const reasons: string[] = []
+  const days = (n: number) => `${n} day${n === 1 ? "" : "s"}`
+  if (gap != null && gap < 0) reasons.push(`bank posted ${days(-gap)} before the receipt`)
+  else if (gap != null && gap > TBC_MAX_LAG_DAYS) reasons.push(`bank posted ${days(gap)} after the receipt`)
+  if (candidateCount > 1) reasons.push(`${candidateCount} possible debits — closest date picked`)
+  return reasons
 }
 
 // --- Export ---------------------------------------------------------------
 
 /**
  * Export the ORIGINAL expenses.csv verbatim (every column, incl. VAT and the link column
- * under its own original name) with six columns appended: Found, Matched account, Matched
- * date, Matched description (the bank line it matched), Days (signed gap to the posting),
- * Source (file + page of the matched debit). The source rows/columns are never mutated —
+ * under its own original name) with eight columns appended: Found, TBC (TRUE/FALSE for a
+ * found match, empty when not found), TBC reason, Matched account, Matched date, Matched
+ * description (the bank line it matched), Days (signed gap to the posting), Source (file +
+ * page of the matched debit). The source rows/columns are never mutated —
  * only these are added at the end. (The single "Matched" cell is a UI-only presentation; the
  * export keeps account and date as separate columns for spreadsheet use.)
  *
@@ -439,6 +479,8 @@ export function expensesReportRows(report: ExpenseReport): { header: string[]; r
   const header = [
     ...originalHeader,
     "Found",
+    "TBC",
+    "TBC reason",
     "Matched account",
     "Matched date",
     "Matched description",
@@ -459,6 +501,8 @@ export function expensesReportRows(report: ExpenseReport): { header: string[]; r
     return [
       ...padded,
       m.found ? "found" : "not found",
+      m.found ? (m.tbc ? "TRUE" : "FALSE") : "", // not-found rows aren't a match to confirm
+      (m.tbcReasons ?? []).join("; "),
       m.matchedAccount ?? "",
       m.matchedDate ?? "",
       m.matchedDescription ?? "",

@@ -720,7 +720,7 @@ body {
    (equal specificity, declared later) so Supplier no longer eats the whole row. */
 .expenses-table th:nth-child(1),
 .expenses-table td:nth-child(1) {
-  width: 15%;
+  width: 14%;
 } /* Supplier */
 .expenses-table th:nth-child(2),
 .expenses-table td:nth-child(2) {
@@ -740,22 +740,31 @@ body {
 } /* Found */
 .expenses-table th:nth-child(6),
 .expenses-table td:nth-child(6) {
-  width: 16%;
-} /* Matched */
+  width: 7%;
+} /* TBC */
 .expenses-table th:nth-child(7),
 .expenses-table td:nth-child(7) {
-  width: 6%;
-} /* Days */
+  width: 14%;
+} /* Matched */
 .expenses-table th:nth-child(8),
 .expenses-table td:nth-child(8) {
-  width: 22%;
-} /* Bank description */
-/* Optional 9th column (Link) — only present when the CSV carries links. Inert with 8
-   columns; with 9, the widths total >100% and table-layout:fixed scales them to fit. */
+  width: 6%;
+} /* Days */
 .expenses-table th:nth-child(9),
 .expenses-table td:nth-child(9) {
+  width: 18%;
+} /* Bank description */
+/* Optional 10th column (Link) — only present when the CSV carries links. Inert with 9
+   columns; with 10, the widths total >100% and table-layout:fixed scales them to fit. */
+.expenses-table th:nth-child(10),
+.expenses-table td:nth-child(10) {
   width: 8%;
 } /* Link */
+/* A found match worth a second look — the reason is on the cell's hover title. */
+.expense-tbc {
+  color: var(--soft);
+  font-weight: 600;
+}
 .expense-missing td {
   color: var(--ink-soft);
 }

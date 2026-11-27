@@ -827,7 +827,8 @@ pdfjs-dist`): for the target banks, reading the PDF's text positions (x/y) and
   different merchant "… ARTAN" at the same amount+date) — place names are structurally
   indistinguishable from a distinctive brand token (cf. the correct "Richard J Gough"→"R J GOUGH"
   abbreviation), so this is accepted, not special-cased. A matched transaction is tagged `category =
-  EXPENSE_CATEGORY` — the string **"Expenses"**, a marker, NOT the expense's own category and
+  EXPENSE_CATEGORY` — the string **"Expenses"** (or **`EXPENSE_TBC_CATEGORY` = "Expenses TBC"** when the
+  match is flagged TBC, so the transaction table's Category filter isolates the ones to confirm), a marker, NOT the expense's own category and
   deliberately NOT a member of `CATEGORIES` — **but only when the row has no category yet**: on
   the PDF path that is every row (matching runs before categorization), while on a re-imported
   CSV/Excel the user's hand-typed categories are real data the marker must not erase (the match is
@@ -836,8 +837,8 @@ pdfjs-dist`): for the target banks, reading the PDF's text positions (x/y) and
   returned `ExpenseMatch` records where it matched (date · account · **bank description** ·
   **signed day gap** · **source file+page**). Wired in `app/api/extract/route.ts`
   parallel to `maybeCategorize`: expense matching runs **BEFORE** categorization, and
-  `maybeCategorize` then **skips rows already tagged `EXPENSE_CATEGORY`** (`.filter(t => t.category
-  !== EXPENSE_CATEGORY)`) — so the marker is never overwritten AND no AI is spent on matched rows.
+  `maybeCategorize` then **skips rows already tagged with either marker** (`.filter(t =>
+  !isExpenseMarker(t.category))`) — so the marker is never overwritten AND no AI is spent on matched rows.
   The **day gap** (`ExpenseMatch.matchedDayGap`) is the SIGNED difference statement-date minus
   expense-date, from the private `dayOffset` helper — kept separate from `daysBetween`, which stays
   ABSOLUTE because `pickBest` needs a distance while the report needs a direction (a debit dated
@@ -862,8 +863,14 @@ pdfjs-dist`): for the target banks, reading the PDF's text positions (x/y) and
   The matched debit's **Source (file + page) is NOT shown on screen** — it lives only in the CSV
   export. **CSV export (`expensesReportToCsv`) reproduces the ORIGINAL `expenses.csv` verbatim**
   — every source column in its own order, incl. all VAT columns and the link column under its
-  OWN original name — and appends **Found · Matched account · Matched date · Matched description ·
-  Days · Source** (account and date stay SEPARATE columns in the export, for spreadsheet use; the
+  OWN original name — and appends **Found · TBC · TBC reason · Matched account · Matched date · Matched description ·
+  Days · Source**. **TBC ("to be confirmed")** flags a FOUND match worth a second look — the bank
+  posted before the receipt, more than `TBC_MAX_LAG_DAYS` (3) after it, or several debits passed all
+  rules and the closest was picked (`tbcReasonsFor` in expenses.ts; calibrated: 216/220 real matches
+  post 0–3 days later → 4 flagged). TRUE/FALSE for found rows, empty for not-found; the reason is
+  plain words. On screen: a TBC column ("Yes", reason on hover) and the summary adds "· N to
+  confirm" (the verdict is ✓ only when all found AND none TBC). Name strength and alias matches are
+  deliberately NOT flagged (account and date stay SEPARATE columns in the export, for spreadsheet use; the
   single "Matched" cell is UI-only, and **Days is written as a plain signed integer** — no `+`
   prefix, ASCII hyphen — so a spreadsheet reads it as a number). Nothing in the source is mutated. To do this,
   `parseExpensesCsv` stores each row's original cells on `Expense.raw` and the original header on

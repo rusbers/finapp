@@ -17,6 +17,8 @@ import {
   nameMatches,
   supplierMatches,
   EXPENSE_CATEGORY,
+  EXPENSE_TBC_CATEGORY,
+  isExpenseMarker,
   type MatchEntry,
 } from "../lib/core/expenses"
 import { extractAccounts, type AccountInput } from "../lib/core/multi-account-extract"
@@ -143,16 +145,17 @@ check("parse: no link column -> link undefined", parsed[0].link === undefined)
     r.matches[0].matchedSourceFile === "june.pdf" && r.matches[0].matchedPage === 3,
   )
 }
-// Export shape: original CSV preserved verbatim (incl. VAT) + exactly 6 appended columns.
+// Export shape: original CSV preserved verbatim (incl. VAT) + exactly 8 appended columns.
 {
   const r = matchExpenses(parsed, [{ tx: tx("2025-12-30", 30.03, "POS CIRCLE K CLONTARF") }])
   const csv = expensesReportToCsv(r)
   const head = csv.split("\n")[0]
   check("export: preserves original VAT column", head.includes("VAT Total"))
   check(
-    "export: appends Found + Matched account/date/description + Days + Source",
-    head.endsWith("Found,Matched account,Matched date,Matched description,Days,Source"),
+    "export: appends Found + TBC + TBC reason + Matched account/date/description + Days + Source",
+    head.endsWith("Found,TBC,TBC reason,Matched account,Matched date,Matched description,Days,Source"),
   )
+  check("export: a certain match has TBC FALSE, not-found has it empty", csv.includes(",found,FALSE,,") && csv.includes(",not found,,,"))
   check("export: preserves a VAT value in a data row", csv.includes(",5.62,") && csv.includes(",10.38,"))
   check("export: found/not found rows", csv.includes(",found,") && csv.includes(",not found,"))
   check("export: carries the matched bank description", csv.includes("POS CIRCLE K CLONTARF"))
@@ -171,9 +174,45 @@ check("parse: no link column -> link undefined", parsed[0].link === undefined)
   check(
     "export: link column keeps its original name",
     head ===
-      "Supplier,Amount,Receipt URL,Found,Matched account,Matched date,Matched description,Days,Source",
+      "Supplier,Amount,Receipt URL,Found,TBC,TBC reason,Matched account,Matched date,Matched description,Days,Source",
   )
   check("export: original link URL preserved", csv.includes("https://receipts.example/1"))
+}
+// TBC ("to be confirmed"): a found match outside the normal 0–3 day lag, or picked from
+// several equally valid debits, is flagged with a plain-words reason.
+{
+  const [w] = parseExpensesCsv(`"Supplier","Category","Date","Amount"\n"Woodies","X","2025-06-10","20.00"`)
+  const at = (date: string, ...more: string[]) =>
+    matchExpenses([w], [date, ...more].map((d) => ({ tx: tx(d, 20, "POS WOODIES CORK") })))
+  const ok = at("2025-06-11") // +1
+  check("tbc: +1 day is certain", ok.matches[0].tbc === false && ok.tbcCount === 0)
+  const edge = at("2025-06-13") // +3
+  check("tbc: +3 days (edge of normal lag) is certain", edge.matches[0].tbc === false)
+  const late = at("2025-06-15") // +5
+  check("tbc: +5 days flagged", late.matches[0].tbc === true && late.tbcCount === 1)
+  check("tbc: +5 reason", late.matches[0].tbcReasons?.[0] === "bank posted 5 days after the receipt")
+  const early = at("2025-06-04") // -6
+  check("tbc: bank before receipt flagged", early.matches[0].tbcReasons?.[0] === "bank posted 6 days before the receipt")
+  const one = at("2025-06-09") // -1
+  check("tbc: singular day", one.matches[0].tbcReasons?.[0] === "bank posted 1 day before the receipt")
+  const two = at("2025-06-11", "2025-06-12") // two valid debits
+  check("tbc: several possible debits flagged", two.matches[0].tbc === true && two.matches[0].tbcReasons?.[0] === "2 possible debits — closest date picked")
+  check("tbc: closest still picked", two.matches[0].matchedDate === "2025-06-11")
+  const none = matchExpenses([w], [])
+  check("tbc: not-found has no tbc", none.matches[0].tbc === undefined && none.tbcCount === 0)
+  const csv = expensesReportToCsv(late)
+  check("tbc: export carries TRUE + reason", csv.includes(",found,TRUE,bank posted 5 days after the receipt,"))
+  // The matched debit's category marker tells the two apart in the transaction table.
+  const lateEntry: MatchEntry[] = [{ tx: tx("2025-06-15", 20, "POS WOODIES CORK") }]
+  matchExpenses([w], lateEntry)
+  check("tbc: a TBC match tags the debit 'Expenses TBC'", lateEntry[0].tx.category === EXPENSE_TBC_CATEGORY && EXPENSE_TBC_CATEGORY === "Expenses TBC")
+  const okEntry: MatchEntry[] = [{ tx: tx("2025-06-11", 20, "POS WOODIES CORK") }]
+  matchExpenses([w], okEntry)
+  check("tbc: a certain match tags the debit 'Expenses'", okEntry[0].tx.category === EXPENSE_CATEGORY)
+  const keptEntry: MatchEntry[] = [{ tx: { ...tx("2025-06-15", 20, "POS WOODIES CORK"), category: "DIY" } }]
+  matchExpenses([w], keptEntry)
+  check("tbc: a row with its own category keeps it", keptEntry[0].tx.category === "DIY")
+  check("marker: both markers recognised, others not", isExpenseMarker("Expenses") && isExpenseMarker("Expenses TBC") && !isExpenseMarker("Fuel") && !isExpenseMarker(undefined))
 }
 
 // --- Fuzzy supplier-name matcher + NAME-REQUIRED matching -----------------

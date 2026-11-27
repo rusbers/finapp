@@ -100,8 +100,8 @@ export const strings = {
   addExpensesButton: "+ Add expenses",
   removeExpenses: "Remove expenses",
   expensesHeading: "Expense reconciliation",
-  expensesSummary: (found: number, total: number) =>
-    `${found} of ${total} expenses found in the statement`,
+  expensesSummary: (found: number, total: number, tbc: number) =>
+    `${found} of ${total} expenses found in the statement${tbc > 0 ? ` · ${tbc} to confirm` : ""}`,
   expensesColumns: {
     supplier: "Supplier",
     description: "Description", // the EXPENSE's own description (export only — not shown on screen)
@@ -109,6 +109,7 @@ export const strings = {
     date: "Date",
     amount: "Amount",
     found: "Found",
+    tbc: "TBC", // a found match worth a second look (date gap / several possible debits)
     matched: "Matched",
     days: "Days", // signed gap between the expense date and the bank posting
     matchedDescription: "Bank description", // the statement line the expense matched, verbatim
@@ -117,6 +118,8 @@ export const strings = {
   },
   // Hover hint on the Days header — a native title, so it isn't clipped by the cell's overflow.
   expensesDaysHint: "Days from the expense date to the bank posting (+ = the bank posted later)",
+  expensesTbcHint: "To be confirmed — hover a row for the reason",
+  expenseTbc: "Yes",
   expenseFound: "found",
   expenseNotFound: "not found",
   expenseLinkText: "Link", // the hyperlink text inside each cell (the URL itself stays hidden)

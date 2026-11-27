@@ -160,7 +160,7 @@ export const FEATURE_GROUPS: FeatureGroup[] = [
       {
         name: "Found / not-found report",
         description:
-          "For each expense: whether it was found, on which account and date, the bank's description and the day gap — so a match is reviewable without opening the PDF. Unmatched expenses are the list to review.",
+          "For each expense: whether it was found, on which account and date, the bank's description and the day gap — so a match is reviewable without opening the PDF. Matches worth a second look (an unusual date gap, or several possible debits) are flagged TBC with the reason. Unmatched expenses are the list to review.",
       },
       {
         name: "Report export",

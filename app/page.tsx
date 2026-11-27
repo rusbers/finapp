@@ -1054,6 +1054,11 @@ export default function Page() {
   // Show the "Link" column only when the uploaded expenses.csv actually carries usable
   // (http/www) links — a plain expenses export leaves the table at its 6 columns.
   const hasExpenseLinks = result?.expenses?.matches.some((m) => expenseHref(m.expense.link)) ?? false
+  // The expenses verdict is ✓ only when every expense is found AND none is "to confirm".
+  const expensesSettled =
+    !!result?.expenses &&
+    result.expenses.foundCount === result.expenses.total &&
+    result.expenses.tbcCount === 0
 
   return (
     <main className="page">
@@ -1525,14 +1530,10 @@ export default function Page() {
           normal reconciliation result. */}
       {result?.expenses && (
         <>
-          <div
-            className={`verdict ${result.expenses.foundCount === result.expenses.total ? "pass" : "soft"}`}
-          >
+          <div className={`verdict ${expensesSettled ? "pass" : "soft"}`}>
             <div className="verdict-head">
-              <span className="pill">
-                {result.expenses.foundCount === result.expenses.total ? "✓" : "≈"}
-              </span>
-              {s.expensesSummary(result.expenses.foundCount, result.expenses.total)}
+              <span className="pill">{expensesSettled ? "✓" : "≈"}</span>
+              {s.expensesSummary(result.expenses.foundCount, result.expenses.total, result.expenses.tbcCount)}
             </div>
           </div>
           <div className="per-file">
@@ -1555,6 +1556,7 @@ export default function Page() {
                   <th className="date">{s.expensesColumns.date}</th>
                   <th className="num">{s.expensesColumns.amount}</th>
                   <th>{s.expensesColumns.found}</th>
+                  <th title={s.expensesTbcHint}>{s.expensesColumns.tbc}</th>
                   <th>{s.expensesColumns.matched}</th>
                   <th className="num" title={s.expensesDaysHint}>
                     {s.expensesColumns.days}
@@ -1585,6 +1587,9 @@ export default function Page() {
                       <td className="num">{m.expense.amount.toFixed(2)}</td>
                       <td className={m.found ? "trace-ok" : "trace-fail"}>
                         {m.found ? `✓ ${s.expenseFound}` : `✗ ${s.expenseNotFound}`}
+                      </td>
+                      <td className={m.tbc ? "expense-tbc" : ""} title={m.tbcReasons?.join("; ")}>
+                        {m.tbc ? s.expenseTbc : ""}
                       </td>
                       <td className="date" title={matched}>
                         {matched}

@@ -16,7 +16,7 @@ import { categorizeTransactions } from "@/lib/core/categorization"
 import {
   parseExpensesCsv,
   matchExpenses,
-  EXPENSE_CATEGORY,
+  isExpenseMarker,
   type MatchEntry,
 } from "@/lib/core/expenses"
 import {
@@ -70,14 +70,14 @@ export async function POST(req: NextRequest) {
     // toggle is on (it costs AI). Rules catch most rows for free; AI handles the
     // rest (unique descriptions, in parallel). It mutates `category` in place and
     // NEVER affects reconciliation.
-    // Categorization skips rows already tagged EXPENSE_CATEGORY (matched by the expense
+    // Categorization skips rows already tagged with an expense marker ("Expenses" / "Expenses TBC") (matched by the expense
     // step, which runs FIRST in each branch) — so an expense's marker is never overwritten
     // and no AI is spent on it.
     const categorize = formData.get("categorize") === "true"
     const maybeCategorize = async (txArrays: Transaction[][]) =>
       categorize
         ? await categorizeTransactions(
-            txArrays.flat().filter((t) => t.category !== EXPENSE_CATEGORY),
+            txArrays.flat().filter((t) => !isExpenseMarker(t.category)),
             { useAi: true, model: primaryModel, signal },
           )
         : null
@@ -130,7 +130,7 @@ export async function POST(req: NextRequest) {
 
     // Optional expense reconciliation — when an `expenses.csv` is attached, match each
     // expense against a statement debit (exact cents + supplier name + date window) and
-    // tag matched rows `category = EXPENSE_CATEGORY` (only rows with no category yet —
+    // tag matched rows `category = EXPENSE_CATEGORY` ("Expenses TBC" when the match is to be confirmed) (only rows with no category yet —
     // here that is every row). Runs BEFORE categorization in each branch, which then
     // skips the tagged rows. Pure, deterministic, never affects reconciliation.
     const expensesFile = formData.get("expenses")

@@ -18,8 +18,9 @@ export type ChangelogEntry = {
 export const CHANGELOG: ChangelogEntry[] = [
   {
     date: "2026-11-27",
-    title: "Expenses from Excel, wider expense matching",
+    title: "Expenses from Excel, wider expense matching, dark theme",
     items: [
+      "Dark theme: the app follows the device's light / dark setting, and a switch in the header (Match device / Light / Dark) overrides it — remembered in the browser.",
       "The expenses file can now be an Excel workbook (.xlsx) as well as a CSV.",
       "Re-import: expense rows can be pasted from Excel too (Ctrl+V) — a paste with an expenses header goes to the expenses, not the transactions.",
       "Expense matching accepts a bank posting up to 7 days from the receipt date (was 5).",

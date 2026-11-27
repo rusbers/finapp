@@ -14,6 +14,7 @@
 
 import { useState, useEffect, useMemo, useRef, useSyncExternalStore } from "react"
 import Link from "next/link"
+import { ThemeSwitch } from "./theme-switch"
 import { fromCents, checkReconciliation } from "@/lib/core/reconciliation"
 import { findBalanceBreaks, isExplainedByCryptoFees, transactionSource } from "@/lib/core/verification"
 import type {
@@ -1098,6 +1099,7 @@ export default function Page() {
             </Link>
           </>
         )}
+        <ThemeSwitch />
         <button
           type="button"
           className={`dev-toggle ${dev ? "on" : ""}`}

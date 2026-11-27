@@ -3,25 +3,50 @@
  * Palette drawn from the accountant's world: neutral paper, ink,
  * ledger green for "it balances", amber for a discrepancy.
  * Numbers are monospaced (they read and align like a ledger).
+ *
+ * Theme: every colour is light-dark(<light>, <dark>). Which side applies
+ * follows `color-scheme`: by default the device preference ("System"),
+ * or forced by <html data-theme="light|dark"> (the header switch, see
+ * app/theme-switch.tsx). Dark keeps the same restrained look: near-black
+ * paper, slightly raised cards, colour only on accents; verdict colours stay
+ * semantic, lightened for contrast; filled accents turn light, so the text
+ * on them (--on-fill) turns dark.
  * ------------------------------------------------------------------ */
 
 :root {
-  --paper: #f6f7f9;
-  --card: #ffffff;
-  --ink: #181b22;
-  --ink-soft: #5b6472;
-  --line: #e4e7ec;
-  --ledger-green: #0e7c5a;
-  --ledger-green-bg: #e7f4ef;
-  --discrepancy: #c2410c;
-  --discrepancy-bg: #fdf0e9;
-  --soft: #8a6d0b;
-  --soft-bg: #fbf3da;
-  --action: #21456e;
-  --action-hover: #2c5687;
+  color-scheme: light dark; /* also drives native inputs, selects, scrollbars */
+
+  --paper: light-dark(#f6f7f9, #0f1115);
+  --card: light-dark(#ffffff, #171a21);
+  --ink: light-dark(#181b22, #e6e8ec);
+  --ink-soft: light-dark(#5b6472, #9aa3b2);
+  --line: light-dark(#e4e7ec, #2a2f39);
+  --ledger-green: light-dark(#0e7c5a, #3ccf96);
+  --ledger-green-bg: light-dark(#e7f4ef, #10291f);
+  --discrepancy: light-dark(#c2410c, #f2865a);
+  --discrepancy-bg: light-dark(#fdf0e9, #2e1a12);
+  --discrepancy-line: light-dark(#f3cdb9, #5a2f1d);
+  --soft: light-dark(#8a6d0b, #e3b84f);
+  --soft-bg: light-dark(#fbf3da, #2a2310);
+  --action: light-dark(#21456e, #6b9be0);
+  --action-hover: light-dark(#2c5687, #86afe8);
+  --action-tint: light-dark(#eef3f9, #18263a); /* drag-over highlight */
+  --on-fill: light-dark(#fff, #0f1115); /* text on filled accents: buttons, active chips, pills, tooltip */
+  --neutral-bg: light-dark(#eef1f5, #232832);
+  --table-head: light-dark(#fafbfc, #1b1f27);
+  --shadow: light-dark(rgba(24, 27, 34, 0.18), rgba(0, 0, 0, 0.5));
+  --shadow-soft: light-dark(rgba(24, 27, 34, 0.12), rgba(0, 0, 0, 0.4));
+  --shadow-faint: light-dark(rgba(0, 0, 0, 0.08), rgba(0, 0, 0, 0.3));
+  --scrollbar: light-dark(rgba(120, 120, 130, 0.3), rgba(160, 165, 180, 0.35));
 
   --font-ui: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
   --font-num: "JetBrains Mono", "SF Mono", "Menlo", monospace;
+}
+:root[data-theme="light"] {
+  color-scheme: light;
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
 }
 
 * {
@@ -59,7 +84,7 @@ body {
   padding: 3px 10px;
   border-radius: 999px;
   background: var(--action);
-  color: #fff;
+  color: var(--on-fill);
   font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.06em;
@@ -86,7 +111,41 @@ body {
 .dev-toggle.on {
   background: var(--action);
   border-color: var(--action);
-  color: #fff;
+  color: var(--on-fill);
+}
+/* Theme switch (Match device / Light / Dark) — a small icon segmented control,
+   as quiet as the dev toggle beside it; the chosen option is a raised chip. */
+.theme-switch {
+  flex-shrink: 0;
+  margin-top: 4px;
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--card);
+}
+.theme-switch button {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 24px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ink-soft);
+  cursor: pointer;
+}
+.theme-switch button:hover:not(.on) {
+  color: var(--ink);
+}
+.theme-switch button.on {
+  background: var(--neutral-bg);
+  color: var(--ink);
+}
+.theme-switch button:focus-visible {
+  outline: 2px solid var(--action);
+  outline-offset: 1px;
 }
 /* Header nav links (Features + Changelog, shown only in developer view for now) — as
    quiet as the toggle. */
@@ -230,7 +289,7 @@ body {
 .source-toggle button.on {
   background: var(--card);
   color: var(--ink);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+  box-shadow: 0 1px 2px var(--shadow-faint);
 }
 .source-toggle button:disabled {
   cursor: default;
@@ -280,7 +339,7 @@ body {
   padding: 8px 14px;
   border: 0;
   border-radius: 8px;
-  background: #eef1f5;
+  background: var(--neutral-bg);
   color: var(--ink);
   font-size: 14px;
   font-weight: 500;
@@ -307,7 +366,7 @@ body {
 .file-picker.dragging {
   border-style: dashed;
   border-color: var(--action);
-  background: #eef3f9;
+  background: var(--action-tint);
 }
 .file-picker.dragging .file-picker-status {
   color: var(--action);
@@ -326,7 +385,7 @@ body {
   border: 0;
   border-radius: 10px;
   background: var(--action);
-  color: #fff;
+  color: var(--on-fill);
   font-size: 14px;
   font-weight: 600;
   cursor: pointer;
@@ -366,7 +425,7 @@ body {
   background: var(--discrepancy-bg);
   color: var(--discrepancy);
   font-size: 14px;
-  border: 1px solid #f3cdb9;
+  border: 1px solid var(--discrepancy-line);
 }
 
 /* Financial-period selector (year chips + custom range), above the verdict */
@@ -409,13 +468,13 @@ body {
   transform: translateX(-50%);
   white-space: nowrap;
   background: var(--ink);
-  color: #fff;
+  color: var(--on-fill);
   font-size: 12px;
   font-weight: 400;
   font-style: normal;
   padding: 6px 10px;
   border-radius: 6px;
-  box-shadow: 0 6px 18px rgba(24, 27, 34, 0.18);
+  box-shadow: 0 6px 18px var(--shadow);
   opacity: 0;
   pointer-events: none;
   transition: opacity 0.12s;
@@ -450,7 +509,7 @@ body {
 .chip.active {
   background: var(--action);
   border-color: var(--action);
-  color: #fff;
+  color: var(--on-fill);
 }
 .period-range {
   display: flex;
@@ -510,7 +569,7 @@ body {
   border-radius: 50%;
   display: grid;
   place-items: center;
-  color: #fff;
+  color: var(--on-fill);
   font-size: 13px;
   font-weight: 700;
   flex-shrink: 0;
@@ -632,7 +691,7 @@ body {
 /* "Ignored" — only on the excluded copy; neutral grey, even quieter than Duplicate. */
 .file-badge--ignored {
   color: var(--ink-soft);
-  background: #eef1f5;
+  background: var(--neutral-bg);
 }
 .files-pending {
   color: var(--ink-soft);
@@ -979,7 +1038,7 @@ table {
 thead th {
   text-align: left;
   padding: 12px 16px;
-  background: #fafbfc;
+  background: var(--table-head);
   font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 0.04em;
@@ -1085,7 +1144,7 @@ td.category {
   background: var(--card);
   border: 1px solid var(--line);
   border-radius: 8px;
-  box-shadow: 0 8px 24px rgba(24, 27, 34, 0.12);
+  box-shadow: 0 8px 24px var(--shadow-soft);
   font-size: 13px;
   color: var(--ink);
 }
@@ -1139,7 +1198,7 @@ td.category {
   color: var(--ink);
 }
 .col-filter-btn.active {
-  color: #fff;
+  color: var(--on-fill);
   background: var(--action);
   border-color: var(--action);
 }
@@ -1149,7 +1208,7 @@ td.category {
   background: var(--card);
   border: 1px solid var(--line);
   border-radius: 8px;
-  box-shadow: 0 8px 24px rgba(24, 27, 34, 0.12);
+  box-shadow: 0 8px 24px var(--shadow-soft);
   padding: 6px;
   font-size: 13px;
   color: var(--ink);
@@ -1328,7 +1387,7 @@ td.source {
   scrollbar-color: transparent transparent; /* Firefox: hidden until hover */
 }
 .src-scroll:hover {
-  scrollbar-color: rgba(120, 120, 130, 0.3) transparent; /* Firefox */
+  scrollbar-color: var(--scrollbar) transparent; /* Firefox */
 }
 .src-scroll::-webkit-scrollbar {
   height: 6px;
@@ -1348,7 +1407,7 @@ td.source {
 .src-scroll:hover::-webkit-scrollbar-thumb {
   /* subtle, semi-transparent, hover only; the transparent border insets the thumb
      so it reads thinner than the 6px track. */
-  background: rgba(120, 120, 130, 0.3);
+  background: var(--scrollbar);
   border-radius: 999px;
   border: 1px solid transparent;
   background-clip: padding-box;
@@ -1474,11 +1533,11 @@ td.source {
   border-radius: 50%;
   border: 0;
   background: var(--action);
-  color: #fff;
+  color: var(--on-fill);
   font-size: 20px;
   line-height: 1;
   cursor: pointer;
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18);
+  box-shadow: 0 4px 14px var(--shadow);
   display: grid;
   place-items: center;
   transition: background 0.15s;
@@ -1503,12 +1562,12 @@ td.source {
   border-radius: 999px;
   padding: 10px 18px;
   background: var(--action);
-  color: #fff;
+  color: var(--on-fill);
   font-family: var(--font-ui);
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18);
+  box-shadow: 0 4px 14px var(--shadow);
   transition: background 0.15s;
   z-index: 50;
 }
@@ -1742,14 +1801,14 @@ tbody tr.flash td {
 /* Auto-corrections made from the running balance (positive — shown in green) */
 .corrections {
   margin-top: 18px;
-  background: var(--ledger-green-bg, #e8f5e9);
-  border: 1px solid var(--ledger-green, #2e7d32);
+  background: var(--ledger-green-bg);
+  border: 1px solid var(--ledger-green);
   border-radius: 12px;
   padding: 16px 20px;
 }
 .corrections-msg {
   font-size: 14px;
-  color: var(--ledger-green, #2e7d32);
+  color: var(--ledger-green);
   font-weight: 600;
 }
 .corrections-list {
@@ -1762,7 +1821,7 @@ tbody tr.flash td {
   gap: 6px;
 }
 .corrections-list b {
-  color: var(--ledger-green, #2e7d32);
+  color: var(--ledger-green);
 }
 
 /* Row number column — grayed out, narrow, for locating flagged rows */

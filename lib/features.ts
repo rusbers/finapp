@@ -205,4 +205,14 @@ export const FEATURE_GROUPS: FeatureGroup[] = [
       },
     ],
   },
+  {
+    title: "Appearance",
+    features: [
+      {
+        name: "Light and dark theme",
+        description:
+          "The app follows your device's light or dark setting by default; the switch in the header forces Light or Dark instead, and the browser remembers the choice.",
+      },
+    ],
+  },
 ]

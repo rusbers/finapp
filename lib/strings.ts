@@ -50,6 +50,8 @@ export const strings = {
 
   // View mode (clean production view vs full developer detail)
   devView: (on: boolean) => `Developer view: ${on ? "On" : "Off"}`,
+  // Appearance switch (header) — icon buttons; these are their tooltips / accessible names.
+  theme: { label: "Theme", system: "Match device", light: "Light", dark: "Dark" },
   // Sub-pages (app/features, app/changelog): the shared back link + each page's labels.
   backToApp: "← Back to the app",
   // Features page — written for users; the header link is behind Developer view for now

@@ -18,6 +18,7 @@ import {
   parseTransactionsCsv,
   parseTransactionsWorkbook,
   expensesWorkbookToCsv,
+  pastedExpensesToCsv,
   parseTsvRows,
   statementsFromSources,
   CSV_IMPORT_BAD_FORMAT,
@@ -392,6 +393,22 @@ try {
   threw16 = e instanceof Error ? e.message : String(e)
 }
 check("a tab-separated paste without Debit/Credit is rejected as bad format", threw16 === CSV_IMPORT_BAD_FORMAT)
+
+// --- Expenses pasted from Excel (Ctrl+V) -------------------------------------------
+// Excel's clipboard is tab-separated; a cell with a comma isn't quoted, one with a tab
+// or newline is. An expenses header routes to the expenses slot, anything else doesn't.
+{
+  const paste = 'Supplier\tDescription\tCategory\tDate\tAmount\r\nTesco, Ltd\tGroceries\tFood\t07/03/2025\t1,234.50\r\nEir\t"Broad\nband"\tUtilities\t15/03/2025\t60\r\n'
+  const csvP = pastedExpensesToCsv(paste)
+  const expsP = csvP ? parseExpensesCsv(csvP) : []
+  check("paste: expenses header recognised", csvP != null && expsP.length === 2)
+  check("paste: comma in a cell survives", expsP[0]?.supplier === "Tesco, Ltd")
+  check("paste: day-first date → ISO, thousands separator → cents", expsP[0]?.date === "2025-03-07" && expsP[0]?.amountCents === 123450)
+  check("paste: multi-line cell rejoined", expsP[1]?.description === "Broad\nband" && expsP[1]?.amountCents === 6000)
+  check("paste: transactions header is NOT taken as expenses", pastedExpensesToCsv("Date\tDescription\tDebit\tCredit\tBalance\n2025-01-01\tX\t1\t\t9") === null)
+  check("paste: a random table is NOT taken as expenses", pastedExpensesToCsv("Name\tAge\nAna\t30") === null)
+  check("paste: comma CSV text also recognised", pastedExpensesToCsv('Supplier,Amount\n"A, B",10.00') != null)
+}
 
 // --- Expenses from an Excel workbook ------------------------------------------------
 // A user's own expenses spreadsheet (real date + number cells, a decoy sheet first)

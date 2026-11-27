@@ -241,13 +241,48 @@ function supplierTokens(supplier: string): string[] {
  * "LIDL IRELAND"). Entity suffixes, retail/fuel nouns, and country/generic terms. */
 const NAME_STOPWORDS = new Set([
   // entity / legal
-  "ltd", "limited", "plc", "llc", "inc", "co", "company", "group", "holdings", "ulc", "dac", "ta",
+  "ltd",
+  "limited",
+  "plc",
+  "llc",
+  "inc",
+  "co",
+  "company",
+  "group",
+  "holdings",
+  "ulc",
+  "dac",
+  "ta",
   // retail / fuel / generic nouns
-  "service", "services", "shop", "store", "retail", "station", "garage", "filling", "fuel",
-  "mart", "market", "supermarket", "express", "outlet", "village", "centre", "center",
-  "direct", "online", "sales", "insurance", "motor", "motors", "motorway",
+  "service",
+  "services",
+  "shop",
+  "store",
+  "retail",
+  "station",
+  "garage",
+  "filling",
+  "fuel",
+  "mart",
+  "market",
+  "supermarket",
+  "express",
+  "outlet",
+  "village",
+  "centre",
+  "center",
+  "direct",
+  "online",
+  "sales",
+  "insurance",
+  "motor",
+  "motors",
+  "motorway",
   // country / filler
-  "ireland", "irl", "the", "and",
+  "ireland",
+  "irl",
+  "the",
+  "and",
 ])
 
 /** Split into lowercased alphanumeric words, dropping pure-number tokens (refs, card
@@ -444,7 +479,8 @@ function tbcReasonsFor(gap: number | undefined, candidateCount: number): string[
   const reasons: string[] = []
   const days = (n: number) => `${n} day${n === 1 ? "" : "s"}`
   if (gap != null && gap < 0) reasons.push(`bank posted ${days(-gap)} before the receipt`)
-  else if (gap != null && gap > TBC_MAX_LAG_DAYS) reasons.push(`bank posted ${days(gap)} after the receipt`)
+  else if (gap != null && gap > TBC_MAX_LAG_DAYS)
+    reasons.push(`bank posted ${days(gap)} after the receipt`)
   if (candidateCount > 1) reasons.push(`${candidateCount} possible debits — closest date picked`)
   return reasons
 }

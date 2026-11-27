@@ -31,6 +31,7 @@ import type { MultiAccount, MultiAccountResult } from "@/lib/core/multi-account"
 import { expensesReportToCsv, parseExpensesCsv, matchExpenses, type ExpenseReport } from "@/lib/core/expenses"
 import {
   parseTransactionsCsv,
+  pastedExpensesToCsv,
   statementsFromSources,
   importedToStatement,
   CSV_IMPORT_BAD_FORMAT,
@@ -159,6 +160,8 @@ const IMPORT_ACCEPT =
 // (`exportBase` → "pasted-transactions-2025.csv"); an imported result never uses it as a
 // row's Source.
 const PASTED_FILE_NAME = "pasted-transactions.csv"
+/** Data rows in pasted text (header excluded), for the status chip only. */
+const pastedRowCount = (text: string) => Math.max(0, text.trim().split(/\r?\n/).length - 1)
 const SETTINGS_KEY = "extractionSettings"
 type Settings = typeof DEFAULTS
 
@@ -304,6 +307,9 @@ export default function Page() {
   // Optional expenses.csv — matched against the statement debits after reconciling.
   // Revealed by an "Add expenses" button (like adding another account).
   const [expensesFile, setExpensesFile] = useState<File | null>(null)
+  // …or the expense rows pasted from Excel (import mode; the paste effect routes a paste
+  // here when its header is an expenses header). Already CSV text. One source at a time.
+  const [expensesPasted, setExpensesPasted] = useState<string | null>(null)
   const [expensesOpen, setExpensesOpen] = useState(false)
   // Input source: extract from PDFs (default) or re-import a previously-exported
   // transactions CSV / Excel file (rebuilt + reconciled entirely client-side; no
@@ -439,6 +445,7 @@ export default function Page() {
     setExtraAccounts([])
     setPrimaryLabel("")
     setExpensesFile(null)
+    setExpensesPasted(null)
     setExpensesOpen(false)
     setCsvFile(null)
     setPastedText(null)
@@ -460,8 +467,17 @@ export default function Page() {
       const tabular = text.includes("\t") || text.trim().split(/\r?\n/).length >= 2
       if (!tabular) return
       e.preventDefault()
-      setPastedText(text)
-      setCsvFile(null)
+      // An expenses header (Amount + Supplier/Description, no Debit/Credit) goes to the
+      // expenses slot — opening it — so pasting expenses never replaces the transactions.
+      const expensesCsv = pastedExpensesToCsv(text)
+      if (expensesCsv != null) {
+        setExpensesPasted(expensesCsv)
+        setExpensesFile(null)
+        setExpensesOpen(true)
+      } else {
+        setPastedText(text)
+        setCsvFile(null)
+      }
       setResult(null)
       setError(null)
       setCancelled(false)
@@ -472,7 +488,7 @@ export default function Page() {
   }, [importMode, isLoading])
   // Rows in the pasted text, for the status chip only (a cell holding its own newline
   // counts extra — the parser, not this figure, decides what a row is).
-  const pastedRows = pastedText ? Math.max(0, pastedText.trim().split(/\r?\n/).length - 1) : 0
+  const pastedRows = pastedText ? pastedRowCount(pastedText) : 0
   const addAccount = () => {
     setExtraAccounts((prev) => [
       ...prev,
@@ -552,9 +568,14 @@ export default function Page() {
     extraAccounts.length > 0 ||
     !!csvFile ||
     !!pastedText ||
-    !!expensesFile
+    !!expensesFile ||
+    !!expensesPasted
   // Import mode has something to reconcile: an attached file OR pasted rows.
   const hasImportSource = !!csvFile || !!pastedText
+  // The expenses as CSV text — from the picked file (.csv / .xlsx) or the pasted rows;
+  // null when there are none.
+  const readExpensesSource = async (): Promise<string | null> =>
+    expensesFile ? readExpensesText(expensesFile) : expensesPasted
 
   async function handleCheck() {
     if (!canCheck) return
@@ -596,9 +617,9 @@ export default function Page() {
       fd.append("enableFallback", String(enableFallback))
       fd.append("categorize", String(categorize))
       // An .xlsx expenses file is converted to CSV here, so the route reads one format.
-      if (expensesFile) {
-        const csv = await readExpensesText(expensesFile)
-        fd.append("expenses", new File([csv], "expenses.csv", { type: "text/csv" }))
+      const expensesCsv = await readExpensesSource()
+      if (expensesCsv != null) {
+        fd.append("expenses", new File([expensesCsv], "expenses.csv", { type: "text/csv" }))
       }
       const { ok, data } = await postExtract(fd, {
         onUploadProgress: (pct) => setUploadPct(pct),
@@ -655,7 +676,7 @@ export default function Page() {
       const imported = csvFile ? await readTransactionsFile(csvFile) : parseTransactionsCsv(pastedText ?? "")
       // Only feeds the export file names (and the multi label); never a row's Source.
       const sourceName = csvFile ? csvFile.name : PASTED_FILE_NAME
-      const expensesText = expensesFile ? await readExpensesText(expensesFile) : null
+      const expensesText = await readExpensesSource()
 
       if (imported.length >= 2) {
         // Several accounts (a combined export) → multi-account result.
@@ -1376,6 +1397,7 @@ export default function Page() {
                 onClick={() => {
                   setExpensesOpen(false)
                   setExpensesFile(null)
+                  setExpensesPasted(null)
                   resetResult()
                 }}
               >
@@ -1388,9 +1410,34 @@ export default function Page() {
               count={expensesFile ? 1 : 0}
               onChange={(fs) => {
                 setExpensesFile(fs[0] ?? null)
+                setExpensesPasted(null)
                 resetResult()
               }}
             />
+            {/* Pasting expense rows is offered in import mode only (the paste effect). */}
+            {importMode === "csv" && !expensesPasted && <p className="paste-hint">{s.expensesPasteHint}</p>}
+            {expensesPasted && (
+              <div className="files">
+                <ul className="account-files">
+                  <li>
+                    <span className="account-file-name">{s.pastedStatus(pastedRowCount(expensesPasted))}</span>
+                    <span className="account-file-size">{formatSize(expensesPasted.length)}</span>
+                    <button
+                      type="button"
+                      className="file-remove"
+                      aria-label={s.removePastedExpenses}
+                      disabled={isLoading}
+                      onClick={() => {
+                        setExpensesPasted(null)
+                        resetResult()
+                      }}
+                    >
+                      ✕
+                    </button>
+                  </li>
+                </ul>
+              </div>
+            )}
           </div>
         )}
 

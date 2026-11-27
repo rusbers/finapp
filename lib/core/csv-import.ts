@@ -464,6 +464,26 @@ export function expensesWorkbookToCsv(sheets: WorkbookSheet[]): string {
   return rows.map((r) => r.map(csvCell).join(",")).join("\n")
 }
 
+/**
+ * Pasted text (Excel's clipboard rows, or CSV text) → the CSV `parseExpensesCsv` reads, if
+ * it looks like an EXPENSES table — header with "Amount" plus "Supplier" or "Description",
+ * and NOT our transactions header (Date/Debit/Credit). Otherwise null, so the caller sends
+ * the paste to the transactions slot as before. Lets one Ctrl+V on the page route itself.
+ */
+export function pastedExpensesToCsv(text: string): string | null {
+  const body = text.replace(/^﻿/, "")
+  const delimiter = detectDelimiter(body)
+  const rows = (delimiter === "\t" ? parseTsvRows(body) : parseCsvRows(body, delimiter)).filter((r) =>
+    r.some((c) => c.trim() !== ""),
+  )
+  if (rows.length === 0) return null
+  const header = rows[0].map((c) => c.trim())
+  const lower = header.map((c) => c.toLowerCase())
+  if (isTransactionsHeader(columnsOf(header))) return null
+  if (!(lower.includes("amount") && (lower.includes("supplier") || lower.includes("description")))) return null
+  return [header, ...rows.slice(1)].map((r) => r.map(csvCell).join(",")).join("\n")
+}
+
 // --- Per-statement breakdown ------------------------------------------------------
 
 /**

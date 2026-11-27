@@ -926,7 +926,12 @@ pdfjs-dist`): for the target banks, reading the PDF's text positions (x/y) and
   and a single line — are left to the browser) stores `pastedText`, shown as a "Pasted from Excel — N
   rows" chip with ✕ in place of the file row (one source at a time: a paste drops the file, picking a
   file drops the paste, Clear drops both); "Reconcile file" then calls `parseTransactionsCsv(pastedText)`
-  with `PASTED_FILE_NAME` ("pasted-transactions.csv") as the export-name stand-in. `parseTransactionsWorkbook
+  with `PASTED_FILE_NAME` ("pasted-transactions.csv") as the export-name stand-in. **Expenses can be
+  pasted the same way**: the listener first tries `pastedExpensesToCsv(text)` (csv-import.ts) — an
+  EXPENSES header (Amount + Supplier/Description, not Date/Debit/Credit) → CSV text stored as
+  `expensesPasted`, the expenses block opens with its own chip; anything else goes to `pastedText` as
+  before, so pasting expenses never replaces the transactions. Both run paths read the expenses via
+  `readExpensesSource()` (file → `readExpensesText`, else the paste). `parseTransactionsWorkbook
   (sheets)` takes every sheet as TYPED rows (Date objects → ISO — UTC parts when the reader gave UTC
   midnight; numbers → `#` / money; an Excel serial in the Date column → ISO) and picks the sheet:
   **"Combined"** when present (the multi-account workbook — all rows + Account column; that is where

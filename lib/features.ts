@@ -192,7 +192,7 @@ export const FEATURE_GROUPS: FeatureGroup[] = [
       {
         name: "Load a reconciled CSV or Excel",
         description:
-          "Bring back a file the app exported earlier — or paste the rows straight from Excel with Ctrl+V — and it is rebuilt and re-reconciled in the browser: no PDF, no AI.",
+          "Bring back a file the app exported earlier — or paste the rows straight from Excel with Ctrl+V (expense rows pasted the same way go to the expenses) — and it is rebuilt and re-reconciled in the browser: no PDF, no AI.",
       },
       {
         name: "Keep your edits",

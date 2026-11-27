@@ -585,7 +585,8 @@ of `toCsv` / `transactionSheet`; the rebuilt accounts feed the same client-safe
   the delimiter is detected on the header line outside quotes (`parseCsvRows(text, delimiter)`),
   and `;` switches the money cells to decimal-comma parsing (`decimalComma`).
 - **Paste from Excel** (Ctrl+C on the rows, header included → Ctrl+V anywhere on the page in
-  import mode): Excel puts a range on the clipboard as TAB-separated text with its OWN quoting
+  import mode; a paste whose header is an EXPENSES header — Amount + Supplier/Description, no
+  Debit/Credit — goes to the expenses slot instead, via `pastedExpensesToCsv`): Excel puts a range on the clipboard as TAB-separated text with its OWN quoting
   (captured via COM `Range.Copy` + `Get-Clipboard -Raw`, fixtures `scripts/fixtures/
   excel-clipboard-*.tsv`): a cell is quoted only when it holds a tab or a newline (inner quotes
   doubled); a cell that merely contains quotes — even a leading one — is emitted raw

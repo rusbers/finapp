@@ -99,6 +99,8 @@ export const strings = {
   expensesLabel: "Expenses (CSV or Excel)",
   addExpensesButton: "+ Add expenses",
   removeExpenses: "Remove expenses",
+  expensesPasteHint: "…or select the expense rows in Excel (header row included), copy, and press Ctrl+V anywhere on this page.",
+  removePastedExpenses: "Remove pasted expenses",
   expensesHeading: "Expense reconciliation",
   expensesSummary: (found: number, total: number, tbc: number) =>
     `${found} of ${total} expenses found in the statement${tbc > 0 ? ` · ${tbc} to confirm` : ""}`,

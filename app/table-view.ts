@@ -25,6 +25,7 @@ export type NumRange = { min?: number; max?: number }
  * - category: the subset of categories to SHOW; `null`/absent = show all.
  * - date: the subset of ISO days ("YYYY-MM-DD") to SHOW; `null`/absent = show all.
  * - debit/credit/balance: inclusive numeric range.
+ * - noBlanks: per column, hide rows whose cell is empty (Excel's "remove blanks").
  */
 export type Filters = {
   description?: string
@@ -34,7 +35,13 @@ export type Filters = {
   debit?: NumRange
   credit?: NumRange
   balance?: NumRange
+  noBlanks?: Partial<Record<BlankableColumn, boolean>>
 }
+
+/** Columns whose filter offers "Remove blanks". */
+export type BlankableColumn = "debit" | "credit" | "category"
+export const isBlankable = (col: ColumnKey): col is BlankableColumn =>
+  col === "debit" || col === "credit" || col === "category"
 
 /** Totals of the distinct values present, used to tell "all selected" from a real filter. */
 export type Totals = { categories: number; dates: number; accounts: number }
@@ -60,13 +67,13 @@ export function isColumnActive(col: ColumnKey, filters: Filters, totals: Totals)
     case "description":
       return !!filters.description?.trim()
     case "category":
-      return filters.category != null && filters.category.length < totals.categories
+      return (filters.category != null && filters.category.length < totals.categories) || !!filters.noBlanks?.category
     case "date":
       return filters.date != null && filters.date.length < totals.dates
     case "debit":
-      return filters.debit?.min != null || filters.debit?.max != null
+      return filters.debit?.min != null || filters.debit?.max != null || !!filters.noBlanks?.debit
     case "credit":
-      return filters.credit?.min != null || filters.credit?.max != null
+      return filters.credit?.min != null || filters.credit?.max != null || !!filters.noBlanks?.credit
     case "balance":
       return filters.balance?.min != null || filters.balance?.max != null
   }
@@ -92,6 +99,7 @@ export function applyView(
   const catSet = filters.category ? new Set(filters.category) : null
   const dateSet = filters.date ? new Set(filters.date) : null
   const accountSet = filters.account ? new Set(filters.account) : null
+  const nb = filters.noBlanks ?? {}
 
   let rows: DisplayRow[] = transactions.map((t, idx) => ({ t, idx }))
   rows = rows.filter(({ t }) => {
@@ -102,6 +110,9 @@ export function applyView(
     if (!numOk(t.debit, filters.debit)) return false
     if (!numOk(t.credit, filters.credit)) return false
     if (!numOk(t.balance, filters.balance)) return false
+    if (nb.debit && t.debit == null) return false
+    if (nb.credit && t.credit == null) return false
+    if (nb.category && !categoryOf(t).trim()) return false
     return true
   })
 

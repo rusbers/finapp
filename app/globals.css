@@ -1253,6 +1253,14 @@ td.category {
   background: var(--paper);
   color: var(--ink);
 }
+.filter-no-blanks {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  font-size: 13px;
+  cursor: pointer;
+}
 .filter-check-actions {
   display: flex;
   justify-content: space-between;

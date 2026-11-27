@@ -174,6 +174,7 @@ export const strings = {
   filterContains: "Contains…",
   filterSelectAll: "Select all",
   filterDeselectAll: "Deselect all",
+  filterRemoveBlanks: "Remove blanks",
   filterMin: "Min",
   filterMax: "Max",
   clearColumn: "Clear",

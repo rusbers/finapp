@@ -46,8 +46,8 @@ import FilePicker from "./file-picker"
 import { saveCsv, saveTextFile } from "./save-file"
 import { saveWorkbook } from "./excel-export"
 import { expensesSheet, sheetName, summarySheet, transactionSheet, type XlsxSheet } from "@/lib/core/excel"
-import { applyView, anyFilterActive, isColumnActive } from "./table-view"
-import type { ColumnKey, Filters, SortState } from "./table-view"
+import { applyView, anyFilterActive, isBlankable, isColumnActive } from "./table-view"
+import type { BlankableColumn, ColumnKey, Filters, SortState } from "./table-view"
 import { strings as s } from "@/lib/strings"
 
 interface PerFileResult {
@@ -996,6 +996,15 @@ export default function Page() {
       else (next as Record<string, unknown>)[key] = value
       return next
     })
+  const setNoBlanks = (key: BlankableColumn, on: boolean) =>
+    setFilters((prev) => {
+      const nb = { ...prev.noBlanks }
+      if (on) nb[key] = true
+      else delete nb[key]
+      const next: Filters = { ...prev, noBlanks: nb }
+      if (!Object.keys(nb).length) delete next.noBlanks
+      return next
+    })
   const columnFilterProps = (key: ColumnKey, label: string, align: "left" | "right" = "left") => ({
     label,
     align,
@@ -1005,7 +1014,13 @@ export default function Page() {
       setOpenFilter(null)
     },
     active: isColumnActive(key, filters, totals),
-    onClear: () => setFilterSlice(key, undefined),
+    onClear: () => {
+      setFilterSlice(key, undefined)
+      if (isBlankable(key)) setNoBlanks(key, false)
+    },
+    ...(isBlankable(key)
+      ? { noBlanks: !!filters.noBlanks?.[key], onNoBlanksChange: (v: boolean) => setNoBlanks(key, v) }
+      : {}),
     open: openFilter === key,
     onToggle: () => setOpenFilter((cur) => (cur === key ? null : key)),
     onClose: () => setOpenFilter((cur) => (cur === key ? null : cur)),

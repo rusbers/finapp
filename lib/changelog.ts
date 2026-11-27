@@ -29,6 +29,7 @@ export const CHANGELOG: ChangelogEntry[] = [
       "Expense report: a TBC column flags matches worth a second look (bank posted before the receipt, more than 3 days after it, or several possible debits), with the reason — on screen and in the CSV / Excel export.",
       "In the transactions table, debits whose expense match is TBC get the category \"Expenses TBC\" (instead of \"Expenses\"), so the Category filter shows just the ones to confirm.",
       "Late-paying suppliers: a built-in list lets a supplier be charged later than 7 days after its invoice (eFlow: up to 25 days). Such matches are always flagged TBC.",
+      "Transactions table: the Debit, Credit and Category filters have a \"Remove blanks\" option that hides rows with that cell empty.",
     ],
   },
   {

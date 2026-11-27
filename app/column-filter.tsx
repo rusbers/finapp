@@ -26,6 +26,9 @@ type Base = {
   open: boolean
   onToggle: () => void
   onClose: () => void
+  /** "Remove blanks" checkbox — shown only when `onNoBlanksChange` is given. */
+  noBlanks?: boolean
+  onNoBlanksChange?: (v: boolean) => void
 }
 type Variant =
   | { type: "sort" } // sort asc/desc only, no filter body (e.g. the "#" row-order column)
@@ -148,6 +151,16 @@ export default function ColumnFilter(props: Props) {
                 <div className="filter-sep" />
                 <FilterBody {...props} />
               </>
+            )}
+            {props.onNoBlanksChange && (
+              <label className="filter-no-blanks">
+                <input
+                  type="checkbox"
+                  checked={!!props.noBlanks}
+                  onChange={(e) => props.onNoBlanksChange?.(e.target.checked)}
+                />
+                {s.filterRemoveBlanks}
+              </label>
             )}
             {active && (
               <div className="filter-actions">

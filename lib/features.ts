@@ -126,7 +126,7 @@ export const FEATURE_GROUPS: FeatureGroup[] = [
       {
         name: "Sort and filter per column",
         description:
-          "Spreadsheet-style menus on every column: text search on descriptions, amount ranges, a year → month → day picker on dates, value checkboxes on categories. Filters combine.",
+          "Spreadsheet-style menus on every column: text search on descriptions, amount ranges, a year → month → day picker on dates, value checkboxes on categories, and \"Remove blanks\" on debit, credit and category. Filters combine.",
       },
       {
         name: "Statement order",

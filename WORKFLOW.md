@@ -463,6 +463,9 @@ larger attempt with transfer matching + badges was reverted by the user.)
   statement-order index, so order can be restored after sorting the file (running balance is
   only valid in that order). Harness calls `toCsv` without the flag → snapshots unchanged.
   Forward-compatible with a future CSV re-import.
+- **Copy to clipboard (primary)**: first in every table toolbar (chip; downloads are links
+  after it). Tab-separated with the header row, to paste into Excel. Same rows as the
+  download (Financial period); column filters / sort are ignored on purpose.
 - **Exports = Save As dialog**: all "Download CSV" / "Download Excel" buttons call
   `saveFile(fileName, kind, produce)` (`app/save-file.ts`). With the File System Access API
   (Chrome/Edge) it opens a native Save As dialog — the user picks the folder/name, and

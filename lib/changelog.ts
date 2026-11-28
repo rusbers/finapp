@@ -17,6 +17,14 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    date: "2026-11-28",
+    title: "Copy to clipboard",
+    items: [
+      "Every table has a Copy to clipboard button (shown first, before the downloads) that copies it tab-separated, with the header row, ready to paste into an Excel sheet.",
+      "The copy carries the same rows as the downloads: the Financial period you picked (e.g. only 2023), whatever column filters or sort are on screen.",
+    ],
+  },
+  {
     date: "2026-11-27",
     title: "Expenses from Excel, wider expense matching, dark theme",
     items: [

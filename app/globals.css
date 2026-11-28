@@ -1662,6 +1662,23 @@ td.source {
 .link-button:hover {
   color: var(--action-hover);
 }
+/* "Copy to clipboard" — the primary way out of a table (pasted into the user's own
+   workbook), so a compact neutral chip; the downloads beside it stay quiet links. */
+.copy-button {
+  padding: 4px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--neutral-bg);
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 600;
+  font-family: var(--font-ui);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.copy-button:hover {
+  border-color: var(--ink-soft);
+}
 /* Toggle-style link button (e.g. "Check mode") — green while active. */
 .link-button[aria-pressed="true"] {
   color: var(--ledger-green);

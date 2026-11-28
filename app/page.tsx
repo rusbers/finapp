@@ -1667,6 +1667,7 @@ export default function Page() {
           <div className="per-file">
             <div className="files-head">
               <span className="per-file-title">{s.expensesHeading}</span>
+              <CopyButton getCsv={() => expensesReportToCsv(result.expenses!)} />
               <button
                 className="link-button"
                 onClick={() =>
@@ -1675,7 +1676,6 @@ export default function Page() {
               >
                 {s.downloadCsv}
               </button>
-              <CopyButton getCsv={() => expensesReportToCsv(result.expenses!)} />
             </div>
             <table className="files-table expenses-table">
               <thead>
@@ -1872,6 +1872,7 @@ export default function Page() {
                       ? `✓ ${s.attemptReconciled}`
                       : `✗ ${fromCents(Math.abs(a.reconciliation.discrepancyCents))}`}
                   </span>
+                  <CopyButton getCsv={() => statementCsv(accountStatement(a), sourceFallback)} />
                   <button
                     className="link-button"
                     onClick={() =>
@@ -1880,7 +1881,6 @@ export default function Page() {
                   >
                     {s.downloadCsv}
                   </button>
-                  <CopyButton getCsv={() => statementCsv(accountStatement(a), sourceFallback)} />
                   {/* Back to the accounts list. Only in the block header: at the END
                       of a table the next account's header follows immediately with its
                       own link, and the floating back-to-top button covers the last one.
@@ -2039,6 +2039,7 @@ export default function Page() {
                 </span>
                 {a.transactionCount > 0 && (
                   <>
+                    <CopyButton getCsv={() => statementCsv(accountStatement(a), a.fileNames[0])} />
                     <button
                       type="button"
                       className="link-button"
@@ -2052,7 +2053,6 @@ export default function Page() {
                     >
                       {s.downloadCsv}
                     </button>
-                    <CopyButton getCsv={() => statementCsv(accountStatement(a), a.fileNames[0])} />
                   </>
                 )}
               </div>
@@ -2378,6 +2378,9 @@ export default function Page() {
                 {s.clearAllFilters}
               </button>
             )}
+            {/* Copy = the same rows as the downloads: the Financial period's table, never
+                narrowed by the column filters or sort (those are display-only). */}
+            <CopyButton getCsv={() => statementCsv(mainStatement(), sourceFallback)} />
             <button
               className="link-button"
               onClick={() =>
@@ -2392,7 +2395,6 @@ export default function Page() {
             >
               {s.downloadCsv}
             </button>
-            <CopyButton getCsv={() => statementCsv(mainStatement(), sourceFallback)} />
             {/* The whole result as ONE Excel workbook (see buildMainWorkbook). */}
             <button
               className="link-button"

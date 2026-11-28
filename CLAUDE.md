@@ -997,6 +997,13 @@ pdfjs-dist`): for the target banks, reading the PDF's text positions (x/y) and
   the file elsewhere (the running balance is only valid in statement order; also handy for a
   future re-import of the app's own CSV). UI-export-only: the harness calls `toCsv` WITHOUT
   the flag, so its snapshots stay byte-identical.
+- **Copy to clipboard is the primary export** (`app/copy-button.tsx`, `app/clipboard.ts`):
+  the user pastes results into their own Excel reconciliation workbook, so every table's
+  toolbar shows a "Copy to clipboard" chip FIRST and the downloads after it as quiet links.
+  The copy is the export CSV turned tab-separated (`csvToTsv`), header row included — the
+  SAME rows as the download: the Financial period's table. It deliberately IGNORES the
+  column filters and sort (user decision 2026-11-28: they narrow by year via Financial
+  period only; a filter-following copy was built and dropped).
 - **Exports open a Save As dialog** (`app/save-file.ts`): every "Download CSV" / "Download
   Excel" button (transaction tables, per-account/consolidated tables, expenses report,
   workbook) goes through ONE helper, `saveFile(fileName, kind, produce)`. Where the browser

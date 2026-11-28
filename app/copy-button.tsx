@@ -5,9 +5,11 @@ import { strings as s } from "@/lib/strings"
 import { copyText, csvToTsv } from "./clipboard"
 
 /**
- * "Copy to clipboard" link-button that sits next to a "Download CSV". `getCsv` returns the
- * SAME CSV the download writes; it runs only on click (like the downloads), and the
- * table is copied tab-separated for pasting into Excel. The label briefly confirms.
+ * "Copy to clipboard" button — the PRIMARY way out of a table (the user pastes into their
+ * own reconciliation workbook; the downloads are the quieter links after it). `getCsv`
+ * returns the SAME CSV the download writes (the Financial period's rows, never narrowed by
+ * the column filters); it runs only on click, and the table goes to the clipboard
+ * tab-separated so it pastes into Excel one value per cell. The label briefly confirms.
  */
 export function CopyButton({ getCsv }: { getCsv: () => string }) {
   const [status, setStatus] = useState<"idle" | "copied" | "failed">("idle")
@@ -25,7 +27,7 @@ export function CopyButton({ getCsv }: { getCsv: () => string }) {
   }
 
   return (
-    <button type="button" className="link-button" onClick={() => void onClick()}>
+    <button type="button" className="copy-button" onClick={() => void onClick()}>
       {status === "copied" ? s.copied : status === "failed" ? s.copyFailed : s.copyToClipboard}
     </button>
   )

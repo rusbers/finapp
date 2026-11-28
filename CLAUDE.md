@@ -1034,7 +1034,12 @@ pdfjs-dist`): for the target banks, reading the PDF's text positions (x/y) and
   exactly (Account only when rows carry `accountLabel`, `#`, Date … Source) so the two
   exports never disagree; the Expenses sheet is built from the SAME rows as the CSV
   (`expensesReportRows` in `expenses.ts`, now the single source for `expensesReportToCsv`),
-  original columns verbatim as text, only `Days` typed as a number. Sheet names go through
+  original columns verbatim as text, only `Days` typed as a number. **Report columns are
+  never duplicated**: when the expenses source already has a column named like a report
+  column (a previous report pasted or loaded back; trimmed, case-insensitive) it is
+  overwritten in place, and an Excel-table copy of one (`Found2`, `Days 2`, base also
+  present) is dropped. `expensesReportRows` returns `reportIndex` (each report column's
+  position), which the Excel sheet uses for the `Days` typing and the widths. Sheet names go through
   `sheetName` (Excel rules: no `[]:*?/\`, ≤31 chars, unique). Categories are the EDITED ones,
   as in the CSV. Library: `write-excel-file` (~100 KB, dep `fflate`, ships types) loaded by
   dynamic `import()` on the first click; the core module never imports it — it only emits

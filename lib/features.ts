@@ -164,7 +164,8 @@ export const FEATURE_GROUPS: FeatureGroup[] = [
       },
       {
         name: "Report export",
-        description: "The report as CSV, with every original column of your expenses file kept intact.",
+        description:
+          "The report as CSV or Excel, with every original column of your expenses file kept intact. Run it again on a report the app made earlier and its columns are updated, not added a second time.",
       },
     ],
   },

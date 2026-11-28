@@ -169,15 +169,17 @@ export function summarySheet(accounts: SummaryAccount[], name = "Summary"): Xlsx
  * sorts and filters numerically.
  */
 export function expensesSheet(report: ExpenseReport, name = "Expenses"): XlsxSheet {
-  const { header, rows } = expensesReportRows(report)
-  const daysCol = header.lastIndexOf("Days") // the appended one, even if the source CSV has a "Days" column
-  const appendedFrom = header.lastIndexOf("Found")
+  const { header, rows, reportIndex } = expensesReportRows(report)
+  // Positions come from expensesReportRows: a report column may sit in the middle when the
+  // source file already carried it (a previous report fed back in).
+  const daysCol = reportIndex.Days
+  const reportCols = new Set<number>(Object.values(reportIndex))
   const typed = rows.map((r): XlsxCell[] =>
     r.map((cell, i) => (i === daysCol && cell !== "" ? Number(cell) : cell)),
   )
   const wide = new Set(["TBC reason", "Matched description", "Source"])
   const columns = header.map((h, i) => ({
-    width: i < appendedFrom ? 18 : wide.has(h) ? 30 : h === "TBC" ? 8 : 12,
+    width: !reportCols.has(i) ? 18 : wide.has(h) ? 30 : h === "TBC" ? 8 : 12,
   }))
   return { name, rows: [header.map(bold), ...typed], columns, stickyRowsCount: 1 }
 }

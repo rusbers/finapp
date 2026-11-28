@@ -22,6 +22,7 @@ export const CHANGELOG: ChangelogEntry[] = [
     items: [
       "Every table has a Copy to clipboard button (shown first, before the downloads) that copies it tab-separated, with the header row, ready to paste into an Excel sheet.",
       "The copy carries the same rows as the downloads: the Financial period you picked (e.g. only 2023), whatever column filters or sort are on screen.",
+      "Expense report: feeding back a report the app made earlier (pasted or loaded) updates its Found, TBC, Matched… columns in place instead of adding a second set (\"Found2\").",
     ],
   },
   {

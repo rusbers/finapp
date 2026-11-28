@@ -509,8 +509,10 @@ function tbcReasonsFor(gap: number | undefined, candidateCount: number, latePaye
  * under its own original name) with eight columns appended: Found, TBC (TRUE/FALSE for a
  * found match, empty when not found), TBC reason, Matched account, Matched date, Matched
  * description (the bank line it matched), Days (signed gap to the posting), Source (file +
- * page of the matched debit). The source rows/columns are never mutated —
- * only these are added at the end. (The single "Matched" cell is a UI-only presentation; the
+ * page of the matched debit). The source rows/columns are never mutated, except that a
+ * source column already named like a report column (a previous report fed back in) is
+ * overwritten in place rather than duplicated (see `expensesReportRows`). (The single
+ * "Matched" cell is a UI-only presentation; the
  * export keeps account and date as separate columns for spreadsheet use.)
  *
  * "Days" is written as a PLAIN signed integer (1, 0, -4) — no "+" prefix, ASCII hyphen — so a
@@ -527,41 +529,83 @@ export function expensesReportToCsv(report: ExpenseReport): string {
  * export (`lib/core/excel.ts`) types them into cells. Kept separate so the two files can
  * never drift in columns or order.
  */
-export function expensesReportRows(report: ExpenseReport): { header: string[]; rows: string[][] } {
+export const REPORT_COLUMNS = [
+  "Found",
+  "TBC",
+  "TBC reason",
+  "Matched account",
+  "Matched date",
+  "Matched description",
+  "Days",
+  "Source",
+] as const
+export type ReportColumn = (typeof REPORT_COLUMNS)[number]
+
+/**
+ * `reportIndex` gives each report column's position in `header`, for the Excel typing.
+ *
+ * Re-running a PREVIOUS report: the source file may already carry the report columns
+ * (e.g. the user pasted back an exported report). A source column whose name equals a
+ * report column (trimmed, case-insensitive) is OVERWRITTEN in place with the fresh value,
+ * never duplicated. A report-column name with a number on the end ("Found2", "Days 3"),
+ * which Excel tables give a duplicate header, is dropped when the base name is also
+ * present, so an earlier duplicate is cleaned up too. Any other column stays verbatim.
+ */
+export function expensesReportRows(report: ExpenseReport): {
+  header: string[]
+  rows: string[][]
+  reportIndex: Record<ReportColumn, number>
+} {
   const originalHeader = report.matches[0]?.expense.rawHeader ?? []
-  const header = [
-    ...originalHeader,
-    "Found",
-    "TBC",
-    "TBC reason",
-    "Matched account",
-    "Matched date",
-    "Matched description",
-    "Days",
-    "Source",
-  ]
+  const norm = (h: string) => h.trim().toLowerCase()
+  const reportByName = new Map<string, ReportColumn>(REPORT_COLUMNS.map((c) => [c.toLowerCase(), c]))
+  const present = new Set(originalHeader.map(norm))
+  // Excel's renamed duplicate of a report column: base name + digits, base also present.
+  const isStaleCopy = (h: string) => {
+    const m = /^(.*?)\s*\d+$/.exec(norm(h))
+    return !!m && reportByName.has(m[1]) && present.has(m[1])
+  }
+
+  // Source columns kept (in order); a report-named one is reused for that report column.
+  const kept: number[] = []
+  const reportIndex = {} as Record<ReportColumn, number>
+  const header: string[] = []
+  originalHeader.forEach((h, i) => {
+    if (isStaleCopy(h)) return
+    const rc = reportByName.get(norm(h))
+    if (rc && reportIndex[rc] !== undefined) return // the same report column twice: keep the first
+    if (rc) reportIndex[rc] = header.length
+    kept.push(i)
+    header.push(rc ?? h)
+  })
+  for (const c of REPORT_COLUMNS) {
+    if (reportIndex[c] === undefined) {
+      reportIndex[c] = header.length
+      header.push(c)
+    }
+  }
+
   const rows = report.matches.map((m) => {
     const source =
       m.found && m.matchedSourceFile
         ? `${m.matchedSourceFile}${m.matchedPage != null ? `, page ${m.matchedPage}` : ""}`
         : ""
-    // Pad a short row up to the header width so the appended columns stay aligned.
+    const values: Record<ReportColumn, string> = {
+      Found: m.found ? "found" : "not found",
+      TBC: m.found ? (m.tbc ? "TRUE" : "FALSE") : "", // not-found rows aren't a match to confirm
+      "TBC reason": (m.tbcReasons ?? []).join("; "),
+      "Matched account": m.matchedAccount ?? "",
+      "Matched date": m.matchedDate ?? "",
+      "Matched description": m.matchedDescription ?? "",
+      Days: m.matchedDayGap != null ? String(m.matchedDayGap) : "",
+      Source: source,
+    }
+    // A short source row reads as blank cells, so every column stays aligned.
     const original = m.expense.raw ?? []
-    const padded =
-      original.length < originalHeader.length
-        ? [...original, ...Array(originalHeader.length - original.length).fill("")]
-        : original
-    return [
-      ...padded,
-      m.found ? "found" : "not found",
-      m.found ? (m.tbc ? "TRUE" : "FALSE") : "", // not-found rows aren't a match to confirm
-      (m.tbcReasons ?? []).join("; "),
-      m.matchedAccount ?? "",
-      m.matchedDate ?? "",
-      m.matchedDescription ?? "",
-      m.matchedDayGap != null ? String(m.matchedDayGap) : "",
-      source,
-    ]
+    const row = kept.map((i) => original[i] ?? "")
+    while (row.length < header.length) row.push("")
+    for (const c of REPORT_COLUMNS) row[reportIndex[c]] = values[c]
+    return row
   })
-  return { header, rows }
+  return { header, rows, reportIndex }
 }

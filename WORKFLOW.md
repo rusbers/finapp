@@ -483,6 +483,9 @@ larger attempt with transfer matching + badges was reverted by the user.)
   currency; + Expenses when present. Columns = `toCsv` columns, typed (Date cells at UTC
   midnight `dd/mm/yyyy`, money `#,##0.00`, blank where CSV is blank; `#` numeric), bold frozen
   header. The Expenses sheet uses `expensesReportRows` (shared with `expensesReportToCsv`).
+  A previous report fed back in keeps ONE set of report columns: same-named source columns
+  are overwritten in place, Excel-table copies (`Found2`) dropped; `reportIndex` gives the
+  positions.
   Test: `npm run test:excel` (pure asserts + a Node `toBuffer()` smoke test). The CSV export,
   re-import and the harness fingerprint are untouched.
 - **Test**: `npm run test:multi` — synthetic asserts (dedupe, merge order + stamping) +

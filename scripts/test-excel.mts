@@ -10,7 +10,7 @@
 import writeExcelFile from "write-excel-file/node"
 import { transactionSheet, summarySheet, expensesSheet, sheetName, DATE_FORMAT, MONEY_FORMAT, type XlsxCell } from "../lib/core/excel"
 import { toCsv } from "../lib/core/verification"
-import { expensesReportToCsv, expensesReportRows, type ExpenseReport } from "../lib/core/expenses"
+import { expensesReportToCsv, expensesReportRows, parseExpensesCsv, type ExpenseReport } from "../lib/core/expenses"
 import type { StatementData } from "../lib/core/types"
 
 let failures = 0
@@ -115,6 +115,37 @@ check("expenses: short row padded, not-found Days blank", ex.rows[2][6] === "" &
 check("expenses: TBC FALSE for a certain match", ex.rows[1][8] === "FALSE")
 check("expenses: every sheet row equals the CSV row (Days aside)", ex.rows.slice(1).every((r, i) => r.map((c) => String(c ?? "")).join("|") === exRows[i].join("|")))
 check("expensesReportToCsv still = header + rows joined", expensesReportToCsv(report).split("\n").length === 3 && expensesReportToCsv(report).startsWith("Supplier,Description,Category,Date,Amount,VAT,Link,Found,"))
+
+// 3b. A previous report fed back in: its report columns are OVERWRITTEN, never duplicated
+//     ("Found2"), and an Excel-renamed duplicate ("Days2") is dropped.
+{
+  const firstCsv = expensesReportToCsv(report)
+  const reread = parseExpensesCsv(firstCsv)
+  // Second run: the Screwfix debit is now NOT found (as if its statement was left out).
+  const rerun: ExpenseReport = {
+    total: 2, foundCount: 0, tbcCount: 0,
+    matches: reread.map((expense) => ({ expense, found: false })),
+  }
+  const { header: h2, rows: r2, reportIndex: ix2 } = expensesReportRows(rerun)
+  check("re-run: header identical to the first report (no Found2 …)", h2.join("|") === exHeader.join("|"))
+  check("re-run: report values overwritten in place", r2[0][ix2.Found] === "not found" && r2[0][ix2["Matched account"]] === "" && r2[0][ix2.Days] === "")
+  check("re-run: original cells kept", r2[0].slice(0, 7).join("|") === "Screwfix|Drill|Tools|01/03/2024|99.99|23%|https://x/1")
+
+  // Excel table duplicates ("Found2", "Days 2") plus lower-case report names.
+  const dupHeader = ["Supplier", "Date", "Amount", "found", "Days", "Found2", "Days 2", "Note"]
+  const dupCsv = [dupHeader.join(","), "Tesco,05/03/2024,10.00,found,3,found,3,keep me"].join("\n")
+  const dupExp = parseExpensesCsv(dupCsv)
+  const { header: h3, rows: r3, reportIndex: ix3 } = expensesReportRows({
+    total: 1, foundCount: 1, tbcCount: 0,
+    matches: [{ expense: dupExp[0], found: true, matchedAccount: "AIB", matchedDate: "2024-03-06", matchedDescription: "TESCO", matchedDayGap: 1, tbc: false, tbcReasons: [] }],
+  })
+  check("dups: one Found and one Days, Excel copies dropped", h3.filter((h) => h === "Found").length === 1 && h3.filter((h) => h === "Days").length === 1 && !h3.includes("Found2") && !h3.includes("Days 2"))
+  check("dups: report columns keep their place, others appended", h3.slice(0, 6).join("|") === "Supplier|Date|Amount|Found|Days|Note" && h3.length === 6 + 6)
+  check("dups: fresh values in the reused columns", r3[0][ix3.Found] === "found" && r3[0][ix3.Days] === "1" && r3[0][ix3["Matched account"]] === "AIB")
+  check("dups: a non-report column survives", r3[0][5] === "keep me")
+  const exDup = expensesSheet({ total: 1, foundCount: 1, tbcCount: 0, matches: [{ expense: dupExp[0], found: true, matchedDayGap: 1, tbc: false, tbcReasons: [] }] })
+  check("dups: Excel Days is a number at the reused column", exDup.rows[1][ix3.Days] === 1)
+}
 
 // ---------------------------------------------------------------------------
 // 4. sheetName — Excel's rules.

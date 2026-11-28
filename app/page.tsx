@@ -43,7 +43,8 @@ import { CATEGORIES, normalizeDescription } from "@/lib/core/categorization"
 import CategoryCombobox from "./category-combobox"
 import ColumnFilter from "./column-filter"
 import FilePicker from "./file-picker"
-import { saveCsv, saveTextFile } from "./save-file"
+import { saveCsv, saveTextFile, statementCsv } from "./save-file"
+import { CopyButton } from "./copy-button"
 import { saveWorkbook } from "./excel-export"
 import { expensesSheet, sheetName, summarySheet, transactionSheet, type XlsxSheet } from "@/lib/core/excel"
 import { applyView, anyFilterActive, isBlankable, isColumnActive } from "./table-view"
@@ -869,6 +870,19 @@ export default function Page() {
     setCatOverrides((prev) => ({ ...prev, [catKey(t)]: value }))
   const withEditedCategories = (txs: Transaction[]) =>
     txs.map((t) => ({ ...t, category: exportCategory(t) }))
+  // One account's table as an exportable statement — shared by its "Download CSV" and
+  // "Copy to clipboard" so the two always carry the same rows.
+  const accountStatement = (a: {
+    label: string
+    openingBalance: number
+    closingBalance: number
+    transactions: Transaction[]
+  }): StatementData => ({
+    bank: a.label,
+    openingBalance: a.openingBalance,
+    closingBalance: a.closingBalance,
+    transactions: withEditedCategories(a.transactions),
+  })
 
   // The file a row's Source falls back to when the row carries none: the uploaded PDF
   // for a normal run — but NEVER the CSV/xlsx of a re-import, whose rows either carry
@@ -940,6 +954,17 @@ export default function Page() {
       ? `combined-accounts${periodSuffix}.xlsx`
       : exportBase + periodSuffix + ".xlsx"
     : ""
+  // The main table as one statement (all accounts merged on a multi run) — shared by the
+  // toolbar's "Download CSV" and "Copy to clipboard".
+  const mainStatement = (): StatementData =>
+    isMulti && merged
+      ? {
+          bank: "combined",
+          openingBalance: 0,
+          closingBalance: 0,
+          transactions: withEditedCategories(merged.transactions),
+        }
+      : { ...viewData!, transactions: withEditedCategories(viewData!.transactions) }
 
   // Suggestions for the edit combobox: the fixed list plus any custom categories
   // the user already typed this session (so a new one is reusable on other rows).
@@ -1650,6 +1675,7 @@ export default function Page() {
               >
                 {s.downloadCsv}
               </button>
+              <CopyButton getCsv={() => expensesReportToCsv(result.expenses!)} />
             </div>
             <table className="files-table expenses-table">
               <thead>
@@ -1849,20 +1875,12 @@ export default function Page() {
                   <button
                     className="link-button"
                     onClick={() =>
-                      void saveCsv(
-                        {
-                          bank: a.label,
-                          openingBalance: a.openingBalance,
-                          closingBalance: a.closingBalance,
-                          transactions: withEditedCategories(a.transactions),
-                        },
-                        `${exportBase}-${a.currency}.csv`,
-                        sourceFallback,
-                      )
+                      void saveCsv(accountStatement(a), `${exportBase}-${a.currency}.csv`, sourceFallback)
                     }
                   >
                     {s.downloadCsv}
                   </button>
+                  <CopyButton getCsv={() => statementCsv(accountStatement(a), sourceFallback)} />
                   {/* Back to the accounts list. Only in the block header: at the END
                       of a table the next account's header follows immediately with its
                       own link, and the floating back-to-top button covers the last one.
@@ -2020,24 +2038,22 @@ export default function Page() {
                       : `✗ ${fromCents(Math.abs(a.reconciliation.discrepancyCents))}`}
                 </span>
                 {a.transactionCount > 0 && (
-                  <button
-                    type="button"
-                    className="link-button"
-                    onClick={() =>
-                      void saveCsv(
-                        {
-                          bank: a.label,
-                          openingBalance: a.openingBalance,
-                          closingBalance: a.closingBalance,
-                          transactions: withEditedCategories(a.transactions),
-                        },
-                        `${a.label.replace(/[^\w.-]+/g, "_")}${periodSuffix}.csv`,
-                        a.fileNames[0],
-                      )
-                    }
-                  >
-                    {s.downloadCsv}
-                  </button>
+                  <>
+                    <button
+                      type="button"
+                      className="link-button"
+                      onClick={() =>
+                        void saveCsv(
+                          accountStatement(a),
+                          `${a.label.replace(/[^\w.-]+/g, "_")}${periodSuffix}.csv`,
+                          a.fileNames[0],
+                        )
+                      }
+                    >
+                      {s.downloadCsv}
+                    </button>
+                    <CopyButton getCsv={() => statementCsv(accountStatement(a), a.fileNames[0])} />
+                  </>
                 )}
               </div>
               {period.kind === "all" && a.transactionCount > 0 && (
@@ -2366,17 +2382,7 @@ export default function Page() {
               className="link-button"
               onClick={() =>
                 void saveCsv(
-                  isMulti && merged
-                    ? {
-                        bank: "combined",
-                        openingBalance: 0,
-                        closingBalance: 0,
-                        transactions: withEditedCategories(merged.transactions),
-                      }
-                    : {
-                        ...viewData!,
-                        transactions: withEditedCategories(viewData!.transactions),
-                      },
+                  mainStatement(),
                   isMulti
                     ? `combined-accounts${periodSuffix}.csv`
                     : exportBase + periodSuffix + ".csv",
@@ -2386,6 +2392,7 @@ export default function Page() {
             >
               {s.downloadCsv}
             </button>
+            <CopyButton getCsv={() => statementCsv(mainStatement(), sourceFallback)} />
             {/* The whole result as ONE Excel workbook (see buildMainWorkbook). */}
             <button
               className="link-button"

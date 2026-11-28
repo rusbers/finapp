@@ -252,6 +252,10 @@ export const strings = {
 
   downloadCsv: "Download CSV",
   downloadExcel: "Download Excel",
+  // Copies the same table as the CSV download, tab-separated, to paste into Excel.
+  copyToClipboard: "Copy to clipboard",
+  copied: "Copied ✓",
+  copyFailed: "Copy failed",
 
   // Extraction trace / model stats
   extractionHeading: "Extraction",

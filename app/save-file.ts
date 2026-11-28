@@ -93,5 +93,10 @@ export function saveTextFile(text: string, fileName: string): Promise<void> {
 /** Save a statement as CSV. The UI export always includes the "#" (statement-order)
  * column so the order can be restored after editing the file. */
 export function saveCsv(data: StatementData, fileName: string, defaultSource?: string): Promise<void> {
-  return saveTextFile(toCsv(data, { defaultSource, rowNumbers: true }), fileName)
+  return saveTextFile(statementCsv(data, defaultSource), fileName)
+}
+
+/** The statement CSV the UI exports — shared by the download and "Copy to clipboard". */
+export function statementCsv(data: StatementData, defaultSource?: string): string {
+  return toCsv(data, { defaultSource, rowNumbers: true })
 }

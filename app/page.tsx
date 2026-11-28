@@ -322,10 +322,15 @@ export default function Page() {
   const [importMode, setImportMode] = useState<"pdf" | "csv">("pdf")
   const [csvFile, setCsvFile] = useState<File | null>(null)
   const [pastedText, setPastedText] = useState<string | null>(null)
-  // Which slot the last paste replaced an earlier source in — a short note on its chip
-  // for ~3s (see the paste effect); null otherwise.
-  const [pasteReplaced, setPasteReplaced] = useState<"transactions" | "expenses" | null>(null)
-  const replacedTimer = useRef<number | null>(null)
+  // Paste feedback: a toast at the bottom of the screen, so the user sees a Ctrl+V was
+  // taken. "busy" shows at once (painted BEFORE the paste is parsed); "done" says what was
+  // pasted, into which slot, and whether it replaced an earlier source, then fades (~2s).
+  const [pasteToast, setPasteToast] = useState<
+    | { kind: "busy" }
+    | { kind: "done"; slot: "transactions" | "expenses"; rows: number; replaced: boolean }
+    | null
+  >(null)
+  const toastTimer = useRef<number | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   // The in-flight reconciliation, so Cancel can abort it; null when idle. `cancelled`
   // shows a short note after a cancel (cleared by the next action, like an error).
@@ -473,24 +478,29 @@ export default function Page() {
       const tabular = text.includes("\t") || text.trim().split(/\r?\n/).length >= 2
       if (!tabular) return
       e.preventDefault()
+      // Show "Pasting…" first, then parse after the browser has painted it (rAF → next
+      // task), so a large paste never looks like nothing happened.
+      if (toastTimer.current != null) window.clearTimeout(toastTimer.current)
+      setPasteToast({ kind: "busy" })
+      requestAnimationFrame(() => window.setTimeout(() => applyPaste(text), 0))
+    }
+    const applyPaste = (text: string) => {
       // An expenses header (Amount + Supplier/Description, no Debit/Credit) goes to the
       // expenses slot, so pasting expenses never replaces the transactions. Transactions
       // come first: expenses pasted before them are refused with a note.
       const expensesCsv = pastedExpensesToCsv(text)
       if (expensesCsv != null && !csvFile && !pastedText) {
+        setPasteToast(null)
         setError(s.expensesPasteNeedsTransactions)
         return
       }
-      // A paste over an earlier source (pasted rows or a picked file) replaces it; say so
-      // briefly on the new chip, so a second Ctrl+V isn't mistaken for an append.
+      // A paste over an earlier source (pasted rows or a picked file) replaces it; the
+      // toast says so, so a second Ctrl+V isn't mistaken for an append.
+      const slot = expensesCsv != null ? "expenses" : "transactions"
       const replaced =
-        expensesCsv != null
+        slot === "expenses"
           ? expensesPasted != null || expensesFile != null
-            ? "expenses"
-            : null
           : pastedText != null || csvFile != null
-            ? "transactions"
-            : null
       if (expensesCsv != null) {
         setExpensesPasted(expensesCsv)
         setExpensesFile(null)
@@ -499,9 +509,8 @@ export default function Page() {
         setPastedText(text)
         setCsvFile(null)
       }
-      if (replacedTimer.current != null) window.clearTimeout(replacedTimer.current)
-      setPasteReplaced(replaced)
-      if (replaced) replacedTimer.current = window.setTimeout(() => setPasteReplaced(null), 3000)
+      setPasteToast({ kind: "done", slot, rows: pastedRowCount(text), replaced })
+      toastTimer.current = window.setTimeout(() => setPasteToast(null), 2000)
       setResult(null)
       setError(null)
       setCancelled(false)
@@ -510,6 +519,9 @@ export default function Page() {
     document.addEventListener("paste", onPaste)
     return () => document.removeEventListener("paste", onPaste)
   }, [importMode, isLoading, csvFile, pastedText, expensesFile, expensesPasted])
+  useEffect(() => () => {
+    if (toastTimer.current != null) window.clearTimeout(toastTimer.current)
+  }, [])
   // Rows in the pasted text, for the status chip only (a cell holding its own newline
   // counts extra — the parser, not this figure, decides what a row is).
   const pastedRows = pastedText ? pastedRowCount(pastedText) : 0
@@ -1417,11 +1429,6 @@ export default function Page() {
                 <ul className="account-files">
                   <li>
                     <span className="account-file-name">{s.pastedStatus(pastedRows)}</span>
-                    {pasteReplaced === "transactions" && (
-                      <span className="paste-replaced" role="status">
-                        {s.pasteReplacedTransactions}
-                      </span>
-                    )}
                     <span className="account-file-size">{formatSize(pastedText.length)}</span>
                     <button
                       type="button"
@@ -1497,11 +1504,6 @@ export default function Page() {
                 <ul className="account-files">
                   <li>
                     <span className="account-file-name">{s.pastedStatus(pastedRowCount(expensesPasted))}</span>
-                    {pasteReplaced === "expenses" && (
-                      <span className="paste-replaced" role="status">
-                        {s.pasteReplacedExpenses}
-                      </span>
-                    )}
                     <span className="account-file-size">{formatSize(expensesPasted.length)}</span>
                     <button
                       type="button"
@@ -2526,6 +2528,37 @@ export default function Page() {
             </button>
           )
         })()
+      )}
+
+      {/* Paste feedback toast (see the paste effect). role=status → read by screen readers. */}
+      {pasteToast && (
+        <div
+          className={`paste-toast${pasteToast.kind === "done" ? " paste-toast--done" : ""}`}
+          role="status"
+          aria-live="polite"
+          onClick={() => pasteToast.kind === "done" && setPasteToast(null)}
+        >
+          {pasteToast.kind === "busy" ? (
+            <span>{s.pasteToastBusy}</span>
+          ) : (
+            <>
+              <span className="paste-toast-title">
+                ✓ {pasteToast.slot === "expenses"
+                  ? s.pasteToastExpenses(pasteToast.rows)
+                  : s.pasteToastTransactions(pasteToast.rows)}
+              </span>
+              <span className="paste-toast-sub">
+                {pasteToast.replaced
+                  ? pasteToast.slot === "expenses"
+                    ? s.pasteReplacedExpenses
+                    : s.pasteReplacedTransactions
+                  : null}
+                {pasteToast.replaced ? " · " : ""}
+                {s.pasteToastNext}
+              </span>
+            </>
+          )}
+        </div>
       )}
 
       {showTop && (

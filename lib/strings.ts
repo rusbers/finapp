@@ -105,6 +105,11 @@ export const strings = {
   removePastedExpenses: "Remove pasted expenses",
   pasteReplacedTransactions: "Previous transactions replaced",
   pasteReplacedExpenses: "Previous expenses replaced",
+  // Paste toast (bottom of the screen) — confirms a Ctrl+V was taken.
+  pasteToastBusy: "Pasting…",
+  pasteToastTransactions: (n: number) => `Pasted ${n} transaction row${n === 1 ? "" : "s"}`,
+  pasteToastExpenses: (n: number) => `Pasted ${n} expense row${n === 1 ? "" : "s"}`,
+  pasteToastNext: "Click Reconcile when ready",
   expensesPasteNeedsTransactions:
     "Those look like expenses — add the transactions first (file or paste), then paste the expenses.",
   expensesHeading: "Expense reconciliation",

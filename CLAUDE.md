@@ -936,9 +936,11 @@ pdfjs-dist`): for the target banks, reading the PDF's text positions (x/y) and
   EXPENSES header (Amount + Supplier/Description, not Date/Debit/Credit) → CSV text stored as
   `expensesPasted`, shown as its own chip in the expenses block; anything else goes to `pastedText` as
   before, so pasting expenses never replaces the transactions. Transactions come FIRST: an expenses
-  paste with no transactions source yet is refused (`expensesPasteNeedsTransactions` error). A paste
-  that replaces an earlier source in its slot (pasted rows or a picked file) shows a "Previous
-  transactions/expenses replaced" pill on the new chip for ~3s (`pasteReplaced`). Both run paths read the expenses via
+  paste with no transactions source yet is refused (`expensesPasteNeedsTransactions` error). Every
+  taken paste shows a bottom-centre toast (`pasteToast`): "Pasting…" is set in the paste event and
+  PAINTED before the text is parsed (`applyPaste` runs via rAF → setTimeout 0), then "✓ Pasted N
+  transaction/expense rows", with "Previous … replaced" when it replaced an earlier source in its
+  slot, plus "Click Reconcile when ready"; it fades after ~2s or on click. Both run paths read the expenses via
   `readExpensesSource()` (file → `readExpensesText`, else the paste). `parseTransactionsWorkbook
   (sheets)` takes every sheet as TYPED rows (Date objects → ISO — UTC parts when the reader gave UTC
   midnight; numbers → `#` / money; an Excel serial in the Date column → ISO) and picks the sheet:

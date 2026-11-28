@@ -885,22 +885,49 @@ body {
   white-space: nowrap;
 }
 /* "Previous … replaced" — shown for ~3s on a chip after a paste replaced the earlier rows. */
-.paste-replaced {
-  flex-shrink: 0;
-  padding: 1px 8px;
-  border-radius: 999px;
-  background: var(--soft-bg);
-  color: var(--soft);
-  font-size: 12px;
-  animation: paste-replaced-in 0.2s ease-out;
+/* Paste toast: bottom-centre card confirming a Ctrl+V ("Pasting…" → "✓ Pasted N rows").
+   Neutral card, green tick only when done. The paste clears the result, so the
+   bottom-centre "Next error" pill is never on screen at the same time. */
+.paste-toast {
+  position: fixed;
+  left: 50%;
+  bottom: 24px;
+  transform: translateX(-50%);
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-width: min(92vw, 460px);
+  padding: 10px 18px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--card);
+  color: var(--ink);
+  font-size: 14px;
+  box-shadow: 0 6px 20px var(--shadow);
+  animation: paste-toast-in 0.18s ease-out;
 }
-@keyframes paste-replaced-in {
+.paste-toast--done {
+  cursor: pointer; /* click to dismiss */
+}
+.paste-toast-title {
+  font-weight: 600;
+}
+.paste-toast--done .paste-toast-title {
+  color: var(--ledger-green);
+}
+.paste-toast-sub {
+  color: var(--ink-soft);
+  font-size: 13px;
+}
+@keyframes paste-toast-in {
   from {
     opacity: 0;
+    transform: translate(-50%, 8px);
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  .paste-replaced {
+  .paste-toast {
     animation: none;
   }
 }

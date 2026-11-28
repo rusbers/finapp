@@ -607,7 +607,9 @@ of `toCsv` / `transactionSheet`; the rebuilt accounts feed the same client-safe
   raw leading quote by the column count: a line already carrying as many tab-separated fields as
   the header is a complete row). Known limit: a cell holding BOTH a tab and a newline on its first
   line reads as a complete row (never seen in bank descriptions). UI (`app/page.tsx`): a
-  document-level `paste` listener, active only in import mode and not while loading; pastes into
+  document-level `paste` listener, active in BOTH modes but not while loading (in PDF mode it
+  takes ONLY an expenses paste, and only once statement PDFs are attached — any other tabular
+  paste gets the `pastePdfModeExpensesOnly` note, since statements must be PDFs there); pastes into
   `input`/`textarea`/`[contenteditable]` (label inputs, the category combobox) and non-tabular
   text (no tab, single line) are left to the browser. The text lands in `pastedText`, shown as a
   "Pasted from Excel — N rows" chip (✕ to drop) instead of the file row — one source at a time (a

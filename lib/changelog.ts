@@ -24,6 +24,7 @@ export const CHANGELOG: ChangelogEntry[] = [
       "The copy carries the same rows as the downloads: the Financial period you picked (e.g. only 2023), whatever column filters or sort are on screen.",
       "Amounts as 10000.00 (no thousands separator): in the Excel export, and when a copy is pasted into Excel — Debit, Credit and Balance land as numbers with two decimals (10000.00, 45.20), not 10000 / 45.2.",
       "Re-import: a Ctrl+V now shows a notification at the bottom of the screen — \"Pasting…\", then \"✓ Pasted 245 transaction rows\" (or expense rows), noting when it replaced earlier rows.",
+      "PDF statements: expense rows can now be pasted from Excel (Ctrl+V) too — PDF is only required for the bank statements.",
       "Expense report: feeding back a report the app made earlier (pasted or loaded) updates its Found, TBC, Matched… columns in place instead of adding a second set (\"Found2\").",
     ],
   },

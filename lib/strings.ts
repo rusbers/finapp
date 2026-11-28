@@ -112,6 +112,10 @@ export const strings = {
   pasteToastNext: "Click Reconcile when ready",
   expensesPasteNeedsTransactions:
     "Those look like expenses — add the transactions first (file or paste), then paste the expenses.",
+  expensesPasteNeedsStatements:
+    "Those look like expenses — attach the bank statement PDFs first, then paste the expenses.",
+  pastePdfModeExpensesOnly:
+    "Bank statements must be PDFs here — only expense rows can be pasted. To paste transactions, switch to Reconciled CSV / Excel.",
   expensesHeading: "Expense reconciliation",
   expensesSummary: (found: number, total: number, tbc: number) =>
     `${found} of ${total} expenses found in the statement${tbc > 0 ? ` · ${tbc} to confirm` : ""}`,

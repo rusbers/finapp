@@ -464,13 +464,14 @@ export default function Page() {
     resetResult()
   }
 
-  // Paste from Excel: in import mode, Ctrl+V anywhere on the page takes the clipboard's
-  // text (Excel copies a range as tab-separated rows) as the import source. Pastes INTO
+  // Paste from Excel: Ctrl+V anywhere on the page takes the clipboard's text (Excel
+  // copies a range as tab-separated rows). Import mode: transactions OR expenses. PDF
+  // mode: expenses only — PDF is required just for the bank statements. Pastes INTO
   // an editable control (the label inputs, the category combobox) are left to the
   // browser, and so is anything that doesn't look like a table — a single value pasted
   // by accident shouldn't replace an attached file.
   useEffect(() => {
-    if (importMode !== "csv" || isLoading) return
+    if (isLoading) return
     const onPaste = (e: ClipboardEvent) => {
       const target = e.target as HTMLElement | null
       if (target?.closest("input, textarea, [contenteditable]")) return
@@ -489,7 +490,15 @@ export default function Page() {
       // expenses slot, so pasting expenses never replaces the transactions. Transactions
       // come first: expenses pasted before them are refused with a note.
       const expensesCsv = pastedExpensesToCsv(text)
-      if (expensesCsv != null && !csvFile && !pastedText) {
+      // PDF mode: statements come from PDFs only, so a non-expenses paste is refused, and
+      // expenses need the statement PDFs attached first (like the "+ Add expenses" button).
+      if (importMode === "pdf") {
+        if (expensesCsv == null || files.length === 0) {
+          setPasteToast(null)
+          setError(expensesCsv == null ? s.pastePdfModeExpensesOnly : s.expensesPasteNeedsStatements)
+          return
+        }
+      } else if (expensesCsv != null && !csvFile && !pastedText) {
         setPasteToast(null)
         setError(s.expensesPasteNeedsTransactions)
         return
@@ -518,7 +527,7 @@ export default function Page() {
     }
     document.addEventListener("paste", onPaste)
     return () => document.removeEventListener("paste", onPaste)
-  }, [importMode, isLoading, csvFile, pastedText, expensesFile, expensesPasted])
+  }, [importMode, isLoading, files.length, csvFile, pastedText, expensesFile, expensesPasted])
   useEffect(() => () => {
     if (toastTimer.current != null) window.clearTimeout(toastTimer.current)
   }, [])
@@ -1497,8 +1506,8 @@ export default function Page() {
                 resetResult()
               }}
             />
-            {/* Pasting expense rows is offered in import mode only (the paste effect). */}
-            {importMode === "csv" && !expensesPasted && <p className="paste-hint">{s.expensesPasteHint}</p>}
+            {/* Expense rows can be pasted in both modes (the paste effect). */}
+            {!expensesPasted && <p className="paste-hint">{s.expensesPasteHint}</p>}
             {expensesPasted && (
               <div className="files">
                 <ul className="account-files">

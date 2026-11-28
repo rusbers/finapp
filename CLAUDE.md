@@ -852,7 +852,9 @@ pdfjs-dist`): for the target banks, reading the PDF's text positions (x/y) and
   (`{ tx, account }`) so the report says which account paid, WITHOUT setting `accountLabel` on
   the rows (that would wrongly add an "Account" column to the per-account CSV). UI: an **"+ Add
   expenses"** button (after "+ Add another bank statement") reveals the **"Expenses (CSV)"**
-  uploader (a plain link-button, same as "+ Add another bank statement" — the "New" badge and
+  uploader (expense rows can also be PASTED from Excel with Ctrl+V in PDF mode — the paste listener
+  takes only an expenses header there, once statement PDFs are attached; PDF is required only for the
+  bank statements) (a plain link-button, same as "+ Add another bank statement" — the "New" badge and
   info tooltip it once carried were removed). The **Expense
   reconciliation** result section shows a summary "X of Y found" + a
   per-expense table (**Supplier · Category · Date · Amount · Found · Matched · Days · Bank
@@ -926,8 +928,8 @@ pdfjs-dist`): for the target banks, reading the PDF's text positions (x/y) and
   **`parseTsvRows`**: a `"` is literal unless it opens a cell that either closes with `"`+tab/EOL on the
   same line AND contains a tab, or does not close on the line — a cell spanning lines, told apart from a
   raw leading quote by the COLUMN COUNT (a line already holding as many tab-separated fields as the
-  header is a complete row). In `app/page.tsx` a document-level `paste` listener (import mode only,
-  not while loading; pastes into `input`/`textarea`/`[contenteditable]` and non-tabular text — no tab
+  header is a complete row). In `app/page.tsx` a document-level `paste` listener (both modes — in
+  PDF mode it accepts ONLY an expenses paste, after statement PDFs are attached; not while loading; pastes into `input`/`textarea`/`[contenteditable]` and non-tabular text — no tab
   and a single line — are left to the browser) stores `pastedText`, shown as a "Pasted from Excel — N
   rows" chip with ✕ in place of the file row (one source at a time: a paste drops the file, picking a
   file drops the paste, Clear drops both); "Reconcile file" then calls `parseTransactionsCsv(pastedText)`

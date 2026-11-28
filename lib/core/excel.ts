@@ -39,9 +39,11 @@ export interface XlsxSheet {
   stickyRowsCount?: number // frozen header rows
 }
 
-/** Excel cell number formats. Dates use the Irish/EU day-first order. */
+/** Excel cell number formats. Dates use the Irish/EU day-first order. Money shows two
+ * decimals with NO thousands separator (10000.00, not 10,000.00) — the user's working
+ * spreadsheets use that form, and Ctrl+C from the sheet copies what is displayed. */
 export const DATE_FORMAT = "dd/mm/yyyy"
-export const MONEY_FORMAT = "#,##0.00"
+export const MONEY_FORMAT = "0.00"
 
 // --- Cell helpers -------------------------------------------------------------------
 

@@ -465,7 +465,9 @@ larger attempt with transfer matching + badges was reverted by the user.)
   Forward-compatible with a future CSV re-import.
 - **Copy to clipboard (primary)**: first in every table toolbar (chip; downloads are links
   after it). Tab-separated with the header row, to paste into Excel. Same rows as the
-  download (Financial period); column filters / sort are ignored on purpose.
+  download (Financial period); column filters / sort are ignored on purpose. Also an HTML
+  flavour (`csvToHtmlTable`, `mso-number-format` 0.00 on Debit/Credit/Balance) so Excel
+  pastes amounts as 10000.00 numbers, not General 10000.
 - **Exports = Save As dialog**: all "Download CSV" / "Download Excel" buttons call
   `saveFile(fileName, kind, produce)` (`app/save-file.ts`). With the File System Access API
   (Chrome/Edge) it opens a native Save As dialog — the user picks the folder/name, and
@@ -481,7 +483,7 @@ larger attempt with transfer matching + badges was reverted by the user.)
   stickyRowsCount }`). ONE workbook per result: single → one sheet; multi → Summary + Combined
   + one sheet per account (period-sliced like the CSVs); consolidated → Summary + one sheet per
   currency; + Expenses when present. Columns = `toCsv` columns, typed (Date cells at UTC
-  midnight `dd/mm/yyyy`, money `#,##0.00`, blank where CSV is blank; `#` numeric), bold frozen
+  midnight `dd/mm/yyyy`, money `0.00` (10000.00, no thousands separator), blank where CSV is blank; `#` numeric), bold frozen
   header. The Expenses sheet uses `expensesReportRows` (shared with `expensesReportToCsv`).
   A previous report fed back in keeps ONE set of report columns: same-named source columns
   are overwritten in place, Excel-table copies (`Found2`) dropped; `reportIndex` gives the

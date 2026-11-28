@@ -175,7 +175,7 @@ export const FEATURE_GROUPS: FeatureGroup[] = [
       {
         name: "Copy to clipboard",
         description:
-          "Copy any table — transactions, an account or the expense report — with its header row and paste it straight into your Excel sheet, one value per cell. Like the downloads, it follows the Financial period (pick 2023, copy only 2023) and ignores the column filters.",
+          "Copy any table — transactions, an account or the expense report — with its header row and paste it straight into your Excel sheet, one value per cell — amounts land as numbers shown 10000.00. Like the downloads, it follows the Financial period (pick 2023, copy only 2023) and ignores the column filters.",
       },
       {
         name: "CSV",
@@ -184,7 +184,7 @@ export const FEATURE_GROUPS: FeatureGroup[] = [
       {
         name: "Excel workbook",
         description:
-          "One .xlsx per result — Summary, Combined, one sheet per account and Expenses — with real dates and amounts (sortable, summable) and a frozen header.",
+          "One .xlsx per result — Summary, Combined, one sheet per account and Expenses — with real dates and amounts (sortable, summable, shown as 10000.00) and a frozen header.",
       },
       {
         name: "Save As",

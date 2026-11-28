@@ -10,6 +10,7 @@
 import writeExcelFile from "write-excel-file/node"
 import { transactionSheet, summarySheet, expensesSheet, sheetName, DATE_FORMAT, MONEY_FORMAT, type XlsxCell } from "../lib/core/excel"
 import { toCsv } from "../lib/core/verification"
+import { csvToHtmlTable } from "../app/clipboard"
 import { expensesReportToCsv, expensesReportRows, parseExpensesCsv, type ExpenseReport } from "../lib/core/expenses"
 import type { StatementData } from "../lib/core/types"
 
@@ -145,6 +146,34 @@ check("expensesReportToCsv still = header + rows joined", expensesReportToCsv(re
   check("dups: a non-report column survives", r3[0][5] === "keep me")
   const exDup = expensesSheet({ total: 1, foundCount: 1, tbcCount: 0, matches: [{ expense: dupExp[0], found: true, matchedDayGap: 1, tbc: false, tbcReasons: [] }] })
   check("dups: Excel Days is a number at the reused column", exDup.rows[1][ix3.Days] === 1)
+}
+
+// 3c. Money format: 2 decimals, NO thousands separator (10000.00, not 10,000.00).
+check("money format is 0.00 (no thousands separator)", MONEY_FORMAT === "0.00")
+
+// 3d. Copy to clipboard: the HTML flavour Excel pastes (amounts as 0.00 numbers).
+{
+  const csv = toCsv(
+    {
+      bank: "BOI", openingBalance: 0, closingBalance: 0,
+      transactions: [
+        { date: "2024-01-05", description: 'A&B <Ltd>, "x"', debit: 10000, credit: 0, balance: 12345.6, sourceFile: "s.pdf" },
+        { date: "2024-01-06", description: "Refund", debit: 0, credit: 45.2, balance: null, sourceFile: "s.pdf" },
+      ],
+    },
+    { rowNumbers: true },
+  )
+  const html = csvToHtmlTable(csv)
+  const cells = [...html.matchAll(/<tr>(.*?)<\/tr>/g)].map((m) => [...m[1].matchAll(/<td([^>]*)>(.*?)<\/td>/g)].map((c) => ({ style: c[1], text: c[2] })))
+  const head = cells[0].map((c) => c.text)
+  const col = (name: string) => head.indexOf(name)
+  check("html: header row + one row per transaction", cells.length === 3)
+  check("html: header cells carry no style", cells[0].every((c) => c.style === ""))
+  check("html: special characters escaped", cells[1][col("Description")].text === "A&amp;B &lt;Ltd&gt;, &quot;x&quot;")
+  check("html: money cells styled 0.00", cells[1][col("Debit")].style.includes('mso-number-format:"0\\.00"') && cells[1][col("Balance")].style.includes("mso-number-format") && cells[2][col("Credit")].style.includes("mso-number-format"))
+  check("html: money values as plain 10000.00 / 12345.60 / 45.20", cells[1][col("Debit")].text === "10000.00" && cells[1][col("Balance")].text === "12345.60" && cells[2][col("Credit")].text === "45.20")
+  check("html: blank money cells unstyled", cells[1][col("Credit")].style === "" && cells[2][col("Debit")].style === "" && cells[2][col("Balance")].style === "")
+  check("html: other columns unstyled", cells[1][col("Date")].style === "" && cells[1][col("#")].style === "")
 }
 
 // ---------------------------------------------------------------------------

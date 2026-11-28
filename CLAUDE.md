@@ -1005,7 +1005,13 @@ pdfjs-dist`): for the target banks, reading the PDF's text positions (x/y) and
   The copy is the export CSV turned tab-separated (`csvToTsv`), header row included — the
   SAME rows as the download: the Financial period's table. It deliberately IGNORES the
   column filters and sort (user decision 2026-11-28: they narrow by year via Financial
-  period only; a filter-following copy was built and dropped).
+  period only; a filter-following copy was built and dropped). The clipboard gets TWO
+  flavours (`copyTable`): text/plain TSV, and text/html (`csvToHtmlTable`) whose Debit /
+  Credit / Balance cells carry `mso-number-format:"0\.00"`, so Excel pastes them as numbers
+  shown 10000.00 / 45.20 (plain text lands in General: 10000, 45.2; verified in real Excel via
+  COM). Written through a synchronous `execCommand("copy")` + our own `copy` listener, since
+  the async Clipboard API may sanitize the HTML; fallback `writeText` (plain only). The app's
+  own Ctrl+V re-import reads text/plain, so it is unaffected.
 - **Exports open a Save As dialog** (`app/save-file.ts`): every "Download CSV" / "Download
   Excel" button (transaction tables, per-account/consolidated tables, expenses report,
   workbook) goes through ONE helper, `saveFile(fileName, kind, produce)`. Where the browser
@@ -1026,7 +1032,7 @@ pdfjs-dist`): for the target banks, reading the PDF's text positions (x/y) and
   EU users — no BOM → Romanian/Cyrillic descriptions become mojibake, and on a Windows whose
   list separator is `;` (RO/DE/FR locales) every row lands in ONE column. The `.xlsx` opens
   identically everywhere, **dates and amounts are real values** (sortable, summable — Date
-  cells at UTC midnight with format `dd/mm/yyyy`, money `#,##0.00`, blank where the CSV is
+  cells at UTC midnight with format `dd/mm/yyyy`, money `0.00` (no thousands separator: 10000.00, user request), blank where the CSV is
   blank), the header is bold and frozen, and it holds several sheets, so the whole result is
   **ONE workbook**: single statement → one sheet (the bank); multi-account → `Summary`
   (account · bank · currency · tx · opening · closing · ✓/✗) + `Combined` + one sheet per
